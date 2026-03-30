@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Прогноз спроса | Пекарня</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #d4a373, #e9c46a);
+            color: #fff;
+            padding: 24px 0;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .header h1 { font-size: 28px; font-weight: 700; }
+        .header p { margin-top: 6px; font-size: 14px; opacity: 0.9; }
+
+        .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+
+        .metrics-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .metric-card {
+            flex: 1; min-width: 100px; background: #fff; border-radius: 10px;
+            padding: 12px 14px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .metric-card .value { font-size: 20px; font-weight: 700; color: #d4a373; }
+        .metric-card .label { font-size: 11px; color: #888; margin-top: 2px; }
+
+        .card {
+            background: #fff; border-radius: 12px; padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;
+        }
+        .card h2 {
+            font-size: 18px; margin-bottom: 16px; color: #555;
+            border-bottom: 2px solid #e9c46a; padding-bottom: 6px;
+        }
+
+        .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+        .form-group { display: flex; flex-direction: column; flex: 1; min-width: 180px; }
+        .form-group label { font-size: 13px; font-weight: 600; color: #666; margin-bottom: 4px; }
+        .form-group select, .form-group input {
+            padding: 10px 12px; border: 1.5px solid #ddd; border-radius: 8px;
+            font-size: 14px; background: #fafafa;
+        }
+        .form-group select:focus, .form-group input:focus {
+            border-color: #d4a373; outline: none; background: #fff;
+        }
+
+        .btn-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+        .btn {
+            padding: 12px 28px;
+            background: linear-gradient(135deg, #d4a373, #e9c46a);
+            color: #fff; border: none; border-radius: 10px;
+            font-size: 15px; font-weight: 700; cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(212,163,115,0.4); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .btn-secondary {
+            background: linear-gradient(135deg, #6b9080, #a4c3b2);
+        }
+        .btn-secondary:hover { box-shadow: 0 4px 12px rgba(107,144,128,0.4); }
+
+        /* Результат одного продукта */
+        .result-single {
+            display: none; margin-top: 20px; padding: 24px; border-radius: 12px;
+            background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 2px solid #86efac;
+        }
+        .result-single.error { background: #fef2f2; border-color: #fca5a5; }
+        .result-single .big-number { font-size: 52px; font-weight: 800; color: #16a34a; text-align: center; }
+        .result-single .sub { font-size: 14px; color: #666; text-align: center; margin-top: 4px; }
+        .result-single .fact-compare {
+            text-align: center; margin-top: 8px; font-size: 15px; color: #555;
+        }
+        .result-single .fact-compare span { font-weight: 700; }
+
+        .details-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 8px; margin-top: 16px;
+        }
+        .detail-item {
+            background: rgba(255,255,255,0.7); border-radius: 8px; padding: 8px 12px;
+        }
+        .detail-item .dl { font-size: 11px; color: #888; }
+        .detail-item .dv { font-size: 15px; font-weight: 600; }
+
+        /* Таблица всех продуктов */
+        .result-table { display: none; margin-top: 20px; }
+        .result-table table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .result-table th {
+            background: #f8f9fa; padding: 10px 12px; text-align: left;
+            border-bottom: 2px solid #e9c46a; font-weight: 600; color: #555;
+        }
+        .result-table td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+        .result-table tr:hover { background: #fafafa; }
+        .result-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .result-table .pred { font-weight: 700; color: #16a34a; }
+        .result-table .total-row { font-weight: 700; background: #f0fdf4; }
+        .result-table .total-row td { border-top: 2px solid #86efac; }
+        .cat-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 12px;
+            font-size: 11px; background: #e9ecef; color: #555;
+        }
+
+        .chart-legend { display: flex; gap: 16px; margin-bottom: 8px; font-size: 13px; color: #555; }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+        .error-text { color: #dc2626; font-size: 14px; text-align: center; }
+        .city-tag { font-size: 13px; color: #888; margin-left: 4px; }
+        .info-text { font-size: 13px; color: #999; margin-top: 8px; }
+
+        @media (max-width: 600px) {
+            .form-row { flex-direction: column; }
+            .form-group { min-width: auto; }
+            .big-number { font-size: 40px !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Прогноз спроса</h1>
+        <p>LightGBM v6 | Автоматический расчет из исторических данных</p>
+    </div>
+
+    <div class="container">
+        <div class="metrics-bar">
+            <div class="metric-card">
+                <div class="value">{{ metrics.mae }}</div>
+                <div class="label">MAE (шт.)</div>
+            </div>
+            <div class="metric-card">
+                <div class="value">{{ metrics.r2 }}</div>
+                <div class="label">R2</div>
+            </div>
+            <div class="metric-card">
+                <div class="value">{{ metrics.wmape }}%</div>
+                <div class="label">WMAPE</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Выберите параметры</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="bakery">Пекарня</label>
+                    <select id="bakery">
+                        <option value="">Выберите пекарню...</option>
+                        {% for b in bakeries %}
+                        <option value="{{ b }}">{{ b }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="product">Продукт</label>
+                    <select id="product" disabled>
+                        <option value="">Сначала выберите пекарню</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="date">Дата</label>
+                    <select id="date" disabled>
+                        <option value="">Сначала выберите продукт</option>
+                    </select>
+                </div>
+            </div>
+            <div id="cityInfo" class="info-text"></div>
+
+            <div class="btn-row">
+                <button class="btn" id="btnPredict" disabled onclick="predictOne()">
+                    Прогноз по продукту
+                </button>
+                <button class="btn btn-secondary" id="btnAll" disabled onclick="predictAll()">
+                    Все продукты на дату
+                </button>
+            </div>
+        </div>
+
+        <!-- Результат: один продукт -->
+        <div class="result-single" id="resultSingle">
+            <div id="singleContent"></div>
+        </div>
+
+        <!-- График за неделю -->
+        <div class="card" id="chartCard" style="display:none;">
+            <h2 id="chartTitle">Продажи и прогноз за неделю</h2>
+            <div class="chart-legend">
+                <span class="legend-item"><span class="legend-dot" style="background:#2563eb"></span> Факт</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#d97706"></span> Прогноз</span>
+            </div>
+            <div id="chartContainer"></div>
+        </div>
+
+        <!-- Результат: таблица всех продуктов -->
+        <div class="card result-table" id="resultTable">
+            <h2 id="tableTitle">Прогноз по всем продуктам</h2>
+            <div id="tableContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const bakeryCity = {{ bakery_city | tojson }};
+
+        const elBakery = document.getElementById('bakery');
+        const elProduct = document.getElementById('product');
+        const elDate = document.getElementById('date');
+        const elCity = document.getElementById('cityInfo');
+        const btnPredict = document.getElementById('btnPredict');
+        const btnAll = document.getElementById('btnAll');
+
+        // Пекарня -> загрузить продукты
+        elBakery.addEventListener('change', async function() {
+            elProduct.innerHTML = '<option value="">Загрузка...</option>';
+            elProduct.disabled = true;
+            elDate.innerHTML = '<option value="">Сначала выберите продукт</option>';
+            elDate.disabled = true;
+            btnPredict.disabled = true;
+            btnAll.disabled = true;
+
+            const city = bakeryCity[this.value];
+            elCity.textContent = city ? 'Город: ' + city : '';
+
+            if (!this.value) return;
+
+            const resp = await fetch('/api/products?bakery=' + encodeURIComponent(this.value));
+            const prods = await resp.json();
+
+            elProduct.innerHTML = '<option value="">Выберите продукт...</option>';
+            prods.forEach(p => {
+                elProduct.innerHTML += `<option value="${p}">${p}</option>`;
+            });
+            elProduct.disabled = false;
+
+            // Разблокируем "Все продукты" — нужна только пекарня + дата
+            // Загрузим даты для пекарни (по первому продукту для примера)
+        });
+
+        // Продукт -> загрузить даты
+        elProduct.addEventListener('change', async function() {
+            elDate.innerHTML = '<option value="">Загрузка...</option>';
+            elDate.disabled = true;
+            btnPredict.disabled = true;
+
+            if (!this.value || !elBakery.value) return;
+
+            const resp = await fetch('/api/dates?bakery=' + encodeURIComponent(elBakery.value) +
+                '&product=' + encodeURIComponent(this.value));
+            const dates = await resp.json();
+
+            elDate.innerHTML = '<option value="">Выберите дату...</option>';
+            // Показываем от новых к старым
+            dates.reverse().forEach(d => {
+                const label = formatDate(d);
+                elDate.innerHTML += `<option value="${d}">${label}</option>`;
+            });
+            elDate.disabled = false;
+        });
+
+        // Дата -> разблокировать кнопки
+        elDate.addEventListener('change', function() {
+            btnPredict.disabled = !this.value;
+            btnAll.disabled = !this.value;
+        });
+
+        function formatDate(dateStr) {
+            const d = new Date(dateStr);
+            const days = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+            const months = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+            return `${d.getDate()} ${months[d.getMonth()]} (${days[d.getDay()]})`;
+        }
+
+        // SVG график
+        function renderChart(chartData, productName) {
+            const card = document.getElementById('chartCard');
+            const container = document.getElementById('chartContainer');
+            if (!chartData || chartData.length === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            document.getElementById('chartTitle').textContent =
+                `${productName} — факт vs прогноз (${chartData.length} дн.)`;
+
+            const W = 600, H = 180, pad = {t: 10, r: 20, b: 30, l: 40};
+            const gw = W - pad.l - pad.r;
+            const gh = H - pad.t - pad.b;
+
+            const allVals = chartData.flatMap(d => [d.fact, d.pred]).filter(v => v !== null);
+            const maxVal = Math.max(...allVals, 1);
+            const minVal = 0;
+
+            const n = chartData.length;
+            const xStep = n > 1 ? gw / (n - 1) : gw / 2;
+
+            function x(i) { return pad.l + (n > 1 ? i * xStep : gw / 2); }
+            function y(v) { return pad.t + gh - (v - minVal) / (maxVal - minVal) * gh; }
+
+            // Линии
+            function makeLine(points, color, dashed) {
+                const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+                return `<polyline points="${points.map(p => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')}"
+                    fill="none" stroke="${color}" stroke-width="2.5" ${dashed ? 'stroke-dasharray="6,3"' : ''}/>`;
+            }
+
+            const factPts = chartData.map((d, i) => ({i, v: d.fact})).filter(p => p.v !== null);
+            const predPts = chartData.map((d, i) => ({i, v: d.pred}));
+
+            // Точки
+            function makeDots(points, color) {
+                return points.map(p =>
+                    `<circle cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4" fill="${color}" stroke="#fff" stroke-width="1.5"/>
+                     <text x="${x(p.i).toFixed(1)}" y="${(y(p.v) - 8).toFixed(1)}" text-anchor="middle" font-size="11" fill="${color}" font-weight="600">${Math.round(p.v)}</text>`
+                ).join('');
+            }
+
+            // Подписи оси X
+            const days = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+            const xLabels = chartData.map((d, i) => {
+                const dt = new Date(d.date);
+                return `<text x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="11" fill="#888">${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')} ${days[dt.getDay()]}</text>`;
+            }).join('');
+
+            // Горизонтальные линии сетки
+            const gridLines = 4;
+            let grid = '';
+            for (let i = 0; i <= gridLines; i++) {
+                const val = minVal + (maxVal - minVal) * i / gridLines;
+                const yy = y(val).toFixed(1);
+                grid += `<line x1="${pad.l}" y1="${yy}" x2="${W - pad.r}" y2="${yy}" stroke="#eee" stroke-width="1"/>`;
+                grid += `<text x="${pad.l - 6}" y="${(parseFloat(yy) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#aaa">${Math.round(val)}</text>`;
+            }
+
+            container.innerHTML = `
+                <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;">
+                    ${grid}
+                    ${makeLine(factPts, '#2563eb', false)}
+                    ${makeLine(predPts, '#d97706', true)}
+                    ${makeDots(factPts, '#2563eb')}
+                    ${makeDots(predPts, '#d97706')}
+                    ${xLabels}
+                </svg>`;
+
+            card.style.display = 'block';
+        }
+
+        // Прогноз одного продукта
+        async function predictOne() {
+            btnPredict.disabled = true;
+            btnPredict.textContent = 'Расчет...';
+            document.getElementById('resultTable').style.display = 'none';
+
+            try {
+                const resp = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        bakery: elBakery.value,
+                        product: elProduct.value,
+                        date: elDate.value,
+                    }),
+                });
+                const r = await resp.json();
+                const box = document.getElementById('resultSingle');
+                const content = document.getElementById('singleContent');
+
+                if (r.success) {
+                    box.className = 'result-single';
+                    let factHtml = '';
+                    if (r.fact !== null) {
+                        const diff = r.prediction_int - r.fact;
+                        const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+                        const diffColor = Math.abs(diff) <= 3 ? '#16a34a' : (Math.abs(diff) <= 10 ? '#d97706' : '#dc2626');
+                        factHtml = `
+                            <div class="fact-compare">
+                                Факт: <span>${r.fact}</span> шт.
+                                &nbsp;|&nbsp; Отклонение: <span style="color:${diffColor}">${diffStr}</span> шт.
+                            </div>`;
+                    }
+
+                    let detailsHtml = '';
+                    if (r.details) {
+                        detailsHtml = '<div class="details-grid">';
+                        for (const [k, v] of Object.entries(r.details)) {
+                            detailsHtml += `<div class="detail-item"><div class="dl">${k}</div><div class="dv">${v ?? '—'}</div></div>`;
+                        }
+                        detailsHtml += '</div>';
+                    }
+
+                    content.innerHTML = `
+                        <div class="big-number">${r.prediction_int}</div>
+                        <div class="sub">штук — прогноз на ${formatDate(elDate.value)}</div>
+                        ${factHtml}
+                        ${detailsHtml}
+                    `;
+
+                    // График за неделю
+                    renderChart(r.chart, elProduct.value);
+                } else {
+                    box.className = 'result-single error';
+                    content.innerHTML = `<div class="error-text">${r.error}</div>`;
+                    document.getElementById('chartCard').style.display = 'none';
+                }
+                box.style.display = 'block';
+                box.scrollIntoView({behavior: 'smooth'});
+
+            } catch (err) {
+                const box = document.getElementById('resultSingle');
+                box.className = 'result-single error';
+                document.getElementById('singleContent').innerHTML = `<div class="error-text">${err.message}</div>`;
+                box.style.display = 'block';
+                document.getElementById('chartCard').style.display = 'none';
+            }
+
+            btnPredict.disabled = false;
+            btnPredict.textContent = 'Прогноз по продукту';
+        }
+
+        // Прогноз по всем продуктам
+        async function predictAll() {
+            btnAll.disabled = true;
+            btnAll.textContent = 'Расчет...';
+            document.getElementById('resultSingle').style.display = 'none';
+            document.getElementById('chartCard').style.display = 'none';
+
+            try {
+                const resp = await fetch('/predict_all', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        bakery: elBakery.value,
+                        date: elDate.value,
+                    }),
+                });
+                const r = await resp.json();
+                const box = document.getElementById('resultTable');
+                const title = document.getElementById('tableTitle');
+                const content = document.getElementById('tableContent');
+
+                if (r.success) {
+                    title.textContent = `Прогноз: ${r.count} позиций на ${formatDate(elDate.value)}`;
+
+                    let html = `<table>
+                        <tr>
+                            <th>Продукт</th>
+                            <th>Категория</th>
+                            <th class="num">Прогноз</th>
+                            <th class="num">Факт</th>
+                            <th class="num">Ошибка</th>
+                        </tr>`;
+
+                    for (const item of r.results) {
+                        const errColor = item.error !== null
+                            ? (item.error <= 3 ? '#16a34a' : (item.error <= 10 ? '#d97706' : '#dc2626'))
+                            : '#999';
+                        html += `<tr>
+                            <td>${item.product}</td>
+                            <td><span class="cat-badge">${item.category}</span></td>
+                            <td class="num pred">${item.prediction_int}</td>
+                            <td class="num">${item.fact ?? '—'}</td>
+                            <td class="num" style="color:${errColor}">${item.error !== null ? item.error : '—'}</td>
+                        </tr>`;
+                    }
+
+                    html += `<tr class="total-row">
+                        <td colspan="2">ИТОГО</td>
+                        <td class="num pred">${Math.round(r.total_pred)}</td>
+                        <td class="num">${r.total_fact}</td>
+                        <td class="num">${Math.abs(Math.round(r.total_pred) - r.total_fact)}</td>
+                    </tr></table>`;
+
+                    content.innerHTML = html;
+                } else {
+                    content.innerHTML = `<div class="error-text">${r.error}</div>`;
+                }
+
+                box.style.display = 'block';
+                box.scrollIntoView({behavior: 'smooth'});
+
+            } catch (err) {
+                document.getElementById('tableContent').innerHTML = `<div class="error-text">${err.message}</div>`;
+                document.getElementById('resultTable').style.display = 'block';
+            }
+
+            btnAll.disabled = false;
+            btnAll.textContent = 'Все продукты на дату';
+        }
+    </script>
+</body>
+</html>
