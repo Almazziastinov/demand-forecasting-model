@@ -3,62 +3,30 @@ Shared utilities for architecture experiments.
 Data loading, metrics, model params -- extracted from tune_v6.py.
 """
 
+import sys
+import os
 import warnings
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error
 
+# Allow imports from project root
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from src.config import (
+    FEATURES, TARGET, CATEGORICAL_COLS, MODEL_PARAMS, TEST_DAYS,
+    MERGED_DATA_PATH,
+)
+
 warnings.filterwarnings("ignore")
 
-DATA_PATH = "data/processed/preprocessed_data_3month_enriched.csv"
-
-FEATURES = [
-    # Categorical
-    "Пекарня", "Номенклатура", "Категория", "Город",
-    # Calendar
-    "ДеньНедели", "День", "IsWeekend", "Месяц", "НомерНедели",
-    # Sales lags
-    "sales_lag1", "sales_lag2", "sales_lag3", "sales_lag7",
-    "sales_lag14", "sales_lag30",
-    # Rolling stats
-    "sales_roll_mean3", "sales_roll_mean7", "sales_roll_std7",
-    "sales_roll_mean14", "sales_roll_mean30",
-    # Stock features
-    "stock_lag1", "stock_sales_ratio", "stock_deficit",
-    # Holiday / calendar
-    "is_holiday", "is_pre_holiday", "is_post_holiday", "is_payday_week",
-    "is_month_start", "is_month_end",
-    # Weather
-    "temp_mean", "temp_range", "precipitation",
-    "is_cold", "is_bad_weather", "weather_cat_code",
-]
-
-TARGET = "Продано"
-
-CATEGORICAL_COLS = ["Пекарня", "Номенклатура", "Категория", "Город", "Месяц"]
-
-# v6-best params (fixed, no tuning)
-MODEL_PARAMS = {
-    "n_estimators": 2304,
-    "learning_rate": 0.016085231060110994,
-    "num_leaves": 151,
-    "max_depth": 7,
-    "min_child_samples": 5,
-    "subsample": 0.8012777641245349,
-    "colsample_bytree": 0.6654847541174173,
-    "reg_alpha": 6.633500153052146,
-    "reg_lambda": 2.204771489304501e-06,
-    "random_state": 42,
-    "n_jobs": -1,
-    "verbose": -1,
-}
-
-BASELINE_MAE = 3.330
+DATA_PATH = MERGED_DATA_PATH
+BASELINE_MAE = None  # will be computed dynamically
 
 
 def load_data():
-    """Load data, split into train/test (last 2 days = test).
+    """Load data, split into train/test (last TEST_DAYS days = test).
     Returns: df, X_train, y_train, X_test, y_test, features list.
     """
     print(f"Zagruzka {DATA_PATH}...")
@@ -74,12 +42,13 @@ def load_data():
     if missing:
         print(f"  [!] Otsutstvuyut priznaki: {missing}")
 
-    test_start = df["Дата"].max() - pd.Timedelta(days=2)
+    test_start = df["Дата"].max() - pd.Timedelta(days=TEST_DAYS - 1)
     train = df[df["Дата"] < test_start].copy()
     test = df[df["Дата"] >= test_start].copy()
 
     print(f"  Train: {len(train):,} strok ({train['Дата'].nunique()} dnej)")
-    print(f"  Test:  {len(test):,} strok")
+    print(f"  Test:  {len(test):,} strok ({test['Дата'].nunique()} dnej: "
+          f"{test['Дата'].min().date()} -- {test['Дата'].max().date()})")
     print(f"  Priznakov: {len(available)}")
 
     X_train = train[available]
@@ -97,17 +66,21 @@ def wmape(y_true, y_pred):
     return np.sum(np.abs(y_true - y_pred)) / (np.sum(y_true) + 1e-8) * 100
 
 
-def print_metrics(name, y_true, y_pred, baseline_mae=BASELINE_MAE):
+def print_metrics(name, y_true, y_pred, baseline_mae=None):
     """Print MAE, WMAPE, Bias, delta vs baseline."""
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
     mae = mean_absolute_error(y_true, y_pred)
     wm = wmape(y_true, y_pred)
     bias = np.mean(y_true - y_pred)
-    delta = mae - baseline_mae
+
+    delta_str = ""
+    if baseline_mae is not None:
+        delta = mae - baseline_mae
+        delta_str = f"  (delta vs baseline: {delta:+.4f})"
 
     print(f"  {name}:")
-    print(f"    MAE   = {mae:.4f}  (delta vs baseline: {delta:+.4f})")
+    print(f"    MAE   = {mae:.4f}{delta_str}")
     print(f"    WMAPE = {wm:.2f}%")
     print(f"    Bias  = {bias:+.4f}")
     return mae, wm, bias

@@ -13,48 +13,22 @@ import pandas as pd
 from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+# Allow imports from project root
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from src.config import (
+    FEATURES, TARGET, CATEGORICAL_COLS, MODEL_PARAMS,
+    PROCESSED_DATA_PATH, MODELS_DIR, MODEL_PATH, META_PATH, ARCHIVE_DIR,
+)
+from src.logger import get_logger
+from src.tracking import log_experiment
+
 warnings.filterwarnings("ignore")
 
-# Пути
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DATA_PATH = os.path.join(BASE_DIR, "data", "processed", "preprocessed_data_3month_enriched.csv")
-OUTPUT_DIR = os.path.join(BASE_DIR, "models")
-MODEL_PATH = os.path.join(OUTPUT_DIR, "demand_model.pkl")
-META_PATH = os.path.join(OUTPUT_DIR, "model_meta.pkl")
+logger = get_logger("train", log_file="train.log")
 
-TARGET = "Продано"
-
-FEATURES = [
-    "Пекарня", "Номенклатура", "Категория", "Город",
-    "ДеньНедели", "День", "IsWeekend", "Месяц", "НомерНедели",
-    "sales_lag1", "sales_lag2", "sales_lag3", "sales_lag7",
-    "sales_lag14", "sales_lag30",
-    "sales_roll_mean3", "sales_roll_mean7", "sales_roll_std7",
-    "sales_roll_mean14", "sales_roll_mean30",
-    "stock_lag1", "stock_sales_ratio", "stock_deficit",
-    "is_holiday", "is_pre_holiday", "is_post_holiday",
-    "is_payday_week", "is_month_start", "is_month_end",
-    "temp_mean", "temp_range", "precipitation",
-    "is_cold", "is_bad_weather", "weather_cat_code",
-]
-
-CATEGORICAL_COLS = ["Пекарня", "Номенклатура", "Категория", "Город", "Месяц"]
-
-# v6 лучшие параметры
-MODEL_PARAMS = {
-    "n_estimators": 2304,
-    "learning_rate": 0.016085231060110994,
-    "num_leaves": 151,
-    "max_depth": 7,
-    "min_child_samples": 5,
-    "subsample": 0.8012777641245349,
-    "colsample_bytree": 0.6654847541174173,
-    "reg_alpha": 6.633500153052146,
-    "reg_lambda": 2.204771489304501e-06,
-    "random_state": 42,
-    "n_jobs": -1,
-    "verbose": -1,
-}
+DATA_PATH = PROCESSED_DATA_PATH
+OUTPUT_DIR = MODELS_DIR
 
 
 def main():
@@ -123,11 +97,28 @@ def main():
     for _, row in imp.head(10).iterrows():
         print(f"  {row['feature']:<25} {row['importance']:>8.0f}")
 
-    # --- Сохранение ---
+    # --- Сохранение с версионированием ---
+    import json
+    import shutil
+    from datetime import datetime
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    joblib.dump(model, MODEL_PATH)
-    print(f"\nМодель сохранена: {MODEL_PATH}")
+    # Архивная копия: models/archive/YYYYMMDD_HHMMSS/
+    version_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+    version_dir = os.path.join(ARCHIVE_DIR, version_tag)
+    os.makedirs(version_dir, exist_ok=True)
+
+    archive_model = os.path.join(version_dir, "demand_model.pkl")
+    archive_meta = os.path.join(version_dir, "model_meta.pkl")
+    archive_metrics = os.path.join(version_dir, "metrics.json")
+
+    joblib.dump(model, archive_model)
+
+    # Копируем как latest
+    shutil.copy2(archive_model, MODEL_PATH)
+    logger.info(f"Модель сохранена: {MODEL_PATH}")
+    logger.info(f"Архив: {version_dir}")
 
     # Метаданные для веб-приложения
     meta = {
@@ -159,9 +150,31 @@ def main():
         for (bak, prod), vals in pair_defaults.items()
     }
 
-    joblib.dump(meta, META_PATH)
-    print(f"Метаданные сохранены: {META_PATH}")
-    print(f"\nГотово!")
+    joblib.dump(meta, archive_meta)
+    shutil.copy2(archive_meta, META_PATH)
+    logger.info(f"Метаданные сохранены: {META_PATH}")
+
+    # Сохраняем метрики в JSON (для CI/мониторинга)
+    metrics_dict = {
+        "version": version_tag,
+        "mae": round(mae, 4), "rmse": round(rmse, 4),
+        "r2": round(r2, 4), "wmape": round(wmape, 2),
+        "bias": round(bias, 4),
+        "train_rows": len(train), "test_rows": len(test),
+        "features": len(available), "data_path": DATA_PATH,
+    }
+    with open(archive_metrics, "w", encoding="utf-8") as f:
+        json.dump(metrics_dict, f, ensure_ascii=False, indent=2)
+
+    # --- Трекинг ---
+    log_experiment(
+        name="v6_train",
+        metrics=metrics_dict,
+        params=MODEL_PARAMS,
+        model_path=archive_model,
+        data_path=DATA_PATH,
+    )
+    logger.info("Готово!")
 
 
 if __name__ == "__main__":

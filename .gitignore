@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Data (processed files are reproducible)
+data/processed/
+data/.weather_cache.sqlite
+
+# Models (binary artifacts)
+models/*.pkl
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+~$*
+Thumbs.db
+.DS_Store
+
+# Logs
+logs/
+
+# Temp files
+*.tmp

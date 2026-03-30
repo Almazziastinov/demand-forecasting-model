@@ -4,21 +4,48 @@ Flask веб-приложение для прогнозирования спро
 """
 
 import os
+import sys
 
 import joblib
 import numpy as np
 import pandas as pd
 from flask import Flask, render_template, request, jsonify
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "models", "demand_model.pkl")
-META_PATH = os.path.join(BASE_DIR, "models", "model_meta.pkl")
-DATA_PATH = os.path.join(BASE_DIR, "data", "processed", "preprocessed_data_3month_enriched.csv")
+# Allow imports from project root
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import MODEL_PATH, META_PATH, PROCESSED_DATA_PATH, LOGS_DIR
+from src.logger import get_logger
+
+DATA_PATH = PROCESSED_DATA_PATH
 
 app = Flask(__name__)
+logger = get_logger("web", log_file="web.log")
+
+# --- Prediction logging ---
+PREDICTION_LOG = os.path.join(LOGS_DIR, "predictions.csv")
+
+
+def _log_prediction(bakery, product, date, prediction, fact, response_time_ms):
+    """Append prediction to CSV log."""
+    import csv
+    from datetime import datetime
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    write_header = not os.path.exists(PREDICTION_LOG)
+    with open(PREDICTION_LOG, "a", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(["timestamp", "bakery", "product", "date",
+                             "prediction", "fact", "response_time_ms"])
+        writer.writerow([
+            datetime.now().isoformat(),
+            bakery, product, str(date),
+            round(prediction, 1), fact, round(response_time_ms, 1),
+        ])
+
 
 # --- Загрузка при старте ---
-print("Загрузка модели и данных...")
+logger.info("Загрузка модели и данных...")
 model = joblib.load(MODEL_PATH)
 meta = joblib.load(META_PATH)
 
@@ -40,7 +67,7 @@ bakery_city = df.groupby(observed=True, by="Пекарня")["Город"].first
 # Какие продукты есть в каждой пекарне
 bakery_products = df.groupby(observed=True, by="Пекарня")["Номенклатура"].apply(lambda x: sorted(x.unique().tolist())).to_dict()
 
-print(f"Готово. Строк: {len(df):,}, пекарен: {len(bakeries)}, продуктов: {len(products)}, дат: {len(dates)}")
+logger.info(f"Готово. Строк: {len(df):,}, пекарен: {len(bakeries)}, продуктов: {len(products)}, дат: {len(dates)}")
 
 
 @app.route("/")
@@ -74,6 +101,8 @@ def get_dates():
 
 @app.route("/predict", methods=["POST"])
 def predict():
+    import time
+    t0 = time.perf_counter()
     try:
         data = request.get_json()
         bakery = data["bakery"]
@@ -143,6 +172,9 @@ def predict():
                     "pred": round(float(week_preds[i]), 1),
                 })
 
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        _log_prediction(bakery, product, date, prediction, fact, elapsed_ms)
+
         return jsonify({
             "success": True,
             "prediction": round(prediction, 1),
@@ -153,12 +185,15 @@ def predict():
         })
 
     except Exception as e:
+        logger.error(f"predict error: {e}")
         return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/predict_all", methods=["POST"])
 def predict_all():
     """Прогноз по всем продуктам пекарни на выбранную дату."""
+    import time
+    t0 = time.perf_counter()
     try:
         data = request.get_json()
         bakery = data["bakery"]
@@ -197,6 +232,9 @@ def predict_all():
         total_pred = sum(r["prediction"] for r in results)
         total_fact = sum(r["fact"] for r in results if r["fact"] is not None)
 
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        logger.info(f"predict_all: {bakery} {date.date()} -> {len(results)} items, {elapsed_ms:.0f}ms")
+
         return jsonify({
             "success": True,
             "results": results,
@@ -206,6 +244,7 @@ def predict_all():
         })
 
     except Exception as e:
+        logger.error(f"predict_all error: {e}")
         return jsonify({"success": False, "error": str(e)}), 400
 
 

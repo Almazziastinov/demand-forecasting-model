@@ -25,20 +25,61 @@ def load_raw_data(file_path: str) -> pd.DataFrame:
     return df
 
 
-def preprocess_data(file_path='data/raw/beigl_data.xlsx'):
+def merge_raw_files(old_path, new_path, cutoff_date='2026-03-01'):
+    """
+    Объединяет два сырых файла: из старого берем данные до cutoff_date,
+    из нового -- с cutoff_date и далее. Убирает дубликаты.
+    """
+    print(f"Объединение файлов:")
+    print(f"  Старый: {old_path}")
+    print(f"  Новый:  {new_path}")
+
+    old = load_raw_data(old_path)
+    new = load_raw_data(new_path)
+
+    old['Дата'] = pd.to_datetime(old['Дата'])
+    new['Дата'] = pd.to_datetime(new['Дата'])
+
+    cutoff = pd.to_datetime(cutoff_date)
+    old_part = old[old['Дата'] < cutoff]
+    new_part = new[new['Дата'] >= cutoff]
+
+    print(f"  Из старого (до {cutoff_date}): {len(old_part):,} строк, "
+          f"{old_part['Дата'].nunique()} дней")
+    print(f"  Из нового (с {cutoff_date}):   {len(new_part):,} строк, "
+          f"{new_part['Дата'].nunique()} дней")
+
+    # Берем только общие колонки
+    common_cols = sorted(set(old_part.columns) & set(new_part.columns))
+    merged = pd.concat([old_part[common_cols], new_part[common_cols]], ignore_index=True)
+    merged = merged.sort_values('Дата').reset_index(drop=True)
+
+    print(f"  Итого: {len(merged):,} строк, {merged['Дата'].nunique()} дней "
+          f"({merged['Дата'].min().date()} -- {merged['Дата'].max().date()})")
+
+    return merged
+
+
+def preprocess_data(file_path='data/raw/beigl_data.xlsx', merge_with=None):
     """
     Загружает данные, обрабатывает аномалии и создает признаки:
     - лаги продаж: lag1, lag2, lag3, lag7
     - скользящие статистики: mean3, mean7, std7
     - вчерашний остаток: stock_lag1
+
+    merge_with: если указан, объединяет file_path (старый) с merge_with (новый)
     """
     try:
-        if not os.path.exists(file_path):
-            print(f"Ошибка: Файл {file_path} не найден.")
-            return pd.DataFrame()
+        if merge_with:
+            df = merge_raw_files(file_path, merge_with)
+        else:
+            if not os.path.exists(file_path):
+                print(f"Ошибка: Файл {file_path} не найден.")
+                return pd.DataFrame()
 
-        print(f"Загрузка данных из: {file_path}...")
-        df = load_raw_data(file_path)
+            print(f"Загрузка данных из: {file_path}...")
+            df = load_raw_data(file_path)
+
         print(f"Загружено строк: {len(df):,}")
 
         # 1. Обработка аномалий
@@ -165,26 +206,34 @@ def preprocess_data(file_path='data/raw/beigl_data.xlsx'):
 if __name__ == "__main__":
     import sys
 
-    # Можно передать путь к файлу аргументом: python preprocessing.py 3_month_data.xlsx
-    file = sys.argv[1] if len(sys.argv) > 1 else 'data/raw/beigl_data.xlsx'
+    # Варианты запуска:
+    #   python preprocessing.py                              -- beigl_data.xlsx
+    #   python preprocessing.py data/raw/3_month_data.xlsx   -- один файл
+    #   python preprocessing.py --merge                      -- объединить 3_month + beigl
+    args = sys.argv[1:]
 
-    data = preprocess_data(file)
+    if '--merge' in args:
+        old_file = 'data/raw/3_month_data.xlsx'
+        new_file = 'data/raw/beigl_data.xlsx'
+        data = preprocess_data(old_file, merge_with=new_file)
+        output_path = 'data/processed/preprocessed_data_merged.csv'
+    else:
+        file = args[0] if args else 'data/raw/beigl_data.xlsx'
+        data = preprocess_data(file)
+        if '3_month' in file:
+            output_path = 'data/processed/preprocessed_data_3month.csv'
+        else:
+            output_path = 'data/processed/preprocessed_data.csv'
 
     if not data.empty:
-        print("\n--- Первые 5 строк ---")
+        print(f"\n--- Первые 5 строк ---")
         print(data.head())
-        print("\n--- Список всех признаков ---")
+        print(f"\n--- Список всех признаков ---")
         print(data.columns.tolist())
         print(f"\nПериод: {data['Дата'].min().date()} -- {data['Дата'].max().date()}")
         print(f"Уникальных дней:    {data['Дата'].nunique()}")
         print(f"Уникальных пекарен: {data['Пекарня'].nunique()}")
         print(f"Уникальных товаров: {data['Номенклатура'].nunique()}")
-
-        # Имя выходного файла зависит от входного
-        if '3_month' in file:
-            output_path = 'data/processed/preprocessed_data_3month.csv'
-        else:
-            output_path = 'data/processed/preprocessed_data.csv'
 
         data.to_csv(output_path, index=False, encoding='utf-8-sig')
         print(f"\nДанные сохранены в {output_path}")
