@@ -7,21 +7,30 @@ to 3-month train target: target_adj = Prodano + lost_qty_estimate.
 Strategies:
   J1: full correction (mean lost from lookup)
   J2: partial correction x0.5
-  J3: median-based correction (more conservative)
+  J3: median-based correction (more conservative)а
   J4: correction only where Ostatok==0 (censored only)
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import numpy as np
 import pandas as pd
 
 from src.experiments.common import (
-    load_data, FEATURES, TARGET, MODEL_PARAMS, BASELINE_MAE,
-    wmape, print_metrics, print_category_metrics,
-    train_lgbm, predict_clipped, save_predictions,
+    BASELINE_MAE,
+    FEATURES,
+    MODEL_PARAMS,
+    TARGET,
+    load_data,
+    predict_clipped,
+    print_category_metrics,
+    print_metrics,
+    save_predictions,
+    train_lgbm,
+    wmape,
 )
 
 LOOKUP_PATH = "data/processed/lost_qty_lookup.csv"
@@ -56,8 +65,9 @@ def assign_prod_bucket(prodano):
         return "51+"
 
 
-def apply_correction(train_full, features, lookup, use_median=False, scale=1.0,
-                     censored_only=False):
+def apply_correction(
+    train_full, features, lookup, use_median=False, scale=1.0, censored_only=False
+):
     """Apply lost demand correction to train target.
 
     Returns: X_train, y_train_adjusted, n_adjusted, avg_shift
@@ -121,7 +131,8 @@ def main():
     # ========================================
     print("\n--- J1: Full mean correction (scale=1.0) ---")
     X_j1, y_j1, n1, shift1 = apply_correction(
-        train_full, features, lookup_mean, scale=1.0)
+        train_full, features, lookup_mean, scale=1.0
+    )
     print(f"  Skorrektirovano: {n1:,} strok, srednij sdvig: +{shift1:.3f}")
     print(f"  Target: mean {y_train.mean():.2f} -> {y_j1.mean():.2f}")
 
@@ -130,11 +141,15 @@ def main():
     mae_j1, wm_j1, bias_j1 = print_metrics("J1_full_mean", y_test, pred_j1)
     print_category_metrics(y_test, pred_j1, X_test["Категория"])
 
-    results.append({
-        "strategy": "J1_full_mean",
-        "mae": mae_j1, "wmape": wm_j1, "bias": bias_j1,
-        "delta": mae_j1 - BASELINE_MAE,
-    })
+    results.append(
+        {
+            "strategy": "J1_full_mean",
+            "mae": mae_j1,
+            "wmape": wm_j1,
+            "bias": bias_j1,
+            "delta": mae_j1 - BASELINE_MAE,
+        }
+    )
     save_predictions(X_test, y_test, pred_j1, "reports/exp_j1_predictions.csv")
 
     # ========================================
@@ -142,7 +157,8 @@ def main():
     # ========================================
     print("\n--- J2: Partial mean correction (scale=0.5) ---")
     X_j2, y_j2, n2, shift2 = apply_correction(
-        train_full, features, lookup_mean, scale=0.5)
+        train_full, features, lookup_mean, scale=0.5
+    )
     print(f"  Skorrektirovano: {n2:,} strok, srednij sdvig: +{shift2:.3f}")
     print(f"  Target: mean {y_train.mean():.2f} -> {y_j2.mean():.2f}")
 
@@ -151,11 +167,15 @@ def main():
     mae_j2, wm_j2, bias_j2 = print_metrics("J2_partial_0.5", y_test, pred_j2)
     print_category_metrics(y_test, pred_j2, X_test["Категория"])
 
-    results.append({
-        "strategy": "J2_partial_0.5",
-        "mae": mae_j2, "wmape": wm_j2, "bias": bias_j2,
-        "delta": mae_j2 - BASELINE_MAE,
-    })
+    results.append(
+        {
+            "strategy": "J2_partial_0.5",
+            "mae": mae_j2,
+            "wmape": wm_j2,
+            "bias": bias_j2,
+            "delta": mae_j2 - BASELINE_MAE,
+        }
+    )
     save_predictions(X_test, y_test, pred_j2, "reports/exp_j2_predictions.csv")
 
     # ========================================
@@ -163,7 +183,8 @@ def main():
     # ========================================
     print("\n--- J3: Median correction (bolee konservativno) ---")
     X_j3, y_j3, n3, shift3 = apply_correction(
-        train_full, features, lookup_median, use_median=True, scale=1.0)
+        train_full, features, lookup_median, use_median=True, scale=1.0
+    )
     print(f"  Skorrektirovano: {n3:,} strok, srednij sdvig: +{shift3:.3f}")
     print(f"  Target: mean {y_train.mean():.2f} -> {y_j3.mean():.2f}")
 
@@ -172,11 +193,15 @@ def main():
     mae_j3, wm_j3, bias_j3 = print_metrics("J3_median", y_test, pred_j3)
     print_category_metrics(y_test, pred_j3, X_test["Категория"])
 
-    results.append({
-        "strategy": "J3_median",
-        "mae": mae_j3, "wmape": wm_j3, "bias": bias_j3,
-        "delta": mae_j3 - BASELINE_MAE,
-    })
+    results.append(
+        {
+            "strategy": "J3_median",
+            "mae": mae_j3,
+            "wmape": wm_j3,
+            "bias": bias_j3,
+            "delta": mae_j3 - BASELINE_MAE,
+        }
+    )
     save_predictions(X_test, y_test, pred_j3, "reports/exp_j3_predictions.csv")
 
     # ========================================
@@ -184,7 +209,8 @@ def main():
     # ========================================
     print("\n--- J4: Mean correction ONLY where Ostatok==0 ---")
     X_j4, y_j4, n4, shift4 = apply_correction(
-        train_full, features, lookup_mean, scale=1.0, censored_only=True)
+        train_full, features, lookup_mean, scale=1.0, censored_only=True
+    )
     print(f"  Skorrektirovano: {n4:,} strok, srednij sdvig: +{shift4:.3f}")
     print(f"  Target: mean {y_train.mean():.2f} -> {y_j4.mean():.2f}")
 
@@ -193,11 +219,15 @@ def main():
     mae_j4, wm_j4, bias_j4 = print_metrics("J4_censored_only", y_test, pred_j4)
     print_category_metrics(y_test, pred_j4, X_test["Категория"])
 
-    results.append({
-        "strategy": "J4_censored_only",
-        "mae": mae_j4, "wmape": wm_j4, "bias": bias_j4,
-        "delta": mae_j4 - BASELINE_MAE,
-    })
+    results.append(
+        {
+            "strategy": "J4_censored_only",
+            "mae": mae_j4,
+            "wmape": wm_j4,
+            "bias": bias_j4,
+            "delta": mae_j4 - BASELINE_MAE,
+        }
+    )
     save_predictions(X_test, y_test, pred_j4, "reports/exp_j4_predictions.csv")
 
     # --- Summary ---
@@ -214,25 +244,33 @@ def main():
 
     for _, row in results_df.iterrows():
         marker = " <--" if row["delta"] < 0 else ""
-        print(f"  {row['strategy']:<22} {row['mae']:>8.4f} {row['wmape']:>7.2f}% "
-              f"{row['bias']:>+8.4f} {row['delta']:>+8.4f}{marker}")
+        print(
+            f"  {row['strategy']:<22} {row['mae']:>8.4f} {row['wmape']:>7.2f}% "
+            f"{row['bias']:>+8.4f} {row['delta']:>+8.4f}{marker}"
+        )
 
     best = results_df.iloc[0]
     print(f"\n  Luchshaya strategiya: {best['strategy']}")
     print(f"  MAE = {best['mae']:.4f} (delta vs baseline: {best['delta']:+.4f})")
 
     # Save summary
-    summary = pd.DataFrame([{
-        "experiment": f"J_{best['strategy']}",
-        "mae": best["mae"],
-        "wmape": best["wmape"],
-        "bias": best["bias"],
-        "baseline_mae": BASELINE_MAE,
-        "delta": best["delta"],
-    }])
+    summary = pd.DataFrame(
+        [
+            {
+                "experiment": f"J_{best['strategy']}",
+                "mae": best["mae"],
+                "wmape": best["wmape"],
+                "bias": best["bias"],
+                "baseline_mae": BASELINE_MAE,
+                "delta": best["delta"],
+            }
+        ]
+    )
     summary.to_csv("reports/exp_j_summary.csv", index=False)
 
-    results_df.to_csv("reports/exp_j_all_results.csv", index=False, encoding="utf-8-sig")
+    results_df.to_csv(
+        "reports/exp_j_all_results.csv", index=False, encoding="utf-8-sig"
+    )
     print(f"  Polnye rezul'taty: reports/exp_j_all_results.csv")
 
     print("\nGotovo!")
