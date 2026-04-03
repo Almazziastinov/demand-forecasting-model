@@ -1,0 +1,302 @@
+# Experiments V2 — Plan
+
+Baseline: **01_baseline_8m** (MAE 2.29, WMAPE 25.9%, R2 0.918)
+Data: 3.5M rows, 207 days, 199 bakeries, 610 products, 27 categories
+
+---
+
+## Tier 1: Tuning & Validation
+
+### 02. Optuna 8m
+Перетюнить гиперпараметры на 8 месяцах. v6 params оптимальны для 3m/5cat.
+- Потенциал: +3-7% MAE
+- Сложность: низкая
+
+### 03. Filter 5 categories (honest comparison)
+Только 5 старых категорий — честное сравнение WMAPE с v6 baseline.
+- Потенциал: информативный
+- Сложность: низкая
+
+---
+
+## Tier 2: Feature Engineering
+
+### 04. Ramadan feature
+is_ramadan, is_iftar_period, ramadan_day (1-30). Рамадан 2026: 18 фев — 19 мар.
+- Потенциал: средний (30 дней из 207)
+- Сложность: низкая
+
+### 05. Product & bakery profiles
+bakery_avg_sales, product_avg_sales, product_cv, bakery_x_product_avg.
+- Потенциал: средний
+- Сложность: низкая
+
+### 06. Demand correction via cumulative profiles (censored demand)
+**Ключевой эксперимент.** Таргет = Продано + Упущенно.
+
+Источник: `sales_hrs_all.csv` (30M чеков с `Дата время чека`) — все 199 пекарен, 8 месяцев.
+Раньше профили строились только по Тукая 62А (checks_analysis Section 16, 350К руб/3мес).
+Теперь масштабируем на все точки.
+
+Алгоритм:
+1. Для каждого (товар × пекарня × день) находим час последней продажи
+2. "Полный день" = last_sale >= 17:00 (товар ещё был в наличии к вечеру)
+3. Из полных дней строим cumulative profile по часам для каждого товара×пекарня:
+   "к 10:00 = 30%, к 12:00 = 55%, к 14:00 = 75%, к 17:00 = 95%"
+4. Для дня с ранним стопом (last_sale=14:00, продано=20):
+   estimated_demand = 20 / 0.75 = 26.7, lost = 6.7 шт
+5. Защиты: min 5 полных дней, cum >= 5%, cap x5, estimated >= actual
+6. Новый таргет: Спрос = Продано + Упущенно (или Продано / cum_profile)
+
+Дополнительные фичи из профилей:
+- `is_censored` — бинарный: ранний стоп (last_sale <= 14:00)
+- `censoring_ratio` — какая доля спроса реализована (cum_profile at stop hour)
+- `cum_profile_14h` — типичная доля продаж к 14:00 (характеристика товара)
+- `pct_censored_days` — % дней с ранним стопом (как часто товар продаётся в ноль)
+
+Два варианта эксперимента:
+  a) Таргет = скорректированный спрос (обучаем предсказывать demand, не sales)
+  b) Таргет = Продано, но добавляем censoring-фичи (модель знает о проблеме)
+
+Ожидаемый эффект: сильнее всего улучшит Выпечку сытную (51% дней продано в ноль).
+Прямо решает проблему bias на high demand (+14.1 на 100+).
+- Потенциал: **высокий** (единственный способ приблизиться к real demand)
+- Сложность: средняя-высокая (чанковый парсинг часов, агрегация профилей)
+
+### 07. Temporal features v2
+day_of_year, season, Fourier-компоненты недельной/месячной сезонности.
+- Потенциал: низкий-средний
+- Сложность: низкая
+
+### 08. Location features (анализ локаций по БП)
+Источник: `data/raw/анализ локаций по БП 02.03 ( 1) (2) (4) (1) (1).xlsx`
+228 пекарен, 48 фич по каждой точке. **Покрытие: 138 из 199 (69%).**
+
+Числовые (высокий потенциал):
+- Трафик: `Трафик рядом`, `Трафик в точке по БП`, `Среднее значение (трафик)`
+- Плотность: `плотность населения 5мин / 10мин / 300м`
+- Доходы: `доходы населения 5мин / 10мин / 300м`
+- Площадь: `Общая площадь, кв м`
+- Аренда: `Текущая АП, руб.`, `Текущая ставка, руб/кв м`
+
+Бинарные/категориальные:
+- Соседство: пятерочка, Столовая, Конкуренты, Рынок
+- POI: БЦ до 300м, школа до 300м, Колледж до 300м
+- Транспорт: Остановка (м), Станция МЕТРО, остановка ОТ утро/вечер
+- Помещение: тип (стрит/тц), крыльцо, витраж, вывеска, производство/зал
+
+Проблема 31% без данных — варианты:
+  a) Заполнить средними по городу
+  b) Использовать только 138 matched пекарен
+  c) Обучить импьютер: по продажам + городу предсказать характеристики
+
+Static features — не меняются день ото дня, джойнятся по Пекарня.
+Уникальная фича, ни у одного конкурента в кейсах нет.
+- Потенциал: высокий
+- Сложность: средняя (парсинг Excel + matching имён + imputation)
+
+---
+
+## Tier 2b: High Demand Problem
+
+Факт: corr(std, MAE) = 0.936. Bias на 100+ = +14.1 (модель занижает).
+Треугольник курица MAE 19-48, Кыстыбый MAE 24-48.
+MSE loss учит условное среднее → "усредняет" при широком распределении.
+
+### 40. Tweedie regression
+`objective='tweedie', tweedie_variance_power=1.5`.
+Var(y) ∝ mean^p — автоматически учитывает рост дисперсии с mean.
+Между Poisson (p=1) и Gamma (p=2). Одна строка изменений.
+- Потенциал: средний (снижает bias на high demand)
+- Сложность: минимальная
+
+### 41. Log-transform target
+`y = log1p(Продано)`, обратно `expm1(pred)`. Сжимает шкалу, разница
+между 150 и 200 = 0.28 вместо 50. Снижает доминирование high demand.
+- Потенциал: средний
+- Сложность: минимальная
+- Риск: может ухудшить low demand (0 vs 1 раздувается)
+
+### 42. Asymmetric loss (штраф за занижение)
+Custom objective: alpha > 0.5 штрафует недопрогноз сильнее.
+Бизнес-мотивация: упущенные продажи хуже списания.
+alpha=0.6 сдвинет bias с +14 к ~0 на high demand.
+- Потенциал: средний (bias), слабый (MAE)
+- Сложность: низкая (~20 строк custom loss)
+
+### 43. Quantile regression (интервалы)
+Три модели: P25, P50, P75. Для Треугольника курица (mean 198, std 63):
+вместо "198" → "160–200–240". Пекарь сам выбирает стратегию.
+P50 (медиана) устойчивее к правому хвосту, чем mean.
+- Потенциал: высокий (бизнес-ценность), средний (MAE)
+- Сложность: средняя (3 модели, UI)
+
+### 44. Mixture of Experts (demand-level split)
+product_avg >= 15 → model_high (depth 9, 3000+ trees, Huber loss)
+product_avg < 15 → model_low (стандартный)
+Доп. фичи для high: product_std, recent_max, days_since_max.
+- Потенциал: высокий
+- Сложность: средняя
+
+### 45. Log-target + residual correction (двухэтапный)
+Этап 1: LightGBM на log1p(y) → base (хорош для high demand)
+Этап 2: LightGBM на (y - expm1(base)) → correction (правит low demand)
+Итог: expm1(base) + correction. Лучшее из двух миров.
+- Потенциал: высокий
+- Сложность: средняя (2 модели, 2 этапа)
+
+### 46. Variance-weighted training
+sample_weight = f(product_std). Два варианта:
+  a) weight ∝ 1/std — фокус на предсказуемых → общий MAE улучшится
+  b) weight ∝ std — фокус на high demand → MAE high demand улучшится
+Выбор зависит от бизнес-приоритета.
+- Потенциал: средний
+- Сложность: минимальная
+
+---
+
+## Tier 3: Ensembles & Chains
+
+### 10. Stacking (LightGBM + CatBoost + Ridge)
+Level 1: 3 base models, OOF predictions. Level 2: meta-learner.
+- Потенциал: +2-5% MAE
+- Сложность: средняя
+
+### 11. Residual Chain
+Model 1 (structure): calendar + bakery/product averages -> pred1
+Model 2 (dynamics): lags + rolling на residual (y - pred1) -> pred2
+Model 3 (context): weather + holidays на residual -> pred3
+Final: pred1 + pred2 + pred3
+- Потенциал: высокий
+- Сложность: средняя
+
+### 12. Mixture of Experts (demand-level routing)
+High demand (>15): deep LightGBM. Medium (3-15): standard. Low (<3): zero-inflated.
+- Потенциал: высокий (решает разброс MAE по категориям)
+- Сложность: средняя
+
+### 13. Temporal Ensemble
+Short (30d) + Medium (90d) + Long (all) models, weighted average.
+- Потенциал: средний
+- Сложность: низкая
+
+---
+
+## Tier 4: Per-Segment Models
+
+### 20. Per-bakery models
+199 отдельных моделей (или топ-50 крупных + одна общая для остальных).
+Гипотеза: у каждой пекарни свой паттерн, общая модель — компромисс.
+- Потенциал: средний (мало дней на пекарню: 207 дней × N товаров)
+- Сложность: средняя
+- Риск: переобучение на малых пекарнях
+
+### 21. Per-product (номенклатура) models
+Отдельная модель на каждый из 610 товаров или топ-100 + общая.
+Гипотеза: Самса и Капучино — разные паттерны спроса.
+- Потенциал: низкий-средний (мало данных на товар: 207 дней × N пекарен)
+- Сложность: средняя
+- Риск: высокий — у редких товаров < 100 строк
+
+### 22. Per-category models (re-test on 8m)
+27 отдельных моделей. На 3m/5cat было хуже (+0.04 MAE).
+На 8m данных больше — стоит проверить заново.
+- Потенциал: средний
+- Сложность: низкая
+
+### 23. Cluster-based models
+Кластеризация товаров (K-Means/DBSCAN по профилю: avg, cv, seasonality).
+5-10 кластеров → отдельная модель на кластер.
+У Додо давало +5-7% WAPE.
+- Потенциал: высокий
+- Сложность: средняя
+
+### 24. City-level models
+9 городов. Казань (115 пекарен) — отдельная модель,
+остальные — общая или по группам.
+- Потенциал: низкий-средний
+- Сложность: низкая
+
+### 25. Hierarchical models + reconciliation
+Bottom-up / Top-down / Middle-out / MinT optimal reconciliation.
+Уровни: Город → Пекарня → Категория → Товар.
+- Потенциал: средний (+ бизнес-ценность: согласованные прогнозы)
+- Сложность: высокая
+
+---
+
+## Tier 5: Deep Learning
+
+### 30. LSTM baseline
+Seq2seq LSTM: окно 30 дней → прогноз 7 дней.
+Input: lag-фичи + calendar + weather (per bakery×product series).
+Библиотека: PyTorch.
+- Потенциал: средний (обычно хуже бустинга на табличных данных)
+- Сложность: высокая
+- Нужно: GPU, нормализация, embedding для категорий
+
+### 31. GRU + Attention
+GRU легче LSTM, + attention mechanism на временное окно.
+Может лучше ловить "важные" дни в истории (праздники, аномалии).
+- Потенциал: средний
+- Сложность: высокая
+
+### 32. N-BEATS (Neural Basis Expansion)
+Специализированная DL-архитектура для временных рядов (Oreshkin et al. 2019).
+Стеки: trend + seasonality + generic. Не требует фичей — чистые ряды.
+Библиотека: pytorch-forecasting или darts.
+- Потенциал: средний-высокий
+- Сложность: средняя (готовые реализации)
+
+### 33. Temporal Fusion Transformer (TFT)
+Google 2019. Лучшая DL-модель для multi-horizon forecasting.
+Умеет: static covariates (пекарня, товар), known future (календарь, погода),
+observed past (лаги). Interpretable attention.
+Библиотека: pytorch-forecasting.
+- Потенциал: высокий
+- Сложность: высокая
+- Фишка: встроенная интерпретируемость (variable selection, attention weights)
+
+### 34. DeepAR (Amazon)
+Probabilistic forecasting — выдаёт распределение, не точку.
+Авторегрессивная RNN, обучается на всех сериях одновременно (global model).
+Аналог того что делает Foodforecast.
+Библиотека: pytorch-forecasting или GluonTS.
+- Потенциал: высокий (+ квантили бесплатно)
+- Сложность: средняя-высокая
+
+### 35. PatchTST / iTransformer (2023-2024 SOTA)
+Современные трансформеры для временных рядов.
+PatchTST: патчи вместо отдельных точек, channel-independent.
+iTransformer: inverted — attention поверх переменных, не времени.
+- Потенциал: высокий (SOTA на бенчмарках)
+- Сложность: высокая
+- Нужно: GPU, много данных (у нас есть)
+
+### 36. LightGBM + LSTM hybrid
+LightGBM для основного прогноза, LSTM для моделирования residual
+(ловит нелинейные временные паттерны которые бустинг пропускает).
+- Потенциал: высокий
+- Сложность: высокая
+
+---
+
+## Recommended Sequence
+
+**Phase 1 — Quick wins (tuning + features):**
+02 (Optuna) → 03 (5 cat filter) → 04 (Ramadan) → 05 (profiles) → 08 (locations)
+
+**Phase 2 — High demand problem:**
+40 (Tweedie) → 41 (log-target) → 42 (asymmetric) → 43 (quantiles) → 44 (MoE) → 45 (log+residual)
+
+**Phase 3 — Ensembles:**
+10 (Stacking) → 11 (Residual Chain) → 12 (MoE full) → 23 (clusters)
+
+**Phase 4 — Per-segment:**
+22 (per-category) → 23 (clusters) → 20 (per-bakery) → 25 (hierarchical)
+
+**Phase 5 — Deep Learning:**
+32 (N-BEATS) → 33 (TFT) → 34 (DeepAR) → 35 (PatchTST) → 36 (Hybrid)
+
+**Phase 6 — Advanced:**
+30 (LSTM) → 31 (GRU+Attention) → 25 (Hierarchical reconciliation)
