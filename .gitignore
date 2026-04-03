@@ -7,6 +7,8 @@ __pycache__/
 # Data (processed files are reproducible)
 data/processed/
 data/.weather_cache.sqlite
+data/raw/sales_hrs_all.csv
+sales_hrs/
 
 # Models (binary artifacts)
 models/*.pkl
