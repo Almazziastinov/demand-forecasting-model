@@ -1,0 +1,23 @@
+artifact_path: file:C:/Users/dns/Desktop/Projects/demand-forecasting-model/mlruns/1/models/m-72b17083ea8141d6a091981d51780a06/artifacts
+flavors:
+  lightgbm:
+    code: null
+    data: model.pkl
+    lgb_version: 4.6.0
+    model_class: lightgbm.sklearn.LGBMRegressor
+    serialization_format: cloudpickle
+    skops_trusted_types: null
+  python_function:
+    data: model.pkl
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.lightgbm
+    python_version: 3.14.3
+mlflow_version: 3.10.1
+model_id: m-72b17083ea8141d6a091981d51780a06
+model_size_bytes: 25369172
+model_uuid: m-72b17083ea8141d6a091981d51780a06
+prompts: null
+run_id: b07c1b22b0ce463286ec95b8adda4496
+utc_time_created: '2026-04-03 08:47:05.282564'

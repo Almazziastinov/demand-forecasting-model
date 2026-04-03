@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(.venv/Scripts/python.exe:*)"
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(for d in aug sept oct nove desem)",
+      "Bash(do echo \"=== $d ===\")",
+      "Read(//c/Users/dns/Desktop/Projects/demand-forecasting-model/sales_hrs/**)",
+      "Bash(done)"
     ]
   }
 }

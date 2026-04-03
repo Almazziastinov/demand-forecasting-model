@@ -27,3 +27,6 @@ logs/
 
 # Temp files
 *.tmp
+src/experiments_v2/01_baseline_8m/predictions.csv
+mlruns/1/b07c1b22b0ce463286ec95b8adda4496/artifacts/predictions.csv
+data/raw/анализ локаций по БП 02.03 ( 1) (2) (4) (1) (1).xlsx
