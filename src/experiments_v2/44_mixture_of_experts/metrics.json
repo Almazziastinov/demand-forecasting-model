@@ -1,0 +1,21 @@
+{
+  "experiment": "44_mixture_of_experts",
+  "threshold": 15,
+  "high_objective": "huber",
+  "high_max_depth": 9,
+  "mae": 2.5371,
+  "wmape": 28.7,
+  "rmse": 6.8192,
+  "bias": 0.5419,
+  "r2": 0.803,
+  "train_rows": 3412075,
+  "test_rows": 135344,
+  "n_high_train": 589420,
+  "n_high_test": 20664,
+  "n_low_train": 2822655,
+  "n_low_test": 114680,
+  "train_time_s": 292.6,
+  "baseline_01_mae": 2.2904,
+  "baseline_01_wmape": 25.91,
+  "timestamp": "2026-04-06T14:22:19.870286"
+}

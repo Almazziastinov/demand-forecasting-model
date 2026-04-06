@@ -1,0 +1,19 @@
+{
+  "experiment": "46_variance_weighted",
+  "best_variant": "B_inv_std",
+  "mae_A_std": 2.3203,
+  "wmape_A_std": 26.25,
+  "mae_B_inv_std": 2.2806,
+  "wmape_B_inv_std": 25.8,
+  "mae": 2.2806,
+  "wmape": 25.8,
+  "rmse": 4.3703,
+  "bias": 0.0824,
+  "r2": 0.9191,
+  "train_rows": 3412075,
+  "test_rows": 135344,
+  "train_time_s": 469.7,
+  "baseline_01_mae": 2.2904,
+  "baseline_01_wmape": 25.91,
+  "timestamp": "2026-04-06T14:47:23.499272"
+}

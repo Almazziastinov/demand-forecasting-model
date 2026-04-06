@@ -1,0 +1,57 @@
+{
+  "experiment": "42_asymmetric_loss",
+  "alpha": 0.6,
+  "mae": 8.8391,
+  "wmape": 100.0,
+  "rmse": 17.7239,
+  "bias": 8.8391,
+  "r2": -0.3311,
+  "train_rows": 3412075,
+  "test_rows": 135344,
+  "train_time_s": 250.5,
+  "baseline_01_mae": 2.2904,
+  "baseline_01_wmape": 25.91,
+  "feature_importance_top10": [
+    {
+      "feature": "Пекарня",
+      "importance": 0
+    },
+    {
+      "feature": "Номенклатура",
+      "importance": 0
+    },
+    {
+      "feature": "Категория",
+      "importance": 0
+    },
+    {
+      "feature": "Город",
+      "importance": 0
+    },
+    {
+      "feature": "ДеньНедели",
+      "importance": 0
+    },
+    {
+      "feature": "День",
+      "importance": 0
+    },
+    {
+      "feature": "IsWeekend",
+      "importance": 0
+    },
+    {
+      "feature": "Месяц",
+      "importance": 0
+    },
+    {
+      "feature": "НомерНедели",
+      "importance": 0
+    },
+    {
+      "feature": "sales_lag1",
+      "importance": 0
+    }
+  ],
+  "timestamp": "2026-04-06T13:55:39.018653"
+}

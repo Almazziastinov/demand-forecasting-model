@@ -1,0 +1,28 @@
+{
+  "experiment": "53_quantile_demand",
+  "target": "Спрос",
+  "quantiles": [
+    0.25,
+    0.5,
+    0.75
+  ],
+  "primary_quantile": "P50",
+  "mae_P25": 3.5272,
+  "mae_P50": 2.9437,
+  "mae_P75": 3.5372,
+  "wmape_P50": 27.73,
+  "mae": 2.9437,
+  "wmape": 27.73,
+  "rmse": 5.3379,
+  "bias": 0.7357,
+  "r2": 0.8918,
+  "interval_mean_width": 4.6017,
+  "coverage_pct": 48.92,
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "n_features": 52,
+  "train_time_s": 1096.9,
+  "baseline_03_mae": 2.9923,
+  "baseline_03_wmape": 28.19,
+  "timestamp": "2026-04-06T17:10:40.883419"
+}

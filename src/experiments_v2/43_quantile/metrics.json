@@ -1,0 +1,26 @@
+{
+  "experiment": "43_quantile",
+  "quantiles": [
+    0.25,
+    0.5,
+    0.75
+  ],
+  "primary_quantile": "P50",
+  "mae_P25": 2.7715,
+  "mae_P50": 2.2655,
+  "mae_P75": 2.7079,
+  "wmape_P50": 25.63,
+  "mae": 2.2655,
+  "wmape": 25.63,
+  "rmse": 4.4713,
+  "bias": 0.4144,
+  "r2": 0.9153,
+  "interval_mean_width": 3.674,
+  "coverage_pct": 51.91,
+  "train_rows": 3412075,
+  "test_rows": 135344,
+  "train_time_s": 1207.0,
+  "baseline_01_mae": 2.2904,
+  "baseline_01_wmape": 25.91,
+  "timestamp": "2026-04-06T14:16:52.213033"
+}

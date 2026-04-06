@@ -1,9 +1,12 @@
 """
-Experiment 03: Demand Target (demand profiles).
+Experiment 03 v2: Demand Target -- fair comparison.
 
-Train LightGBM on corrected demand target (Spros = Prodano + lost_qty)
-instead of raw sales (Prodano). Demand is estimated via cumulative
-hourly profiles from full days (see build_demand_profiles.py).
+Two models, same data, same features, evaluated on the SAME metric:
+  A) Baseline: train on Prodano, evaluate on Spros (demand)
+  B) Demand:   train on Spros,   evaluate on Spros (demand)
+
+If B beats A, then training on demand gives better demand predictions.
+We also report metrics vs Prodano for reference.
 
 Input:  data/processed/daily_sales_8m_demand.csv
 Output: src/experiments_v2/03_demand_target/metrics.json
@@ -23,13 +26,12 @@ sys.path.insert(0, ROOT)
 
 import numpy as np
 import pandas as pd
-import mlflow
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
 from src.experiments_v2.common import (
     FEATURES_V2, CATEGORICAL_COLS_V2,
-    print_metrics, print_category_metrics,
+    wmape, print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_results,
 )
 
@@ -38,11 +40,7 @@ DEMAND_CSV = Path(ROOT) / "data" / "processed" / "daily_sales_8m_demand.csv"
 
 DEMAND_TARGET = "Спрос"
 
-# Baseline from experiment 01
-BASELINE_01_MAE = 2.29
-BASELINE_01_WMAPE = 25.9
-
-# Features: FEATURES_V2 + demand lags/rolling
+# Demand features (lags/rolling on demand)
 DEMAND_FEATURES = [
     "demand_lag1", "demand_lag2", "demand_lag3", "demand_lag7",
     "demand_lag14", "demand_lag30",
@@ -54,12 +52,12 @@ ALL_FEATURES = FEATURES_V2 + DEMAND_FEATURES
 
 def main():
     print("=" * 60)
-    print("  EXPERIMENT 03: Demand Target (demand profiles)")
+    print("  EXPERIMENT 03 v2: Demand Target (fair comparison)")
     print("=" * 60)
     t_start = time.time()
 
-    # --- Load data ---
-    print(f"\n[1/7] Loading data from {DEMAND_CSV}...")
+    # --- Load ---
+    print(f"\n[1/6] Loading data from {DEMAND_CSV}...")
     if not DEMAND_CSV.exists():
         print(f"  ERROR: {DEMAND_CSV} not found!")
         print("  Run build_demand_profiles.py first.")
@@ -70,162 +68,168 @@ def main():
     print(f"  Shape: {df.shape}")
     print(f"  Date range: {df['Дата'].min().date()} -- {df['Дата'].max().date()}")
     print(f"  Days: {df['Дата'].nunique()}, Bakeries: {df['Пекарня'].nunique()}, "
-          f"Products: {df['Номенклатура'].nunique()}, Categories: {df['Категория'].nunique()}")
+          f"Products: {df['Номенклатура'].nunique()}")
 
-    # Demand stats
     mean_sold = df[TARGET].mean()
     mean_demand = df[DEMAND_TARGET].mean()
     uplift_pct = (mean_demand - mean_sold) / mean_sold * 100
     censored_pct = 100 * df["is_censored"].mean()
-    mean_lost = df["lost_qty"].mean()
+    print(f"\n  Demand stats:")
+    print(f"    mean({TARGET}):  {mean_sold:.4f}")
+    print(f"    mean({DEMAND_TARGET}):   {mean_demand:.4f} ({uplift_pct:+.1f}%)")
+    print(f"    censored: {censored_pct:.1f}%")
 
-    print("\n  Demand stats:")
-    print(f"    mean({TARGET}):     {mean_sold:.4f}")
-    print(f"    mean({DEMAND_TARGET}):      {mean_demand:.4f}")
-    print(f"    Demand uplift:    {uplift_pct:+.2f}%")
-    print(f"    % censored:       {censored_pct:.1f}%")
-    print(f"    mean(lost_qty):   {mean_lost:.4f}")
+    # --- Features ---
+    print(f"\n[2/6] Selecting features...")
+    # Model A (baseline on sales): only FEATURES_V2 (sales lags)
+    features_a = [f for f in FEATURES_V2 if f in df.columns]
+    # Model B (demand): FEATURES_V2 + demand lags
+    features_b = [f for f in ALL_FEATURES if f in df.columns]
+    print(f"  Model A (sales):  {len(features_a)} features")
+    print(f"  Model B (demand): {len(features_b)} features")
 
-    # --- Select features ---
-    print("\n[2/7] Selecting features...")
-    available = [f for f in ALL_FEATURES if f in df.columns]
-    missing = [f for f in ALL_FEATURES if f not in df.columns]
-    if missing:
-        print(f"  WARNING: Missing features: {missing}")
-    print(f"  Using {len(available)} of {len(ALL_FEATURES)} features "
-          f"({len(FEATURES_V2)} base + {len([f for f in DEMAND_FEATURES if f in df.columns])} demand)")
-
-    # Convert categorical columns
     for col in CATEGORICAL_COLS_V2:
         if col in df.columns:
             df[col] = df[col].astype("category")
 
-    # --- Train/test split ---
-    print(f"\n[3/7] Train/test split (last {TEST_DAYS} days = test)...")
+    # --- Split ---
+    print(f"\n[3/6] Train/test split (last {TEST_DAYS} days)...")
     test_start = df["Дата"].max() - pd.Timedelta(days=TEST_DAYS - 1)
     train = df[df["Дата"] < test_start].copy()
     test = df[df["Дата"] >= test_start].copy()
 
-    print(f"  Train: {len(train):,} rows, {train['Дата'].nunique()} days "
-          f"({train['Дата'].min().date()} -- {train['Дата'].max().date()})")
-    print(f"  Test:  {len(test):,} rows, {test['Дата'].nunique()} days "
-          f"({test['Дата'].min().date()} -- {test['Дата'].max().date()})")
+    print(f"  Train: {len(train):,} rows, {train['Дата'].nunique()} days")
+    print(f"  Test:  {len(test):,} rows, {test['Дата'].nunique()} days")
 
-    X_train = train[available]
-    y_train_demand = train[DEMAND_TARGET]
-    X_test = test[available]
-    y_test_demand = test[DEMAND_TARGET]
-    y_test_sold = test[TARGET]
+    y_test_sold = test[TARGET].values
+    y_test_demand = test[DEMAND_TARGET].values
 
-    # --- Train on demand target ---
-    print(f"\n[4/7] Training LightGBM on '{DEMAND_TARGET}' target...")
-    print(f"  Params: n_estimators={MODEL_PARAMS['n_estimators']}, "
-          f"lr={MODEL_PARAMS['learning_rate']:.4f}, "
-          f"num_leaves={MODEL_PARAMS['num_leaves']}, "
-          f"max_depth={MODEL_PARAMS['max_depth']}")
-
+    # --- Model A: train on Prodano ---
+    print(f"\n[4/6] Model A: train on '{TARGET}' (sales baseline)...")
     t_train = time.time()
-    model = train_lgbm(X_train, y_train_demand)
-    train_time = time.time() - t_train
-    print(f"  Training time: {train_time:.0f}s")
+    model_a = train_lgbm(train[features_a], train[TARGET])
+    time_a = time.time() - t_train
+    print(f"  Training time: {time_a:.0f}s")
 
-    # --- Evaluate ---
-    print("\n[5/7] Evaluation...")
-    y_pred = predict_clipped(model, X_test)
+    pred_a = predict_clipped(model_a, test[features_a])
 
-    # Metrics vs DEMAND (how well we predict true demand)
-    print(f"\n  === vs {DEMAND_TARGET} (demand accuracy) ===")
-    mae_demand, wm_demand, bias_demand = print_metrics(
-        f"03_demand (vs {DEMAND_TARGET})", y_test_demand, y_pred
-    )
-    rmse_demand = np.sqrt(mean_squared_error(y_test_demand, y_pred))
-    r2_demand = r2_score(y_test_demand, y_pred)
-    print(f"    RMSE  = {rmse_demand:.4f}")
-    print(f"    R2    = {r2_demand:.4f}")
+    # --- Model B: train on Spros ---
+    print(f"\n[5/6] Model B: train on '{DEMAND_TARGET}' (demand target)...")
+    t_train = time.time()
+    model_b = train_lgbm(train[features_b], train[DEMAND_TARGET])
+    time_b = time.time() - t_train
+    print(f"  Training time: {time_b:.0f}s")
 
-    # Metrics vs SOLD (for comparison with baseline-01)
-    print(f"\n  === vs {TARGET} (sales comparison with baseline) ===")
-    mae_sold, wm_sold, bias_sold = print_metrics(
-        f"03_demand (vs {TARGET})", y_test_sold, y_pred, baseline_mae=BASELINE_01_MAE
-    )
-    rmse_sold = np.sqrt(mean_squared_error(y_test_sold, y_pred))
-    r2_sold = r2_score(y_test_sold, y_pred)
-    print(f"    RMSE  = {rmse_sold:.4f}")
-    print(f"    R2    = {r2_sold:.4f}")
+    pred_b = predict_clipped(model_b, test[features_b])
 
-    # Delta vs baseline-01
-    print(f"\n  === vs baseline-01 (MAE {BASELINE_01_MAE}, WMAPE {BASELINE_01_WMAPE}%) ===")
-    print(f"    MAE (vs {TARGET}):   {mae_sold:.4f}  vs  {BASELINE_01_MAE:.4f}  "
-          f"(delta: {mae_sold - BASELINE_01_MAE:+.4f})")
-    print(f"    WMAPE (vs {TARGET}): {wm_sold:.2f}%  vs  {BASELINE_01_WMAPE:.1f}%  "
-          f"(delta: {wm_sold - BASELINE_01_WMAPE:+.2f}%)")
-    print(f"    NOTE: model trained on {DEMAND_TARGET}, evaluated on {TARGET}")
+    # --- Evaluation ---
+    print(f"\n[6/6] Evaluation...")
 
-    # Test censored stats
-    test_censored = test["is_censored"].mean() * 100
-    test_lost = test[test["is_censored"] == 1]["lost_qty"].mean()
-    print("\n  Test set demand stats:")
-    print(f"    % censored in test: {test_censored:.1f}%")
-    print(f"    Mean lost_qty (censored): {test_lost:.2f}")
+    # Both evaluated vs DEMAND (fair comparison)
+    mae_a_demand = mean_absolute_error(y_test_demand, pred_a)
+    wm_a_demand = wmape(y_test_demand, pred_a)
+    bias_a_demand = np.mean(y_test_demand - pred_a)
 
-    # Per-category breakdown
-    print(f"\n  === Per-category metrics (vs {TARGET}) ===")
-    print_category_metrics(y_test_sold, y_pred, test["Категория"].values)
+    mae_b_demand = mean_absolute_error(y_test_demand, pred_b)
+    wm_b_demand = wmape(y_test_demand, pred_b)
+    bias_b_demand = np.mean(y_test_demand - pred_b)
 
-    # --- Feature importance ---
-    print("\n[6/7] Feature importance (top 20)...")
-    importance = pd.DataFrame({
-        "feature": available,
-        "importance": model.feature_importances_,
+    print(f"\n  {'='*60}")
+    print(f"  FAIR COMPARISON: both evaluated vs {DEMAND_TARGET}")
+    print(f"  {'='*60}")
+    print(f"  {'Metric':<12} {'A (sales)':<15} {'B (demand)':<15} {'Delta':>10}")
+    print(f"  {'-'*52}")
+    print(f"  {'MAE':<12} {mae_a_demand:<15.4f} {mae_b_demand:<15.4f} {mae_b_demand - mae_a_demand:>+10.4f}")
+    print(f"  {'WMAPE':<12} {wm_a_demand:<14.2f}% {wm_b_demand:<14.2f}% {wm_b_demand - wm_a_demand:>+10.2f}%")
+    print(f"  {'Bias':<12} {bias_a_demand:<+15.4f} {bias_b_demand:<+15.4f} {bias_b_demand - bias_a_demand:>+10.4f}")
+
+    winner = "B (demand)" if mae_b_demand < mae_a_demand else "A (sales)"
+    print(f"\n  Winner: {winner}")
+
+    # Also report vs Prodano (for reference / comparison with exp 01)
+    mae_a_sold = mean_absolute_error(y_test_sold, pred_a)
+    mae_b_sold = mean_absolute_error(y_test_sold, pred_b)
+    wm_a_sold = wmape(y_test_sold, pred_a)
+    wm_b_sold = wmape(y_test_sold, pred_b)
+
+    print(f"\n  Reference: evaluated vs {TARGET} (sales)")
+    print(f"  {'Metric':<12} {'A (sales)':<15} {'B (demand)':<15}")
+    print(f"  {'-'*42}")
+    print(f"  {'MAE':<12} {mae_a_sold:<15.4f} {mae_b_sold:<15.4f}")
+    print(f"  {'WMAPE':<12} {wm_a_sold:<14.2f}% {wm_b_sold:<14.2f}%")
+
+    # High demand analysis (vs demand target)
+    print(f"\n  High demand analysis (vs {DEMAND_TARGET}):")
+    for threshold in [15, 50, 100]:
+        mask = y_test_demand >= threshold
+        if mask.sum() > 0:
+            ma_a = mean_absolute_error(y_test_demand[mask], pred_a[mask])
+            ma_b = mean_absolute_error(y_test_demand[mask], pred_b[mask])
+            bi_a = np.mean(y_test_demand[mask] - pred_a[mask])
+            bi_b = np.mean(y_test_demand[mask] - pred_b[mask])
+            print(f"    >= {threshold}: N={mask.sum()}, "
+                  f"A MAE={ma_a:.2f} Bias={bi_a:+.2f} | "
+                  f"B MAE={ma_b:.2f} Bias={bi_b:+.2f}")
+
+    # Per-category (Model B vs demand)
+    print(f"\n  === Per-category metrics (Model B vs {DEMAND_TARGET}) ===")
+    print_category_metrics(y_test_demand, pred_b, test["Категория"].values)
+
+    # Feature importance (Model B)
+    importance_b = pd.DataFrame({
+        "feature": features_b, "importance": model_b.feature_importances_,
     }).sort_values("importance", ascending=False)
 
-    for _, row in importance.head(20).iterrows():
+    print(f"\n  Top 15 features (Model B):")
+    for _, row in importance_b.head(15).iterrows():
         print(f"    {row['feature']:<30} {row['importance']:>8.0f}")
 
-    # Highlight demand features
-    demand_imp = importance[importance["feature"].str.startswith("demand_")]
-    sales_imp = importance[importance["feature"].str.startswith("sales_")]
-    print(f"\n  Demand features total importance: {demand_imp['importance'].sum():.0f}")
-    print(f"  Sales features total importance:  {sales_imp['importance'].sum():.0f}")
+    demand_imp = importance_b[importance_b["feature"].str.startswith("demand_")]
+    sales_imp = importance_b[importance_b["feature"].str.startswith("sales_")]
+    print(f"\n  Demand features total: {demand_imp['importance'].sum():.0f}")
+    print(f"  Sales features total:  {sales_imp['importance'].sum():.0f}")
 
-    # --- Save results ---
-    print("\n[7/7] Saving results...")
+    # --- Save ---
+    rmse_b = np.sqrt(mean_squared_error(y_test_demand, pred_b))
+    r2_b = r2_score(y_test_demand, pred_b)
+
     metrics = {
-        "experiment": "03_demand_target",
-        "target": DEMAND_TARGET,
-        # Demand metrics
-        "mae_demand": round(mae_demand, 4),
-        "wmape_demand": round(wm_demand, 2),
-        "rmse_demand": round(rmse_demand, 4),
-        "bias_demand": round(bias_demand, 4),
-        "r2_demand": round(r2_demand, 4),
-        # Sales metrics (comparable with baseline)
-        "mae_sold": round(mae_sold, 4),
-        "wmape_sold": round(wm_sold, 2),
-        "rmse_sold": round(rmse_sold, 4),
-        "bias_sold": round(bias_sold, 4),
-        "r2_sold": round(r2_sold, 4),
-        # Demand stats
+        "experiment": "03_demand_target_v2",
+        "comparison": "both evaluated vs Spros (demand)",
+        # Fair comparison vs demand
+        "mae_A_vs_demand": round(mae_a_demand, 4),
+        "mae_B_vs_demand": round(mae_b_demand, 4),
+        "wmape_A_vs_demand": round(wm_a_demand, 2),
+        "wmape_B_vs_demand": round(wm_b_demand, 2),
+        "bias_A_vs_demand": round(bias_a_demand, 4),
+        "bias_B_vs_demand": round(bias_b_demand, 4),
+        "winner": winner,
+        "mae_improvement": round(mae_a_demand - mae_b_demand, 4),
+        # Reference vs sales
+        "mae_A_vs_sold": round(mae_a_sold, 4),
+        "mae_B_vs_sold": round(mae_b_sold, 4),
+        # Best model (B) full metrics vs demand
+        "mae": round(mae_b_demand, 4),
+        "wmape": round(wm_b_demand, 2),
+        "rmse": round(rmse_b, 4),
+        "bias": round(bias_b_demand, 4),
+        "r2": round(r2_b, 4),
+        # Dataset stats
         "demand_uplift_pct": round(uplift_pct, 2),
         "censored_pct": round(censored_pct, 1),
-        "mean_lost_qty": round(mean_lost, 4),
         "mean_sold": round(mean_sold, 4),
         "mean_demand": round(mean_demand, 4),
-        # Dataset
-        "train_rows": len(train),
-        "test_rows": len(test),
+        "train_rows": len(train), "test_rows": len(test),
         "train_days": int(train["Дата"].nunique()),
         "test_days": int(test["Дата"].nunique()),
-        "n_features": len(available),
-        "n_demand_features": len([f for f in DEMAND_FEATURES if f in df.columns]),
+        "n_features_A": len(features_a),
+        "n_features_B": len(features_b),
         "n_bakeries": int(df["Пекарня"].nunique()),
         "n_products": int(df["Номенклатура"].nunique()),
         "n_categories": int(df["Категория"].nunique()),
-        "train_time_s": round(train_time, 1),
-        # Baselines
-        "baseline_01_mae": BASELINE_01_MAE,
-        "baseline_01_wmape": BASELINE_01_WMAPE,
-        "feature_importance_top10": importance.head(10)[["feature", "importance"]].to_dict("records"),
+        "train_time_A_s": round(time_a, 1),
+        "train_time_B_s": round(time_b, 1),
+        "feature_importance_top10": importance_b.head(10)[["feature", "importance"]].to_dict("records"),
     }
 
     predictions = pd.DataFrame({
@@ -233,62 +237,20 @@ def main():
         "Пекарня": test["Пекарня"].values,
         "Номенклатура": test["Номенклатура"].values,
         "Категория": test["Категория"].values,
-        "fact_sold": y_test_sold.values,
-        "fact_demand": y_test_demand.values,
-        "pred": np.round(y_pred, 2),
+        "fact_sold": y_test_sold,
+        "fact_demand": y_test_demand,
+        "pred_A_sales": np.round(pred_a, 2),
+        "pred_B_demand": np.round(pred_b, 2),
         "is_censored": test["is_censored"].values,
         "lost_qty": test["lost_qty"].values,
-        "abs_error_sold": np.round(np.abs(y_test_sold.values - y_pred), 2),
-        "abs_error_demand": np.round(np.abs(y_test_demand.values - y_pred), 2),
+        "error_A_vs_demand": np.round(np.abs(y_test_demand - pred_a), 2),
+        "error_B_vs_demand": np.round(np.abs(y_test_demand - pred_b), 2),
     })
 
     save_results(EXP_DIR, metrics, predictions)
 
-    # --- MLflow ---
-    print("\n  Logging to MLflow...")
-    mlflow.set_experiment("experiments_v2")
-    with mlflow.start_run(run_name="03_demand_target"):
-        mlflow.log_params({
-            "experiment": "03_demand_target",
-            "target": DEMAND_TARGET,
-            "n_features": len(available),
-            "n_demand_features": len([f for f in DEMAND_FEATURES if f in df.columns]),
-            "train_rows": len(train),
-            "test_rows": len(test),
-            "train_days": int(train["Дата"].nunique()),
-            "test_days": TEST_DAYS,
-            "n_bakeries": int(df["Пекарня"].nunique()),
-            "n_products": int(df["Номенклатура"].nunique()),
-            "n_categories": int(df["Категория"].nunique()),
-            "demand_uplift_pct": round(uplift_pct, 2),
-            "censored_pct": round(censored_pct, 1),
-        })
-        mlflow.log_params({f"lgbm_{k}": v for k, v in MODEL_PARAMS.items()})
-
-        mlflow.log_metrics({
-            "mae_demand": mae_demand,
-            "wmape_demand": wm_demand,
-            "mae_sold": mae_sold,
-            "wmape_sold": wm_sold,
-            "rmse_demand": rmse_demand,
-            "rmse_sold": rmse_sold,
-            "bias_demand": bias_demand,
-            "bias_sold": bias_sold,
-            "r2_demand": r2_demand,
-            "r2_sold": r2_sold,
-            "train_time_s": train_time,
-        })
-
-        mlflow.log_artifact(str(EXP_DIR / "metrics.json"))
-        mlflow.log_artifact(str(EXP_DIR / "predictions.csv"))
-        mlflow.lightgbm.log_model(model, artifact_path="model")
-
-        run_id = mlflow.active_run().info.run_id
-        print(f"  MLflow run_id: {run_id}")
-
     elapsed = time.time() - t_start
     print(f"\n  Total time: {elapsed:.0f}s")
-    print("  MLflow UI: mlflow ui --port 5001")
     print("  Done!")
 
 

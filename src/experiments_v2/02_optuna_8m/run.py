@@ -45,7 +45,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 EXP_DIR = Path(__file__).resolve().parent
 EXP_NAME = "02_optuna_8m"
-N_TRIALS = 50
+N_TRIALS = 20
 BASELINE_01_MAE = 2.29
 BASELINE_V6_MAE = 3.33
 BASELINE_V6_WMAPE = 23.6

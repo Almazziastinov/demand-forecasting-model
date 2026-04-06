@@ -1,0 +1,77 @@
+{
+  "experiment": "03_demand_target_v2",
+  "comparison": "both evaluated vs Spros (demand)",
+  "mae_A_vs_demand": 3.126,
+  "mae_B_vs_demand": 2.9923,
+  "wmape_A_vs_demand": 29.45,
+  "wmape_B_vs_demand": 28.19,
+  "bias_A_vs_demand": 1.5763,
+  "bias_B_vs_demand": 0.1147,
+  "winner": "B (demand)",
+  "mae_improvement": 0.1337,
+  "mae_A_vs_sold": 2.3825,
+  "mae_B_vs_sold": 2.8974,
+  "mae": 2.9923,
+  "wmape": 28.19,
+  "rmse": 5.2396,
+  "bias": 0.1147,
+  "r2": 0.8958,
+  "demand_uplift_pct": 14.92,
+  "censored_pct": 45.1,
+  "mean_sold": 9.9613,
+  "mean_demand": 11.4473,
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "train_days": 170,
+  "test_days": 7,
+  "n_features_A": 41,
+  "n_features_B": 52,
+  "n_bakeries": 194,
+  "n_products": 523,
+  "n_categories": 23,
+  "train_time_A_s": 131.2,
+  "train_time_B_s": 209.6,
+  "feature_importance_top10": [
+    {
+      "feature": "Пекарня",
+      "importance": 30130
+    },
+    {
+      "feature": "Номенклатура",
+      "importance": 15919
+    },
+    {
+      "feature": "sales_lag1",
+      "importance": 11862
+    },
+    {
+      "feature": "sales_lag14",
+      "importance": 10319
+    },
+    {
+      "feature": "sales_lag7",
+      "importance": 9860
+    },
+    {
+      "feature": "sales_lag2",
+      "importance": 9166
+    },
+    {
+      "feature": "sales_lag30",
+      "importance": 8977
+    },
+    {
+      "feature": "sales_lag3",
+      "importance": 8200
+    },
+    {
+      "feature": "demand_lag1",
+      "importance": 7291
+    },
+    {
+      "feature": "День",
+      "importance": 7035
+    }
+  ],
+  "timestamp": "2026-04-06T14:56:21.515053"
+}

@@ -7,29 +7,33 @@ Data: 3.5M rows, 207 days, 199 bakeries, 610 products, 27 categories
 
 ## Tier 1: Tuning & Validation
 
-### 02. Optuna 8m
+### 02. Optuna 8m ✅
 Перетюнить гиперпараметры на 8 месяцах. v6 params оптимальны для 3m/5cat.
 - Потенциал: +3-7% MAE
 - Сложность: низкая
+- **Результат**: Best MAE 2.2812 за 16 trials (20 max). Улучшение минимальное (-0.009). v6 params уже близки к оптимуму.
 
-### 03. Filter 5 categories (honest comparison)
-Только 5 старых категорий — честное сравнение WMAPE с v6 baseline.
-- Потенциал: информативный
+### 03. Demand Target (fair comparison) ✅
+Два варианта: A (train on Продано) и B (train on Спрос). Оба оценены vs Спрос.
+- Потенциал: информативный + бизнес-ценность
 - Сложность: низкая
+- **Результат**: Model B (demand) wins: MAE 2.99 vs 3.13 (demand metric). При P&L-анализе Model B экономически выгоднее (+673К руб/день vs пекарь).
 
 ---
 
 ## Tier 2: Feature Engineering
 
-### 04. Ramadan feature
+### 04. Ramadan feature ⏭️ SKIPPED
 is_ramadan, is_iftar_period, ramadan_day (1-30). Рамадан 2026: 18 фев — 19 мар.
 - Потенциал: средний (30 дней из 207)
 - Сложность: низкая
+- **Пропущен**: только 1 Рамадан в данных — невозможно протестировать effect vs non-Ramadan. Нужен минимум 2 года данных.
 
-### 05. Product & bakery profiles
+### 05. Product & bakery profiles ✅
 bakery_avg_sales, product_avg_sales, product_cv, bakery_x_product_avg.
 - Потенциал: средний
 - Сложность: низкая
+- **Результат**: MAE 2.31 (+0.02). Нейтрально — LightGBM уже извлекает эту информацию через категориальные энкодинги. Явные профили избыточны.
 
 ### 06. Demand correction via cumulative profiles (censored demand)
 **Ключевой эксперимент.** Таргет = Продано + Упущенно.
@@ -103,55 +107,132 @@ Static features — не меняются день ото дня, джойнят
 Треугольник курица MAE 19-48, Кыстыбый MAE 24-48.
 MSE loss учит условное среднее → "усредняет" при широком распределении.
 
-### 40. Tweedie regression
+### 40. Tweedie regression ✅
 `objective='tweedie', tweedie_variance_power=1.5`.
 Var(y) ∝ mean^p — автоматически учитывает рост дисперсии с mean.
 Между Poisson (p=1) и Gamma (p=2). Одна строка изменений.
 - Потенциал: средний (снижает bias на high demand)
 - Сложность: минимальная
+- **Результат**: MAE 2.2778, WMAPE 25.77%, R2 0.9185. Улучшение -0.013 MAE. Маргинальный прирост.
 
-### 41. Log-transform target
+### 41. Log-transform target ✅
 `y = log1p(Продано)`, обратно `expm1(pred)`. Сжимает шкалу, разница
 между 150 и 200 = 0.28 вместо 50. Снижает доминирование high demand.
 - Потенциал: средний
 - Сложность: минимальная
 - Риск: может ухудшить low demand (0 vs 1 раздувается)
+- **Результат**: MAE 2.2889, WMAPE 25.89%, Bias 0.60, R2 0.914. Почти baseline, но bias вырос. Не оправдал.
 
-### 42. Asymmetric loss (штраф за занижение)
+### 42. Asymmetric loss (штраф за занижение) ❌ FAILED
 Custom objective: alpha > 0.5 штрафует недопрогноз сильнее.
 Бизнес-мотивация: упущенные продажи хуже списания.
 alpha=0.6 сдвинет bias с +14 к ~0 на high demand.
 - Потенциал: средний (bias), слабый (MAE)
 - Сложность: низкая (~20 строк custom loss)
+- **Результат**: MAE 8.84, WMAPE 100%, R2 -0.33. Сломано — gradient implementation некорректная. Нужна переделка.
 
-### 43. Quantile regression (интервалы)
+### 43. Quantile regression (интервалы) ✅ BEST MAE
 Три модели: P25, P50, P75. Для Треугольника курица (mean 198, std 63):
 вместо "198" → "160–200–240". Пекарь сам выбирает стратегию.
 P50 (медиана) устойчивее к правому хвосту, чем mean.
 - Потенциал: высокий (бизнес-ценность), средний (MAE)
 - Сложность: средняя (3 модели, UI)
+- **Результат**: P50 MAE 2.2655, WMAPE 25.63%. Лучший MAE среди всех экспериментов (-0.025). Coverage 51.9%, interval width 3.67. Практически полезно: интервалы вместо точки.
 
-### 44. Mixture of Experts (demand-level split)
+### 44. Mixture of Experts (demand-level split) ✅
 product_avg >= 15 → model_high (depth 9, 3000+ trees, Huber loss)
 product_avg < 15 → model_low (стандартный)
 Доп. фичи для high: product_std, recent_max, days_since_max.
 - Потенциал: высокий
 - Сложность: средняя
+- **Результат**: MAE 2.54, WMAPE 28.7%, R2 0.803. Хуже baseline (+0.25 MAE). Split-стратегия не работает — модели на подвыборках теряют генерализацию.
 
-### 45. Log-target + residual correction (двухэтапный)
+### 45. Log-target + residual correction (двухэтапный) ✅
 Этап 1: LightGBM на log1p(y) → base (хорош для high demand)
 Этап 2: LightGBM на (y - expm1(base)) → correction (правит low demand)
 Итог: expm1(base) + correction. Лучшее из двух миров.
 - Потенциал: высокий
 - Сложность: средняя (2 модели, 2 этапа)
+- **Результат**: MAE 2.28, WMAPE 25.79%, R2 0.9185. Второй лучший результат (-0.010). Быстрее квантилей (482s vs 1207s).
 
-### 46. Variance-weighted training
+### 46. Variance-weighted training ✅
 sample_weight = f(product_std). Два варианта:
-  a) weight ∝ 1/std — фокус на предсказуемых → общий MAE улучшится
-  b) weight ∝ std — фокус на high demand → MAE high demand улучшится
+  a) weight ∝ std — фокус на high demand → MAE high demand улучшится
+  b) weight ∝ 1/std — фокус на предсказуемых → общий MAE улучшится
 Выбор зависит от бизнес-приоритета.
 - Потенциал: средний
 - Сложность: минимальная
+- **Результат**: Best: B (1/std) MAE 2.2806, WMAPE 25.8%, R2 0.9191 (лучший R2). Маргинальное улучшение (-0.010).
+
+---
+
+## Results Summary (completed experiments)
+
+| # | Experiment | MAE | WMAPE | Bias | R² | Delta MAE |
+|---|---|---|---|---|---|---|
+| 01 | **Baseline 8m** | 2.2904 | 25.91% | +0.08 | 0.918 | — |
+| 02 | Optuna 8m | 2.2812 | — | — | — | -0.009 |
+| 03 | Demand target | 2.9923* | 28.19%* | +0.11* | 0.896* | +0.70* |
+| 05 | Profiles | 2.3109 | 26.14% | +0.04 | 0.918 | +0.02 |
+| 40 | Tweedie | 2.2778 | 25.77% | +0.11 | 0.919 | -0.013 |
+| 41 | Log target | 2.2889 | 25.89% | +0.60 | 0.914 | -0.002 |
+| 42 | Asymmetric loss | ~~8.84~~ | ~~100%~~ | — | -0.33 | BROKEN |
+| **43** | **Quantile P50** | **2.2655** | **25.63%** | +0.41 | 0.915 | **-0.025** |
+| 44 | Mixture of Experts | 2.5371 | 28.70% | +0.54 | 0.803 | +0.247 |
+| 45 | Log + residual | 2.2800 | 25.79% | +0.10 | 0.919 | -0.010 |
+| 46 | Variance weighted | 2.2806 | 25.80% | +0.08 | 0.919 | -0.010 |
+
+\* Exp 03 оценён vs Спрос (demand), не vs Продано — нечестно сравнивать с baseline.
+
+**Вывод**: потолок MAE ~2.27 при текущих данных. Лучший: квантильная P50 (-0.025).
+Ни один подход не решил high demand problem кардинально.
+
+---
+
+## Tier 2c: High Demand Problem (Demand Target)
+
+Те же 7 подходов (40-46), но обученные на Спрос вместо Продано.
+Data: `daily_sales_8m_demand.csv`, Target: `Спрос`, Features: FEATURES_V2 + 11 demand lags.
+Baseline: exp 03 Model B (MAE 2.9923, WMAPE 28.19% vs Спрос).
+
+### 50. Tweedie (demand) ✅
+- **Результат**: MAE 2.9798, WMAPE 28.07%. Delta -0.013. Маргинально.
+
+### 51. Log target (demand) ✅
+- **Результат**: MAE 2.9642, WMAPE 27.93%. Delta -0.028. Bias +0.85. Аналогично exp 41.
+
+### 52. Asymmetric loss (demand) ❌ BROKEN
+- **Результат**: MAE 10.61, WMAPE 100%. Та же проблема что exp 42 — gradient broken.
+
+### 53. Quantile P50 (demand) ✅ BEST DEMAND
+- **Результат**: P50 MAE 2.9437, WMAPE 27.73%. Delta **-0.049**. Coverage 48.9%. Лучший demand result.
+
+### 54. Mixture of Experts (demand) ✅
+- **Результат**: MAE 3.2865, WMAPE 30.96%. Delta +0.294. Хуже baseline, как и exp 44.
+
+### 55. Log + residual (demand) ✅
+- **Результат**: MAE 2.9897, WMAPE 28.17%. Delta -0.003. Stage 2 correction ухудшила (+0.026 MAE).
+
+### 56. Variance-weighted (demand) ✅
+- **Результат**: Best B (1/std) MAE 2.9907, WMAPE 28.18%. Delta -0.002.
+
+### Demand Target Results Summary
+
+| # | Experiment | MAE | WMAPE | Bias | R² | Delta MAE |
+|---|---|---|---|---|---|---|
+| 03 | **Baseline (demand)** | 2.9923 | 28.19% | +0.11 | 0.896 | — |
+| 50 | Tweedie | 2.9798 | 28.07% | +0.21 | 0.895 | -0.013 |
+| 51 | Log target | 2.9642 | 27.93% | +0.85 | 0.890 | -0.028 |
+| 52 | Asymmetric loss | ~~10.61~~ | ~~100%~~ | — | -0.43 | BROKEN |
+| **53** | **Quantile P50** | **2.9437** | **27.73%** | +0.74 | 0.892 | **-0.049** |
+| 54 | MoE | 3.2865 | 30.96% | +0.70 | 0.777 | +0.294 |
+| 55 | Log + residual | 2.9897 | 28.17% | +0.14 | 0.895 | -0.003 |
+| 56 | Variance weighted | 2.9907 | 28.18% | +0.10 | 0.896 | -0.002 |
+
+**Вывод demand экспериментов:**
+- Рейтинг подходов идентичен sales (quantile > log > tweedie > variance ≈ log+residual > MoE > asymmetric).
+- Quantile P50 на demand даёт delta -0.049 (вдвое больше чем на sales -0.025) — квантильная регрессия лучше работает с некупированным распределением спроса.
+- Потолок demand MAE ~2.94. Ни один подход не решает high demand problem.
 
 ---
 

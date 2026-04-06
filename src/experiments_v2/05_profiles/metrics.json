@@ -1,0 +1,71 @@
+{
+  "experiment": "05_profiles",
+  "mae": 2.3109,
+  "wmape": 26.14,
+  "rmse": 4.4074,
+  "bias": 0.0385,
+  "r2": 0.9177,
+  "train_rows": 3412075,
+  "test_rows": 135344,
+  "train_days": 200,
+  "test_days": 7,
+  "n_features": 47,
+  "n_profile_features": 6,
+  "profile_features": [
+    "bakery_avg_sales",
+    "product_avg_sales",
+    "product_cv",
+    "bakery_x_product_avg",
+    "category_avg_sales",
+    "bakery_product_count"
+  ],
+  "n_bakeries": 199,
+  "n_products": 610,
+  "n_categories": 27,
+  "train_time_s": 155.8,
+  "baseline_01_mae": 2.2904,
+  "baseline_01_wmape": 25.91,
+  "feature_importance_top10": [
+    {
+      "feature": "Пекарня",
+      "importance": 30064
+    },
+    {
+      "feature": "sales_lag1",
+      "importance": 16288
+    },
+    {
+      "feature": "sales_lag14",
+      "importance": 13026
+    },
+    {
+      "feature": "Номенклатура",
+      "importance": 12903
+    },
+    {
+      "feature": "sales_lag7",
+      "importance": 12720
+    },
+    {
+      "feature": "sales_lag2",
+      "importance": 11584
+    },
+    {
+      "feature": "sales_lag30",
+      "importance": 10898
+    },
+    {
+      "feature": "sales_lag3",
+      "importance": 10693
+    },
+    {
+      "feature": "sales_roll_mean3",
+      "importance": 8403
+    },
+    {
+      "feature": "ДеньНедели",
+      "importance": 7571
+    }
+  ],
+  "timestamp": "2026-04-06T12:31:31.183174"
+}

@@ -1,0 +1,59 @@
+{
+  "experiment": "51_log_target_demand",
+  "target": "Спрос",
+  "transform": "log1p/expm1",
+  "mae": 2.9642,
+  "wmape": 27.93,
+  "rmse": 5.3932,
+  "bias": 0.8505,
+  "r2": 0.8896,
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "n_features": 52,
+  "train_time_s": 260.7,
+  "baseline_03_mae": 2.9923,
+  "baseline_03_wmape": 28.19,
+  "feature_importance_top10": [
+    {
+      "feature": "Пекарня",
+      "importance": 52576
+    },
+    {
+      "feature": "Номенклатура",
+      "importance": 41004
+    },
+    {
+      "feature": "ДеньНедели",
+      "importance": 7814
+    },
+    {
+      "feature": "Категория",
+      "importance": 7646
+    },
+    {
+      "feature": "demand_lag1",
+      "importance": 7490
+    },
+    {
+      "feature": "День",
+      "importance": 7044
+    },
+    {
+      "feature": "windspeed_max",
+      "importance": 6858
+    },
+    {
+      "feature": "sales_roll_mean30",
+      "importance": 6451
+    },
+    {
+      "feature": "НомерНедели",
+      "importance": 6368
+    },
+    {
+      "feature": "demand_roll_mean30",
+      "importance": 6364
+    }
+  ],
+  "timestamp": "2026-04-06T16:47:10.906251"
+}
