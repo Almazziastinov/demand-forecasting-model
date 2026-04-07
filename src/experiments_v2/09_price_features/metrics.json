@@ -1,0 +1,52 @@
+{
+  "experiment": "09_price_features",
+  "target": "Спрос",
+  "model_a_baseline": {
+    "mae": 2.9923,
+    "wmape": 28.19,
+    "bias": 0.1147,
+    "n_features": 52,
+    "train_time_s": 167.2
+  },
+  "model_b_price": {
+    "mae": 2.9364,
+    "wmape": 27.66,
+    "bias": 0.1356,
+    "n_features": 58,
+    "train_time_s": 226.6
+  },
+  "delta_mae": -0.056,
+  "delta_wmape": -0.53,
+  "winner": "Model B (+ price)",
+  "price_match_rate": 100.0,
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "censored_pct": 45.1,
+  "price_feature_importance": [
+    {
+      "feature": "price_vs_median",
+      "importance": 7108
+    },
+    {
+      "feature": "price_change_7d",
+      "importance": 6564
+    },
+    {
+      "feature": "price_roll_std7",
+      "importance": 4460
+    },
+    {
+      "feature": "avg_price",
+      "importance": 3741
+    },
+    {
+      "feature": "price_roll_mean7",
+      "importance": 2781
+    },
+    {
+      "feature": "price_lag7",
+      "importance": 2637
+    }
+  ],
+  "timestamp": "2026-04-07T12:23:44.682044"
+}

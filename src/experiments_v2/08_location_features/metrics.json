@@ -1,0 +1,120 @@
+{
+  "experiment": "08_location_features",
+  "target": "Спрос",
+  "model_a_baseline": {
+    "mae": 3.0248,
+    "wmape": 27.76,
+    "bias": 0.1306,
+    "n_features": 52,
+    "train_time_s": 128.2
+  },
+  "model_b_location": {
+    "mae": 3.0222,
+    "wmape": 27.74,
+    "bias": 0.1631,
+    "n_features": 75,
+    "train_time_s": 154.9
+  },
+  "delta_mae": -0.0026,
+  "delta_wmape": -0.02,
+  "winner": "Model B (+ location)",
+  "n_bakeries_matched": 138,
+  "train_rows": 1989837,
+  "test_rows": 94606,
+  "censored_pct": 44.7,
+  "location_feature_importance": [
+    {
+      "feature": "loc_area_sqm",
+      "importance": 2198
+    },
+    {
+      "feature": "loc_rent_rub",
+      "importance": 2072
+    },
+    {
+      "feature": "loc_traffic_nearby",
+      "importance": 2014
+    },
+    {
+      "feature": "loc_rent_per_sqm",
+      "importance": 1925
+    },
+    {
+      "feature": "loc_density_5min",
+      "importance": 1798
+    },
+    {
+      "feature": "loc_density_10min",
+      "importance": 1590
+    },
+    {
+      "feature": "loc_density_300m",
+      "importance": 1517
+    },
+    {
+      "feature": "loc_income_5min",
+      "importance": 1480
+    },
+    {
+      "feature": "loc_traffic_avg",
+      "importance": 1386
+    },
+    {
+      "feature": "loc_income_10min",
+      "importance": 1283
+    },
+    {
+      "feature": "loc_traffic_at_point",
+      "importance": 1159
+    },
+    {
+      "feature": "loc_competitors",
+      "importance": 1020
+    },
+    {
+      "feature": "loc_income_300m",
+      "importance": 932
+    },
+    {
+      "feature": "loc_near_school",
+      "importance": 227
+    },
+    {
+      "feature": "loc_has_vitrage",
+      "importance": 183
+    },
+    {
+      "feature": "loc_near_pyaterochka",
+      "importance": 173
+    },
+    {
+      "feature": "loc_near_college",
+      "importance": 139
+    },
+    {
+      "feature": "loc_near_market",
+      "importance": 135
+    },
+    {
+      "feature": "loc_near_bc",
+      "importance": 119
+    },
+    {
+      "feature": "loc_near_canteen",
+      "importance": 86
+    },
+    {
+      "feature": "loc_has_porch",
+      "importance": 63
+    },
+    {
+      "feature": "loc_near_metro",
+      "importance": 55
+    },
+    {
+      "feature": "loc_premise_type",
+      "importance": 50
+    }
+  ],
+  "timestamp": "2026-04-07T11:57:37.872285"
+}

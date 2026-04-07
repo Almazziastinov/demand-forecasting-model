@@ -1,0 +1,46 @@
+{
+  "experiment": "10_stacking",
+  "target": "Спрос",
+  "method": "Stacking (LightGBM P50 + CatBoost P50 + Ridge -> Ridge meta)",
+  "n_folds": 3,
+  "mae": 2.9221,
+  "wmape": 27.53,
+  "rmse": 5.1836,
+  "bias": 0.1764,
+  "r2": 0.898,
+  "delta_vs_v3": 0.0405,
+  "base_model_results": {
+    "LightGBM P50": {
+      "mae": 2.8801,
+      "wmape": 27.1335,
+      "bias": 0.7462
+    },
+    "CatBoost P50": {
+      "mae": 2.9166,
+      "wmape": 27.4774,
+      "bias": 0.6806
+    },
+    "Ridge": {
+      "mae": 3.2016,
+      "wmape": 30.1628,
+      "bias": 0.0705
+    },
+    "Stacking": {
+      "mae": 2.9221,
+      "wmape": 27.5292,
+      "bias": 0.1764
+    }
+  },
+  "meta_weights": {
+    "lgbm": 1.0654,
+    "catboost": 0.0397,
+    "ridge": -0.0901,
+    "intercept": 0.4805
+  },
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "n_features": 58,
+  "baseline_v3_mae": 2.8816,
+  "train_time_oof_s": 3041.0,
+  "timestamp": "2026-04-07T15:01:35.765523"
+}

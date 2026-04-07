@@ -1,0 +1,99 @@
+{
+  "experiment": "60_baseline_v3",
+  "target": "Спрос",
+  "objective": "quantile P50",
+  "features": "FEATURES_V3 (V2 + demand lags + price)",
+  "mae": 2.8816,
+  "wmape": 27.15,
+  "rmse": 5.2688,
+  "bias": 0.7695,
+  "r2": 0.8946,
+  "mae_P25": 3.4536,
+  "mae_P50": 2.8816,
+  "mae_P75": 3.4369,
+  "mae_mse_same_features": 2.936,
+  "interval_mean_width": 4.484,
+  "coverage_pct": 48.81,
+  "mae_vs_prodano": 2.5587,
+  "wmape_vs_prodano": 27.67,
+  "previous_baselines": {
+    "v1_exp01_sales_mse": 2.2904,
+    "v2_exp03_demand_mse": 2.9923,
+    "exp09_demand_price_mse": 2.9364,
+    "exp53_demand_quantile": 2.9437
+  },
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "train_days": 170,
+  "test_days": 7,
+  "n_features": 58,
+  "n_bakeries": 194,
+  "n_products": 523,
+  "n_categories": 23,
+  "censored_pct": 45.1,
+  "train_time_quantiles_s": 973.9,
+  "train_time_mse_s": 222.2,
+  "feature_importance_top15": [
+    {
+      "feature": "Пекарня",
+      "importance": 51617
+    },
+    {
+      "feature": "Номенклатура",
+      "importance": 39018
+    },
+    {
+      "feature": "price_vs_median",
+      "importance": 9484
+    },
+    {
+      "feature": "price_change_7d",
+      "importance": 7892
+    },
+    {
+      "feature": "ДеньНедели",
+      "importance": 7221
+    },
+    {
+      "feature": "День",
+      "importance": 6544
+    },
+    {
+      "feature": "windspeed_max",
+      "importance": 6376
+    },
+    {
+      "feature": "demand_roll_mean30",
+      "importance": 6041
+    },
+    {
+      "feature": "temp_range",
+      "importance": 5832
+    },
+    {
+      "feature": "НомерНедели",
+      "importance": 5472
+    },
+    {
+      "feature": "demand_lag1",
+      "importance": 5318
+    },
+    {
+      "feature": "temp_min",
+      "importance": 5202
+    },
+    {
+      "feature": "temp_max",
+      "importance": 5018
+    },
+    {
+      "feature": "sales_lag1",
+      "importance": 4659
+    },
+    {
+      "feature": "sales_roll_mean30",
+      "importance": 4650
+    }
+  ],
+  "timestamp": "2026-04-07T12:58:19.010761"
+}

@@ -1,0 +1,37 @@
+{
+  "experiments": [
+    "11_residual_chain",
+    "12_moe_routing",
+    "13_temporal_ensemble"
+  ],
+  "baseline_v3_mae": 2.8816,
+  "exp_11": {
+    "mae": 3.0167,
+    "wmape": 28.42,
+    "bias": 0.4108,
+    "mae_stage1": 3.1899,
+    "mae_stage12": 3.0192,
+    "delta_vs_v3": 0.1351,
+    "time_s": 1136.1
+  },
+  "exp_12": {
+    "mae": 2.8747,
+    "wmape": 27.08,
+    "bias": 0.7792,
+    "delta_vs_v3": -0.0069,
+    "time_s": 408.7
+  },
+  "exp_13": {
+    "mae": 2.8708,
+    "wmape": 27.05,
+    "bias": 0.7504,
+    "mae_simple_avg": 2.8708,
+    "mae_optimized": 2.9603,
+    "method": "simple_avg",
+    "delta_vs_v3": -0.0108,
+    "time_s": 1434.0
+  },
+  "best": "13_temporal_ensemble",
+  "best_mae": 2.8708,
+  "timestamp": "2026-04-07T16:08:40.797841"
+}
