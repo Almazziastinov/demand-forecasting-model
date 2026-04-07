@@ -49,9 +49,29 @@ FEATURES_V2 = [
     "precipitation", "rain", "snowfall", "windspeed_max",
     "is_rainy", "is_snowy", "is_cold", "is_warm",
     "is_windy", "is_bad_weather", "weather_cat_code",
+    # Price (6 features)
+    "avg_price", "price_vs_median", "price_lag7",
+    "price_change_7d", "price_roll_mean7", "price_roll_std7",
 ]
 
 CATEGORICAL_COLS_V2 = ["Пекарня", "Номенклатура", "Категория", "Город", "Месяц"]
+
+# Demand features (lags/rolling on demand target)
+DEMAND_FEATURES = [
+    "demand_lag1", "demand_lag2", "demand_lag3", "demand_lag7",
+    "demand_lag14", "demand_lag30",
+    "demand_roll_mean3", "demand_roll_mean7", "demand_roll_mean14", "demand_roll_mean30",
+    "demand_roll_std7",
+]
+
+# Full feature set for demand-based models (baseline v3)
+FEATURES_V3 = FEATURES_V2 + DEMAND_FEATURES
+
+# Demand data path
+DEMAND_8M_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "processed" / "daily_sales_8m_demand.csv"
+
+# Demand target column
+DEMAND_TARGET = "Спрос"
 
 # City coordinates for weather (original 7 + Kursk, Moskva)
 CITY_COORDS = {
@@ -179,6 +199,17 @@ def print_category_metrics(y_true, y_pred, categories):
 def train_lgbm(X_train, y_train, params=None):
     """Train LightGBM with given or default params. Returns fitted model."""
     p = (params or MODEL_PARAMS).copy()
+    model = LGBMRegressor(**p)
+    model.fit(X_train, y_train)
+    return model
+
+
+def train_quantile(X_train, y_train, alpha=0.5, params=None):
+    """Train LightGBM with quantile objective. Default alpha=0.5 (median/P50)."""
+    p = (params or MODEL_PARAMS).copy()
+    p["objective"] = "quantile"
+    p["alpha"] = alpha
+    p.pop("metric", None)
     model = LGBMRegressor(**p)
     model.fit(X_train, y_train)
     return model
