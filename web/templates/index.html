@@ -80,6 +80,57 @@
         }
         .result-single .fact-compare span { font-weight: 700; }
 
+        .indicators-row {
+            display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;
+            justify-content: center;
+        }
+        .indicator-card {
+            background: #fff; border-radius: 8px; padding: 10px 16px;
+            text-align: center; min-width: 100px;
+            border: 1px solid #e5e7eb;
+        }
+        .indicator-card .ival { font-size: 18px; font-weight: 700; color: #374151; }
+        .indicator-card .ilab { font-size: 11px; color: #6b7280; margin-top: 2px; }
+        .indicator-card.warning .ival { color: #dc2626; }
+
+        .hourly-section { margin-top: 16px; }
+        .hourly-toggle {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 8px 16px; background: #f3f4f6; border-radius: 8px;
+            cursor: pointer; font-size: 14px; color: #374151;
+            margin-bottom: 12px;
+        }
+        .hourly-toggle:hover { background: #e5e7eb; }
+        .hourly-chart { margin-top: 12px; }
+        .hourly-data-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 12px; }
+        .hourly-data-table th { background: #f9fafb; padding: 6px 8px; text-align: center; border-bottom: 2px solid #e5e7eb; font-weight: 600; color: #666; }
+        .hourly-data-table td { padding: 4px 8px; border-bottom: 1px solid #f3f4f6; text-align: center; font-variant-numeric: tabular-nums; }
+        .hourly-data-table tr:hover { background: #fafafa; }
+
+        .filter-row {
+            display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+        }
+        .filter-row label { font-size: 13px; color: #6b7280; }
+        .filter-row select, .filter-row input {
+            padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+            font-size: 13px;
+        }
+        .filter-row input { width: 180px; }
+
+        .btn-refresh {
+            padding: 8px 16px; background: #6366f1; color: #fff; border: none;
+            border-radius: 8px; font-size: 13px; cursor: pointer; display: inline-flex;
+            align-items: center; gap: 6px;
+        }
+        .btn-refresh:hover { background: #4f46e5; }
+        .btn-refresh:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-refresh .spinner {
+            width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent;
+            border-radius: 50%; animation: spin 0.8s linear infinite; display: none;
+        }
+        .btn-refresh.loading .spinner { display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
         .details-grid {
             display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
             gap: 8px; margin-top: 16px;
@@ -179,6 +230,10 @@
                 <button class="btn btn-secondary" id="btnAll" disabled onclick="predictAll()">
                     Все продукты на дату
                 </button>
+                <button class="btn-refresh" id="btnRefresh" onclick="refreshData()">
+                    <span class="spinner"></span>
+                    <span class="btnText">Обновить данные</span>
+                </button>
             </div>
         </div>
 
@@ -190,16 +245,25 @@
         <!-- График за неделю -->
         <div class="card" id="chartCard" style="display:none;">
             <h2 id="chartTitle">Продажи и прогноз за неделю</h2>
-            <div class="chart-legend">
-                <span class="legend-item"><span class="legend-dot" style="background:#2563eb"></span> Факт</span>
-                <span class="legend-item"><span class="legend-dot" style="background:#d97706"></span> Прогноз</span>
-            </div>
+            <div class="chart-legend" id="chartLegend"></div>
             <div id="chartContainer"></div>
+            <div id="lastWeekInfo" style="display:none; margin-top:12px; padding:12px 16px; background:#f8fafc; border-radius:8px; font-size:14px; color:#555;"></div>
         </div>
+
+        <!-- Почасовой план -->
+        <div class="card" id="hourlyCard" style="display:none;"></div>
 
         <!-- Результат: таблица всех продуктов -->
         <div class="card result-table" id="resultTable">
             <h2 id="tableTitle">Прогноз по всем продуктам</h2>
+            <div class="filter-row">
+                <label>Категория:</label>
+                <select id="filterCategory" onchange="filterTable()">
+                    <option value="">Все</option>
+                </select>
+                <label>Поиск:</label>
+                <input type="text" id="filterSearch" placeholder="Название продукта..." oninput="filterTable()">
+            </div>
             <div id="tableContent"></div>
         </div>
     </div>
@@ -249,16 +313,37 @@
 
             if (!this.value || !elBakery.value) return;
 
+            // Fetch historical dates
             const resp = await fetch('/api/dates?bakery=' + encodeURIComponent(elBakery.value) +
                 '&product=' + encodeURIComponent(this.value));
             const dates = await resp.json();
+            
+            // Fetch future dates
+            const futureResp = await fetch('/api/future_dates');
+            const futureDates = await futureResp.json();
 
             elDate.innerHTML = '<option value="">Выберите дату...</option>';
-            // Показываем от новых к старым
-            dates.reverse().forEach(d => {
-                const label = formatDate(d);
-                elDate.innerHTML += `<option value="${d}">${label}</option>`;
-            });
+            
+            // Add historical dates
+            if (dates.length > 0) {
+                elDate.innerHTML += '<optgroup label="Исторические даты">';
+                dates.reverse().forEach(d => {
+                    const label = formatDate(d);
+                    elDate.innerHTML += `<option value="${d}">${label}</option>`;
+                });
+                elDate.innerHTML += '</optgroup>';
+            }
+            
+            // Add future dates
+            if (futureDates.length > 0) {
+                elDate.innerHTML += '<optgroup label="Прогноз (будущие даты)">';
+                futureDates.forEach(d => {
+                    const label = formatDate(d) + ' 📈';
+                    elDate.innerHTML += `<option value="${d}">${label}</option>`;
+                });
+                elDate.innerHTML += '</optgroup>';
+            }
+            
             elDate.disabled = false;
         });
 
@@ -276,57 +361,66 @@
         }
 
         // SVG график
-        function renderChart(chartData, productName) {
+        function renderChart(chartData, productName, lastWeek) {
             const card = document.getElementById('chartCard');
             const container = document.getElementById('chartContainer');
+            const lwInfo = document.getElementById('lastWeekInfo');
             if (!chartData || chartData.length === 0) {
                 card.style.display = 'none';
                 return;
             }
 
-            document.getElementById('chartTitle').textContent =
-                `${productName} — факт vs прогноз (${chartData.length} дн.)`;
+            const hasDemand = chartData.some(d => d.demand !== null && d.demand !== undefined);
 
-            const W = 600, H = 180, pad = {t: 10, r: 20, b: 30, l: 40};
+            document.getElementById('chartTitle').textContent =
+                `${productName} — история (${chartData.length} дн.)`;
+
+            const W = 700, H = 220, pad = {t: 14, r: 20, b: 34, l: 44};
             const gw = W - pad.l - pad.r;
             const gh = H - pad.t - pad.b;
 
-            const allVals = chartData.flatMap(d => [d.fact, d.pred]).filter(v => v !== null);
+            const allVals = chartData.flatMap(d => [d.fact, d.pred, d.demand]).filter(v => v !== null && v !== undefined);
             const maxVal = Math.max(...allVals, 1);
             const minVal = 0;
 
             const n = chartData.length;
-            const xStep = n > 1 ? gw / (n - 1) : gw / 2;
-
-            function x(i) { return pad.l + (n > 1 ? i * xStep : gw / 2); }
+            function x(i) { return pad.l + (n > 1 ? i * gw / (n - 1) : gw / 2); }
             function y(v) { return pad.t + gh - (v - minVal) / (maxVal - minVal) * gh; }
 
-            // Линии
-            function makeLine(points, color, dashed) {
-                const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+            // Lines (polyline)
+            function makeLine(points, color, dashed, width) {
+                if (points.length === 0) return '';
                 return `<polyline points="${points.map(p => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')}"
-                    fill="none" stroke="${color}" stroke-width="2.5" ${dashed ? 'stroke-dasharray="6,3"' : ''}/>`;
+                    fill="none" stroke="${color}" stroke-width="${width || 2}" ${dashed ? 'stroke-dasharray="6,3"' : ''}/>`;
             }
 
             const factPts = chartData.map((d, i) => ({i, v: d.fact})).filter(p => p.v !== null);
+            const demandPts = hasDemand ? chartData.map((d, i) => ({i, v: d.demand})).filter(p => p.v !== null && p.v !== undefined) : [];
             const predPts = chartData.map((d, i) => ({i, v: d.pred}));
 
-            // Точки
-            function makeDots(points, color) {
-                return points.map(p =>
-                    `<circle cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4" fill="${color}" stroke="#fff" stroke-width="1.5"/>
-                     <text x="${x(p.i).toFixed(1)}" y="${(y(p.v) - 8).toFixed(1)}" text-anchor="middle" font-size="11" fill="${color}" font-weight="600">${Math.round(p.v)}</text>`
-                ).join('');
+            // Dots (only show labels if few points, otherwise too crowded)
+            const showLabels = n <= 14;
+            function makeDots(points, color, labelAbove) {
+                return points.map(p => {
+                    let s = `<circle cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="${n <= 14 ? 3.5 : 2.5}" fill="${color}" stroke="#fff" stroke-width="1"/>`;
+                    if (showLabels) {
+                        const ly = labelAbove ? (y(p.v) - 8) : (y(p.v) + 14);
+                        s += `<text x="${x(p.i).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="10" fill="${color}" font-weight="600">${Math.round(p.v)}</text>`;
+                    }
+                    return s;
+                }).join('');
             }
 
-            // Подписи оси X
+            // X labels — show every Nth label to avoid overlap
             const days = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+            const labelStep = n <= 10 ? 1 : n <= 20 ? 2 : n <= 40 ? 4 : 7;
             const xLabels = chartData.map((d, i) => {
+                if (i % labelStep !== 0 && i !== n - 1) return '';
                 const dt = new Date(d.date);
-                return `<text x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="11" fill="#888">${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')} ${days[dt.getDay()]}</text>`;
+                return `<text x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="10" fill="#888">${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')} ${days[dt.getDay()]}</text>`;
             }).join('');
 
-            // Горизонтальные линии сетки
+            // Grid
             const gridLines = 4;
             let grid = '';
             for (let i = 0; i <= gridLines; i++) {
@@ -336,15 +430,37 @@
                 grid += `<text x="${pad.l - 6}" y="${(parseFloat(yy) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#aaa">${Math.round(val)}</text>`;
             }
 
+            // Demand line (if available)
+            const demandSvg = hasDemand ? makeLine(demandPts, '#16a34a', false, 2) + makeDots(demandPts, '#16a34a', false) : '';
+
+            // Dynamic legend
+            let legendHtml = '<span class="legend-item"><span class="legend-dot" style="background:#2563eb"></span> Продано</span>';
+            if (hasDemand) legendHtml += '<span class="legend-item"><span class="legend-dot" style="background:#16a34a"></span> Спрос</span>';
+            legendHtml += '<span class="legend-item"><span class="legend-dot" style="background:#d97706"></span> Прогноз</span>';
+            document.getElementById('chartLegend').innerHTML = legendHtml;
+
             container.innerHTML = `
                 <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;">
                     ${grid}
-                    ${makeLine(factPts, '#2563eb', false)}
-                    ${makeLine(predPts, '#d97706', true)}
-                    ${makeDots(factPts, '#2563eb')}
-                    ${makeDots(predPts, '#d97706')}
+                    ${makeLine(factPts, '#2563eb', false, 2)}
+                    ${demandSvg}
+                    ${makeLine(predPts, '#d97706', true, 2)}
+                    ${makeDots(factPts, '#2563eb', true)}
+                    ${makeDots(predPts, '#d97706', true)}
                     ${xLabels}
                 </svg>`;
+
+            // Last week info
+            if (lastWeek) {
+                let lwHtml = `<b>Прошлая неделя</b> (${lastWeek.days} дн.): продажи <b>${lastWeek.sales}</b> шт.`;
+                if (lastWeek.demand !== null) {
+                    lwHtml += `, спрос <b>${lastWeek.demand}</b> шт.`;
+                }
+                lwInfo.innerHTML = lwHtml;
+                lwInfo.style.display = 'block';
+            } else {
+                lwInfo.style.display = 'none';
+            }
 
             card.style.display = 'block';
         }
@@ -392,15 +508,38 @@
                         detailsHtml += '</div>';
                     }
 
+                    // Индикаторы пока недоступны (требуют данных о производстве)
+                    let indicatorsHtml = '';
+                    /*
+                    if (r.indicators && !r.is_forecast) {
+                        const ind = r.indicators;
+                        indicatorsHtml = `<div class="indicators-row">
+                            <div class="indicator-card">
+                                <div class="ival">${ind.продажи ?? '—'}</div>
+                                <div class="ilab">Продано</div>
+                            </div>
+                        </div>`;
+                    }
+                    */
+
                     content.innerHTML = `
                         <div class="big-number">${r.prediction_int}</div>
-                        <div class="sub">штук — прогноз на ${formatDate(elDate.value)}</div>
+                        <div class="sub">штук — прогноз на ${formatDate(elDate.value)} ${r.is_forecast ? '📈' : ''}</div>
+                        ${r.is_forecast ? '<div style="text-align:center;color:#6366f1;font-size:13px;margin-bottom:8px;">Прогноз (будущая дата)</div>' : ''}
                         ${factHtml}
+                        ${indicatorsHtml}
                         ${detailsHtml}
                     `;
 
-                    // График за неделю
-                    renderChart(r.chart, elProduct.value);
+                    // Почасовой план
+                    renderHourlyPlan(elBakery.value, elProduct.value, elDate.value);
+
+                    // График истории (все доступные даты)
+                    if (r.chart && r.chart.length > 0) {
+                        renderChart(r.chart, elProduct.value, r.last_week);
+                    } else {
+                        document.getElementById('chartCard').style.display = 'none';
+                    }
                 } else {
                     box.className = 'result-single error';
                     content.innerHTML = `<div class="error-text">${r.error}</div>`;
@@ -443,36 +582,47 @@
                 const content = document.getElementById('tableContent');
 
                 if (r.success) {
-                    title.textContent = `Прогноз: ${r.count} позиций на ${formatDate(elDate.value)}`;
+                    const isForecast = r.is_forecast;
+                    title.textContent = `Прогноз: ${r.count} позиций на ${formatDate(elDate.value)}${isForecast ? ' 📈' : ''}`;
+                    if (isForecast) {
+                        title.innerHTML += '<div style="font-size:12px;color:#6366f1;margin-top:4px;">Прогноз (будущая дата)</div>';
+                    }
 
-                    let html = `<table>
+                    // Собираем уникальные категории для фильтра
+                    const categories = new Set();
+                    r.results.forEach(item => categories.add(item.category));
+
+                    const catSelect = document.getElementById('filterCategory');
+                    catSelect.innerHTML = '<option value="">Все</option>';
+                    categories.forEach(c => {
+                        catSelect.innerHTML += `<option value="${c}">${c}</option>`;
+                    });
+
+                    let html = `<table><tbody>
                         <tr>
                             <th>Продукт</th>
                             <th>Категория</th>
                             <th class="num">Прогноз</th>
-                            <th class="num">Факт</th>
-                            <th class="num">Ошибка</th>
+                            ${!isForecast ? '<th class="num">Факт</th><th class="num">Ошибка</th>' : ''}
                         </tr>`;
 
                     for (const item of r.results) {
                         const errColor = item.error !== null
                             ? (item.error <= 3 ? '#16a34a' : (item.error <= 10 ? '#d97706' : '#dc2626'))
                             : '#999';
-                        html += `<tr>
+                        html += `<tr class="data-row" data-cat="${item.category}">
                             <td>${item.product}</td>
                             <td><span class="cat-badge">${item.category}</span></td>
                             <td class="num pred">${item.prediction_int}</td>
-                            <td class="num">${item.fact ?? '—'}</td>
-                            <td class="num" style="color:${errColor}">${item.error !== null ? item.error : '—'}</td>
+                            ${!isForecast ? `<td class="num">${item.fact ?? '—'}</td><td class="num" style="color:${errColor}">${item.error !== null ? item.error : '—'}</td>` : ''}
                         </tr>`;
                     }
 
                     html += `<tr class="total-row">
                         <td colspan="2">ИТОГО</td>
                         <td class="num pred">${Math.round(r.total_pred)}</td>
-                        <td class="num">${r.total_fact}</td>
-                        <td class="num">${Math.abs(Math.round(r.total_pred) - r.total_fact)}</td>
-                    </tr></table>`;
+                        ${!isForecast ? `<td class="num">${r.total_fact}</td><td class="num">${Math.abs(Math.round(r.total_pred) - r.total_fact)}</td>` : ''}
+                    </tr></tbody></table>`;
 
                     content.innerHTML = html;
                 } else {
@@ -489,6 +639,185 @@
 
             btnAll.disabled = false;
             btnAll.textContent = 'Все продукты на дату';
+        }
+
+        // Catmull-Rom spline -> SVG cubic bezier path
+        function catmullRomPath(points, tension) {
+            if (points.length < 2) return '';
+            const t = tension || 0.5;
+            let d = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+            for (let i = 0; i < points.length - 1; i++) {
+                const p0 = points[Math.max(i - 1, 0)];
+                const p1 = points[i];
+                const p2 = points[i + 1];
+                const p3 = points[Math.min(i + 2, points.length - 1)];
+                const cp1x = p1.x + (p2.x - p0.x) / (6 / t);
+                const cp1y = p1.y + (p2.y - p0.y) / (6 / t);
+                const cp2x = p2.x - (p3.x - p1.x) / (6 / t);
+                const cp2y = p2.y - (p3.y - p1.y) / (6 / t);
+                d += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+            }
+            return d;
+        }
+
+        // Почасовой план — SVG график с кривой
+        async function renderHourlyPlan(bakery, product, date) {
+            const card = document.getElementById('hourlyCard');
+            if (!card) return;
+            try {
+                const resp = await fetch('/api/daily_plan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({bakery, product, date}),
+                });
+                const r = await resp.json();
+                if (!r.success) { card.style.display = 'none'; return; }
+
+                const plan = r.plan;
+                const hasActual = plan[0]?.actual !== undefined;
+
+                // SVG dimensions
+                const W = 700, H = 220, pad = {t: 20, r: 20, b: 36, l: 44};
+                const gw = W - pad.l - pad.r;
+                const gh = H - pad.t - pad.b;
+                const n = plan.length;
+
+                // Scales
+                const allVals = plan.map(h => h.predicted);
+                if (hasActual) plan.forEach(h => { if (h.actual != null) allVals.push(h.actual); });
+                const maxVal = Math.max(...allVals, 1) * 1.1;
+                const minVal = 0;
+
+                function xPos(i) { return pad.l + (n > 1 ? i * gw / (n - 1) : gw / 2); }
+                function yPos(v) { return pad.t + gh - (v - minVal) / (maxVal - minVal) * gh; }
+
+                // Grid
+                const gridLines = 4;
+                let grid = '';
+                for (let i = 0; i <= gridLines; i++) {
+                    const val = minVal + (maxVal - minVal) * i / gridLines;
+                    const yy = yPos(val).toFixed(1);
+                    grid += `<line x1="${pad.l}" y1="${yy}" x2="${W - pad.r}" y2="${yy}" stroke="#eee" stroke-width="1"/>`;
+                    grid += `<text x="${pad.l - 6}" y="${(parseFloat(yy) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#aaa">${val.toFixed(1)}</text>`;
+                }
+
+                // X labels (hours)
+                const xLabels = plan.map((h, i) =>
+                    `<text x="${xPos(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#888">${h.label}</text>`
+                ).join('');
+
+                // Build points
+                const predPts = plan.map((h, i) => ({x: xPos(i), y: yPos(h.predicted)}));
+                const actPts = hasActual ? plan.map((h, i) => ({x: xPos(i), y: yPos(h.actual || 0)})) : [];
+
+                // Smooth curves
+                const predPath = catmullRomPath(predPts, 0.5);
+
+                // Area fill under predicted curve
+                const areaPath = predPath +
+                    ` L${predPts[predPts.length - 1].x.toFixed(1)},${yPos(0).toFixed(1)}` +
+                    ` L${predPts[0].x.toFixed(1)},${yPos(0).toFixed(1)} Z`;
+
+                // Predicted dots + labels
+                const predDots = predPts.map((p, i) =>
+                    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#d97706" stroke="#fff" stroke-width="1.5"/>` +
+                    (plan[i].predicted >= 0.1 ? `<text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="10" fill="#d97706" font-weight="600">${plan[i].predicted.toFixed(1)}</text>` : '')
+                ).join('');
+
+                // Actual curve + dots (if available)
+                let actSvg = '';
+                if (hasActual && actPts.length > 0) {
+                    const actPath = catmullRomPath(actPts, 0.5);
+                    actSvg = `<path d="${actPath}" fill="none" stroke="#2563eb" stroke-width="2.5"/>`;
+                    actSvg += actPts.map((p, i) =>
+                        `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#2563eb" stroke="#fff" stroke-width="1.5"/>` +
+                        (plan[i].actual > 0 ? `<text x="${p.x.toFixed(1)}" y="${(p.y + 16).toFixed(1)}" text-anchor="middle" font-size="10" fill="#2563eb" font-weight="600">${plan[i].actual}</text>` : '')
+                    ).join('');
+                }
+
+                // Legend
+                let legendHtml = '<span class="legend-item"><span class="legend-dot" style="background:#d97706"></span> Прогноз</span>';
+                if (hasActual) {
+                    legendHtml += '<span class="legend-item"><span class="legend-dot" style="background:#2563eb"></span> Факт</span>';
+                }
+
+                // Compact data table below chart
+                let tableHtml = '<table class="hourly-data-table"><tr><th>Час</th>';
+                plan.forEach(h => { tableHtml += `<th>${h.label.slice(0, 2)}</th>`; });
+                tableHtml += '</tr><tr><td style="font-weight:600;color:#d97706;">Прогноз</td>';
+                plan.forEach(h => { tableHtml += `<td>${h.predicted.toFixed(1)}</td>`; });
+                tableHtml += '</tr>';
+                if (hasActual) {
+                    tableHtml += '<tr><td style="font-weight:600;color:#2563eb;">Факт</td>';
+                    plan.forEach(h => { tableHtml += `<td>${h.actual ?? '-'}</td>`; });
+                    tableHtml += '</tr>';
+                }
+                tableHtml += '<tr><td style="font-weight:600;color:#888;">Доля</td>';
+                plan.forEach(h => { tableHtml += `<td>${h.share}%</td>`; });
+                tableHtml += '</tr></table>';
+
+                // Gradient definition for area fill
+                const gradientDef = `<defs>
+                    <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#d97706" stop-opacity="0.25"/>
+                        <stop offset="100%" stop-color="#d97706" stop-opacity="0.02"/>
+                    </linearGradient>
+                </defs>`;
+
+                card.innerHTML = `
+                    <div class="hourly-section">
+                        <h2 style="font-size:18px;margin-bottom:12px;color:#555;border-bottom:2px solid #e9c46a;padding-bottom:6px;">
+                            Почасовой план (${r.daily_total} шт.)
+                        </h2>
+                        <div class="chart-legend">${legendHtml}</div>
+                        <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;">
+                            ${gradientDef}
+                            ${grid}
+                            <path d="${areaPath}" fill="url(#areaGrad)"/>
+                            <path d="${predPath}" fill="none" stroke="#d97706" stroke-width="2.5"/>
+                            ${actSvg}
+                            ${predDots}
+                            ${xLabels}
+                        </svg>
+                        ${tableHtml}
+                    </div>`;
+                card.style.display = 'block';
+            } catch (e) {
+                const card = document.getElementById('hourlyCard');
+                if (card) card.style.display = 'none';
+            }
+        }
+
+        // Фильтрация таблицы
+        function filterTable() {
+            const cat = document.getElementById('filterCategory').value.toLowerCase();
+            const search = document.getElementById('filterSearch').value.toLowerCase();
+            const rows = document.querySelectorAll('#resultTable tbody tr.data-row');
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                const show = (!cat || row.dataset.cat === cat) && (!search || text.includes(search));
+                row.style.display = show ? '' : 'none';
+            });
+        }
+
+        // Обновить данные
+        async function refreshData() {
+            const btn = document.getElementById('btnRefresh');
+            btn.classList.add('loading');
+            btn.disabled = true;
+            try {
+                const resp = await fetch('/api/refresh', {method: 'POST'});
+                const r = await resp.json();
+                if (r.success) {
+                    alert('Данные обновлены: ' + r.rows + ' строк, ' + r.dates + ' дат');
+                } else {
+                    alert('Ошибка: ' + r.error);
+                }
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+            btn.classList.remove('loading');
+            btn.disabled = false;
         }
     </script>
 </body>

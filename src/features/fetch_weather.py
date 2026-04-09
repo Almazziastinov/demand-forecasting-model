@@ -129,13 +129,96 @@ def enrich_weather(df: pd.DataFrame) -> pd.DataFrame:
         elif code <= 77:
             return 'snow'
         elif code <= 82:
-            return 'showers'
+            return 'rain'
         else:
             return 'storm'
-
-    df['weather_category'] = df['weathercode'].apply(wmo_to_category)
-
+    
+    if 'weathercode' in df.columns:
+        df['weather_category'] = df['weathercode'].apply(wmo_to_category)
+    
     return df
+
+
+def fetch_weather_forecast(cities: dict, days_ahead: int = 14) -> pd.DataFrame:
+    """
+    Скачивает прогноз погоды на будущие дни для каждого города.
+    Использует Open-Meteo Forecast API.
+    """
+    cache_session = requests_cache.CachedSession('data/.weather_cache', expire_after=3600)
+    retry_session = retry(cache_session, retries=3, backoff_factor=0.3)
+    om = openmeteo_requests.Client(session=retry_session)
+
+    daily_vars = [
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "temperature_2m_mean",
+        "precipitation_sum",
+        "rain_sum",
+        "snowfall_sum",
+        "windspeed_10m_max",
+        "weathercode",
+    ]
+
+    all_frames = []
+
+    for city, coords in cities.items():
+        try:
+            responses = om.weather_api(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude":   coords['lat'],
+                    "longitude":  coords['lon'],
+                    "daily":      daily_vars,
+                    "timezone":   "Europe/Moscow",
+                    "forecast_days": days_ahead,
+                }
+            )
+            resp = responses[0]
+            daily = resp.Daily()
+
+            values = {
+                'temp_max':      daily.Variables(0).ValuesAsNumpy(),
+                'temp_min':      daily.Variables(1).ValuesAsNumpy(),
+                'temp_mean':     daily.Variables(2).ValuesAsNumpy(),
+                'precipitation': daily.Variables(3).ValuesAsNumpy(),
+                'rain':          daily.Variables(4).ValuesAsNumpy(),
+                'snowfall':      daily.Variables(5).ValuesAsNumpy(),
+                'windspeed_max': daily.Variables(6).ValuesAsNumpy(),
+                'weathercode':   daily.Variables(7).ValuesAsNumpy(),
+            }
+            n_days = len(values['temp_max'])
+            dates = pd.date_range(
+                start=pd.to_datetime(daily.Time(), unit='s', utc=True)
+                        .tz_convert('Europe/Moscow')
+                        .tz_localize(None),
+                periods=n_days,
+                freq='D'
+            )
+
+            df = pd.DataFrame({'Город': city, 'Дата': dates})
+            for col, arr in values.items():
+                df[col] = arr[:n_days]
+            all_frames.append(df)
+
+        except Exception as e:
+            print(f"    ⚠️  Ошибка прогноза для {city}: {e}")
+
+    if not all_frames:
+        return pd.DataFrame()
+
+    weather_df = pd.concat(all_frames, ignore_index=True)
+    weather_df['Дата'] = pd.to_datetime(weather_df['Дата']).dt.normalize()
+    weather_df = enrich_weather(weather_df)
+    
+    # Add weather_cat_code
+    weather_df["weather_cat_code"] = (
+        weather_df["weather_category"].map({
+            'clear': 0, 'cloudy': 1, 'fog': 2, 'rain': 3, 'snow': 4, 'storm': 5
+        }).fillna(0).astype(int)
+    )
+    weather_df.drop(columns=["weather_category"], inplace=True, errors="ignore")
+    
+    return weather_df
 
 
 # ─────────────────────────────────────────────

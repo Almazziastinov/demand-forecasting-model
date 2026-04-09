@@ -1,0 +1,98 @@
+{
+  "experiment": "61_censoring_behavioral",
+  "target": "Спрос",
+  "baseline_v3_mae": 2.8816,
+  "results": {
+    "baseline (V3)": {
+      "mae": 2.8816,
+      "wmape": 27.15,
+      "bias": 0.7695,
+      "r2": 0.8946,
+      "n_features": 58,
+      "delta_mae": -0.0,
+      "train_time_s": 353.9
+    },
+    "+A (censoring)": {
+      "mae": 2.8809,
+      "wmape": 27.14,
+      "bias": 0.7499,
+      "r2": 0.895,
+      "n_features": 61,
+      "delta_mae": -0.0007,
+      "train_time_s": 380.8
+    },
+    "+A+B (dow)": {
+      "mae": 2.8662,
+      "wmape": 27.0,
+      "bias": 0.738,
+      "r2": 0.8963,
+      "n_features": 63,
+      "delta_mae": -0.0154,
+      "train_time_s": 384.0
+    },
+    "+A+B+C (trend)": {
+      "mae": 2.8648,
+      "wmape": 26.99,
+      "bias": 0.7521,
+      "r2": 0.8962,
+      "n_features": 65,
+      "delta_mae": -0.0168,
+      "train_time_s": 387.8
+    },
+    "+A+B+C+D (stale)": {
+      "mae": 2.8601,
+      "wmape": 26.95,
+      "bias": 0.7389,
+      "r2": 0.8968,
+      "n_features": 66,
+      "delta_mae": -0.0215,
+      "train_time_s": 408.6
+    }
+  },
+  "best_variant": "+A+B+C+D (stale)",
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "feature_importance_new": [
+    {
+      "feature": "demand_trend",
+      "importance": 5766,
+      "rank": 6
+    },
+    {
+      "feature": "cv_7d",
+      "importance": 4908,
+      "rank": 10
+    },
+    {
+      "feature": "demand_dow_mean",
+      "importance": 4360,
+      "rank": 17
+    },
+    {
+      "feature": "sales_dow_mean",
+      "importance": 4025,
+      "rank": 19
+    },
+    {
+      "feature": "lost_qty_lag1",
+      "importance": 2660,
+      "rank": 33
+    },
+    {
+      "feature": "stale_ratio_lag1",
+      "importance": 2583,
+      "rank": 34
+    },
+    {
+      "feature": "pct_censored_7d",
+      "importance": 1635,
+      "rank": 49
+    },
+    {
+      "feature": "is_censored_lag1",
+      "importance": 78,
+      "rank": 59
+    }
+  ],
+  "timestamp": "2026-04-09T15:06:24.111013"
+}
