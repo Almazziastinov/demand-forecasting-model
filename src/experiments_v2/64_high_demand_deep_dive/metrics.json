@@ -1,0 +1,59 @@
+{
+  "experiment": "64_high_demand_deep_dive",
+  "eval_bakery": "Баки Урманче 6 Казань",
+  "eval_item": "Треугольник курица безд",
+  "test_days": 30,
+  "item_stats": {
+    "n_days": 176,
+    "mean_demand": 202.2,
+    "std_demand": 53.1,
+    "cv": 0.263,
+    "censored_pct": 0.6
+  },
+  "results": {
+    "Global Q50": {
+      "mae": 30.69,
+      "rmse": 41.54,
+      "r2": 0.1495,
+      "bias": -2.14,
+      "wmape": 18.41
+    },
+    "Global MSE": {
+      "mae": 31.46,
+      "rmse": 39.26,
+      "r2": 0.2403,
+      "bias": -9.21,
+      "wmape": 18.87
+    },
+    "Local bakery Q50": {
+      "mae": 31.22,
+      "rmse": 42.97,
+      "r2": 0.09,
+      "bias": -4.95,
+      "wmape": 18.73
+    },
+    "Item-only Q50": {
+      "mae": 43.32,
+      "rmse": 50.67,
+      "r2": -0.2656,
+      "bias": -31.01,
+      "wmape": 25.99
+    },
+    "Naive (last DOW)": {
+      "mae": 38.43,
+      "rmse": 53.07,
+      "r2": -0.3883,
+      "bias": 2.83,
+      "wmape": 23.06
+    },
+    "DOW mean (4w)": {
+      "mae": 33.9,
+      "rmse": 45.23,
+      "r2": -0.0086,
+      "bias": -0.32,
+      "wmape": 20.34
+    }
+  },
+  "best_model": "Global Q50",
+  "timestamp": "2026-04-10T14:05:44.005522"
+}

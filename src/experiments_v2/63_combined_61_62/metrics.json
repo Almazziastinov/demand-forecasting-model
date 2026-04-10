@@ -1,0 +1,110 @@
+{
+  "experiment": "63_combined_61_62",
+  "target": "Спрос",
+  "baseline_v3_mae": 2.8816,
+  "exp61_mae": 2.8601,
+  "exp62_mae": 2.8719,
+  "results": {
+    "baseline (V3)": {
+      "mae": 2.8816,
+      "wmape": 27.15,
+      "bias": 0.7695,
+      "r2": 0.8946,
+      "n_features": 58,
+      "delta_vs_v3": -0.0,
+      "delta_vs_exp61": 0.0215,
+      "train_time_s": 393.0
+    },
+    "exp 61 (cens+beh)": {
+      "mae": 2.8601,
+      "wmape": 26.95,
+      "bias": 0.7389,
+      "r2": 0.8968,
+      "n_features": 66,
+      "delta_vs_v3": -0.0215,
+      "delta_vs_exp61": 0.0,
+      "train_time_s": 466.1
+    },
+    "exp 62 (assortment)": {
+      "mae": 2.8719,
+      "wmape": 27.06,
+      "bias": 0.671,
+      "r2": 0.8959,
+      "n_features": 61,
+      "delta_vs_v3": -0.0097,
+      "delta_vs_exp61": 0.0118,
+      "train_time_s": 423.4
+    },
+    "exp 61+62 combined": {
+      "mae": 2.854,
+      "wmape": 26.89,
+      "bias": 0.6461,
+      "r2": 0.8977,
+      "n_features": 69,
+      "delta_vs_v3": -0.0276,
+      "delta_vs_exp61": -0.0061,
+      "train_time_s": 470.0
+    }
+  },
+  "best_variant": "exp 61+62 combined",
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "feature_importance_new": [
+    {
+      "feature": "demand_trend",
+      "importance": 5867,
+      "rank": 6
+    },
+    {
+      "feature": "items_change",
+      "importance": 4631,
+      "rank": 12
+    },
+    {
+      "feature": "cv_7d",
+      "importance": 4349,
+      "rank": 16
+    },
+    {
+      "feature": "demand_dow_mean",
+      "importance": 4301,
+      "rank": 17
+    },
+    {
+      "feature": "items_in_bakery_today",
+      "importance": 4066,
+      "rank": 19
+    },
+    {
+      "feature": "sales_dow_mean",
+      "importance": 3865,
+      "rank": 20
+    },
+    {
+      "feature": "items_in_bakery_lag1",
+      "importance": 3252,
+      "rank": 27
+    },
+    {
+      "feature": "stale_ratio_lag1",
+      "importance": 2547,
+      "rank": 36
+    },
+    {
+      "feature": "lost_qty_lag1",
+      "importance": 2497,
+      "rank": 37
+    },
+    {
+      "feature": "pct_censored_7d",
+      "importance": 1586,
+      "rank": 51
+    },
+    {
+      "feature": "is_censored_lag1",
+      "importance": 72,
+      "rank": 61
+    }
+  ],
+  "timestamp": "2026-04-10T13:39:40.162618"
+}

@@ -1,0 +1,70 @@
+{
+  "experiment": "62_assortment_availability",
+  "target": "Спрос",
+  "hypothesis": "substitution effect when products disappear from assortment",
+  "baseline_v3_mae": 2.8816,
+  "exp61_mae": 2.8601,
+  "results": {
+    "baseline (V3)": {
+      "mae": 2.8816,
+      "wmape": 27.15,
+      "bias": 0.7695,
+      "r2": 0.8946,
+      "n_features": 58,
+      "delta_vs_v3": -0.0,
+      "delta_vs_exp61": 0.0215,
+      "train_time_s": 346.4
+    },
+    "+bakery assortment": {
+      "mae": 2.8719,
+      "wmape": 27.06,
+      "bias": 0.671,
+      "r2": 0.8959,
+      "n_features": 61,
+      "delta_vs_v3": -0.0097,
+      "delta_vs_exp61": 0.0118,
+      "train_time_s": 405.5
+    },
+    "+category assortment": {
+      "mae": 2.8814,
+      "wmape": 27.15,
+      "bias": 0.7669,
+      "r2": 0.8947,
+      "n_features": 60,
+      "delta_vs_v3": -0.0002,
+      "delta_vs_exp61": 0.0213,
+      "train_time_s": 445.5
+    },
+    "+all assortment": {
+      "mae": 2.874,
+      "wmape": 27.08,
+      "bias": 0.6677,
+      "r2": 0.8956,
+      "n_features": 63,
+      "delta_vs_v3": -0.0076,
+      "delta_vs_exp61": 0.0139,
+      "train_time_s": 439.0
+    }
+  },
+  "best_variant": "+bakery assortment",
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "feature_importance_new": [
+    {
+      "feature": "items_change",
+      "importance": 5272,
+      "rank": 9
+    },
+    {
+      "feature": "items_in_bakery_today",
+      "importance": 4330,
+      "rank": 17
+    },
+    {
+      "feature": "items_in_bakery_lag1",
+      "importance": 3821,
+      "rank": 23
+    }
+  ],
+  "timestamp": "2026-04-10T12:01:37.751141"
+}
