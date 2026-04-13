@@ -1,0 +1,141 @@
+{
+  "experiment": "66_cluster_features",
+  "target": "Спрос",
+  "baseline_v3_mae": 2.8816,
+  "exp63_mae": 2.854,
+  "best_variant": "E_routed_cluster_ts",
+  "results": {
+    "A_exp63_baseline": {
+      "mae": 2.8579,
+      "wmape": 26.92,
+      "bias": 0.6867,
+      "r2": 0.8972,
+      "n_features": 69,
+      "delta_vs_v3": -0.0237,
+      "delta_vs_exp63": 0.0039
+    },
+    "B_plus_cluster_loc": {
+      "mae": 2.8563,
+      "wmape": 26.91,
+      "bias": 0.6747,
+      "r2": 0.8974,
+      "n_features": 70,
+      "delta_vs_v3": -0.0253,
+      "delta_vs_exp63": 0.0023
+    },
+    "C_plus_cluster_ts": {
+      "mae": 2.8587,
+      "wmape": 26.93,
+      "bias": 0.6857,
+      "r2": 0.8972,
+      "n_features": 70,
+      "delta_vs_v3": -0.0229,
+      "delta_vs_exp63": 0.0047
+    },
+    "D_plus_both_clusters": {
+      "mae": 2.8561,
+      "wmape": 26.91,
+      "bias": 0.6672,
+      "r2": 0.8975,
+      "n_features": 71,
+      "delta_vs_v3": -0.0255,
+      "delta_vs_exp63": 0.0021
+    },
+    "E_routed_cluster_ts": {
+      "mae": 2.8469,
+      "wmape": 26.82,
+      "bias": 0.695,
+      "r2": 0.898,
+      "n_features": 71,
+      "delta_vs_v3": -0.0347,
+      "delta_vs_exp63": -0.0071,
+      "routed_clusters": [
+        {
+          "cluster_ts": 0,
+          "train_rows": 71815,
+          "test_rows": 11577,
+          "mae": 1.4119
+        },
+        {
+          "cluster_ts": 1,
+          "train_rows": 849625,
+          "test_rows": 37688,
+          "mae": 5.3269
+        },
+        {
+          "cluster_ts": 2,
+          "train_rows": 1610344,
+          "test_rows": 75485,
+          "mae": 1.8288
+        }
+      ]
+    }
+  },
+  "location_cluster_meta": {
+    "k": 3,
+    "silhouette": 0.4467
+  },
+  "time_series_cluster_meta": {
+    "k": 3,
+    "silhouette": 0.226
+  },
+  "location_cluster_summary": [
+    {
+      "cluster_loc": 0,
+      "n_bakeries": 4,
+      "area_mean": 88.15875,
+      "traffic_mean": 516.75,
+      "rent_mean": 1752.4973386172646,
+      "competitors_mean": 7.0
+    },
+    {
+      "cluster_loc": 1,
+      "n_bakeries": 34,
+      "area_mean": 94.36397058823529,
+      "traffic_mean": 856.4411764705883,
+      "rent_mean": 1709.0244788968776,
+      "competitors_mean": 3.1470588235294117
+    },
+    {
+      "cluster_loc": 2,
+      "n_bakeries": 190,
+      "area_mean": 80.20210526315789,
+      "traffic_mean": 414.92105263157896,
+      "rent_mean": 1652.760235915435,
+      "competitors_mean": 1.3473684210526315
+    }
+  ],
+  "time_series_cluster_summary": [
+    {
+      "cluster_ts": 0,
+      "n_pairs": 5177,
+      "demand_mean": 4.2335620857875735,
+      "cv_mean": 0.48504563697475245,
+      "trend_mean": 1.0052545315489965,
+      "censored_pct": 0.5834670310815006,
+      "lost_mean": 1.2378431463042234
+    },
+    {
+      "cluster_ts": 1,
+      "n_pairs": 5818,
+      "demand_mean": 24.32014382591711,
+      "cv_mean": 0.38883199412277814,
+      "trend_mean": 0.9973628503079681,
+      "censored_pct": 0.25631952198766383,
+      "lost_mean": 1.974243832758642
+    },
+    {
+      "cluster_ts": 2,
+      "n_pairs": 15748,
+      "demand_mean": 4.333375313244106,
+      "cv_mean": 0.5881413160774123,
+      "trend_mean": 1.0176916361687456,
+      "censored_pct": 0.5638504703762284,
+      "lost_mean": 1.2650210778214042
+    }
+  ],
+  "feature_importance_clusters": [],
+  "train_rows": 2531784,
+  "test_rows": 124750,
+  "timestamp": "2026-04-13T13:16:40.876976"
+}

@@ -347,6 +347,42 @@ Fallback chain:
 - Потенциал: **высокий** (улучшение таргета влияет на всю модель, а не только на одну фичу)
 - Сложность: средняя (рефактор build_demand_profiles, пересчёт 30M чеков)
 
+### 66. Cluster features (exp63 + location/TS clusters) ✅ POSITIVE
+Baseline: exp 63 combined (MAE 2.8540, 69 фич). Идея: не только кластерные модели как в exp 23, а кластеры как дополнительные сигналы поверх сильного feature set exp 63.
+
+Пять вариантов:
+- A: exp63 baseline
+- B: A + `cluster_loc` (кластер пекарни по локационным фичам)
+- C: A + `cluster_ts` (кластер пары bakery×product по поведению ряда)
+- D: A + оба кластера
+- E: routed model по `cluster_ts` (отдельная модель на каждый TS cluster)
+
+**Результаты:**
+| Вариант | Фичи | MAE | Delta vs exp63 |
+|---------|------|-----|----------------|
+| A exp63 baseline | 69 | 2.8579 | +0.0039 |
+| B + cluster_loc | 70 | 2.8563 | +0.0023 |
+| C + cluster_ts | 70 | 2.8587 | +0.0047 |
+| D + both clusters | 71 | 2.8561 | +0.0021 |
+| **E routed cluster_ts** | **71** | **2.8469** | **-0.0071** |
+
+Дополнительные наблюдения:
+- `cluster_loc` как обычная фича почти нейтрален
+- `cluster_ts` как обычная фича тоже почти нейтрален
+- routing по `cluster_ts` даёт реальный прирост и стал лучшим вариантом
+- по high demand улучшение ограниченное: demand>=100 MAE 21.81 vs 22.13 у exp63, но demand>=200 не улучшился
+
+Структура TS-кластеров при K=3:
+- cluster 0: 5,177 пар, mean demand 4.23, MAE 1.41
+- cluster 1: 5,818 пар, mean demand 24.32, MAE 5.33
+- cluster 2: 15,748 пар, mean demand 4.33, MAE 1.83
+
+Метаданные кластеризации:
+- location clusters: K=3, silhouette=0.447
+- TS clusters: K=3, silhouette=0.226
+
+**Вывод:** Кластеризация как routing-сигнал работает лучше, чем кластеризация как обычная categorical feature. Это подтверждает гипотезу из exp 23: segment-aware modeling полезен, но не в виде грубого "одна глобальная модель + cluster id". Следующее разумное направление — развивать routing/mixture strategy именно для demand-target, а не пытаться просто добавлять cluster labels в таблицу.
+
 ---
 
 ## Tier 3: Ensembles & Chains
