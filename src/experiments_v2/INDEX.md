@@ -48,12 +48,14 @@
 | `64_high_demand_deep_dive` | partial | yes | yes | no | analysis-first experiment |
 | `65_high_demand_model` | partial | yes | yes | no | high-demand focused model |
 | `66_cluster_features` | completed | yes | yes | yes | exp63 + location/time-series clusters |
+| `67_bakery_sku_benchmark` | completed | yes | yes | yes | per-bakery and per-SKU benchmark harness |
+| `68_prophet_benchmark` | partial | yes | yes | no | Prophet-only benchmark harness on the shared SKU contract |
 | `__pycache__` | non-experiment | no | no | no | Python cache |
 
 ## Summary
 
-- `completed`: 23
-- `partial`: 5
+- `completed`: 24
+- `partial`: 6
 - `script-only`: 2
 - `scaffold`: 1
 - `non-experiment`: 1

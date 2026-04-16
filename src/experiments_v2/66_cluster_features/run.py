@@ -14,6 +14,8 @@ import sys
 import time
 from pathlib import Path
 
+import joblib
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ROOT)
 
@@ -262,10 +264,14 @@ def load_location_features():
 def build_location_clusters(loc_df):
     feature_cols = [c for c in loc_df.columns if c != BAKERY_COL]
     work = loc_df.copy()
+    medians = {}
     for col in feature_cols:
-        work[col] = work[col].fillna(work[col].median() if work[col].notna().any() else 0)
+        med = work[col].median() if work[col].notna().any() else 0
+        medians[col] = med
+        work[col] = work[col].fillna(med)
 
-    X_scaled = StandardScaler().fit_transform(work[feature_cols].astype(float).values)
+    scaler = StandardScaler().fit(work[feature_cols].astype(float).values)
+    X_scaled = scaler.transform(work[feature_cols].astype(float).values)
     best_k = 5
     best_score = -np.inf
     for k in [3, 4, 5, 6]:
@@ -277,7 +283,8 @@ def build_location_clusters(loc_df):
             best_k = k
 
     print(f"    using location K={best_k}")
-    work["cluster_loc"] = KMeans(n_clusters=best_k, random_state=42, n_init=10).fit_predict(X_scaled).astype(int)
+    kmeans_loc = KMeans(n_clusters=best_k, random_state=42, n_init=10).fit(X_scaled)
+    work["cluster_loc"] = kmeans_loc.labels_.astype(int)
     summary = (
         work.groupby("cluster_loc")
         .agg(
@@ -290,7 +297,13 @@ def build_location_clusters(loc_df):
         .reset_index()
     )
     meta = {"k": best_k, "silhouette": round(float(best_score), 4)}
-    return work[[BAKERY_COL, "cluster_loc"]], summary, meta
+    loc_pipeline = {
+        "scaler": scaler,
+        "kmeans": kmeans_loc,
+        "feature_cols": feature_cols,
+        "medians": medians,
+    }
+    return work[[BAKERY_COL, "cluster_loc"]], summary, meta, loc_pipeline
 
 
 def build_ts_clusters(df):
@@ -325,7 +338,8 @@ def build_ts_clusters(df):
     X = cluster_df[feat_cols].copy()
     X["demand_mean"] = np.log1p(X["demand_mean"])
     X["n_days"] = np.log1p(X["n_days"])
-    X_scaled = StandardScaler().fit_transform(X.values)
+    ts_scaler = StandardScaler().fit(X.values)
+    X_scaled = ts_scaler.transform(X.values)
 
     best_k = 5
     best_score = -np.inf
@@ -338,7 +352,8 @@ def build_ts_clusters(df):
             best_k = k
 
     print(f"    using ts K={best_k}")
-    cluster_df["cluster_ts"] = KMeans(n_clusters=best_k, random_state=42, n_init=10).fit_predict(X_scaled).astype(int)
+    kmeans_ts = KMeans(n_clusters=best_k, random_state=42, n_init=10).fit(X_scaled)
+    cluster_df["cluster_ts"] = kmeans_ts.labels_.astype(int)
     summary = (
         cluster_df.groupby("cluster_ts")
         .agg(
@@ -352,7 +367,12 @@ def build_ts_clusters(df):
         .reset_index()
     )
     meta = {"k": best_k, "silhouette": round(float(best_score), 4)}
-    return cluster_df[[BAKERY_COL, PRODUCT_COL, "cluster_ts"]], summary, meta
+    ts_pipeline = {
+        "scaler": ts_scaler,
+        "kmeans": kmeans_ts,
+        "feat_cols": feat_cols,
+    }
+    return cluster_df[[BAKERY_COL, PRODUCT_COL, "cluster_ts"]], summary, meta, ts_pipeline
 
 
 def evaluate_model(name, train_df, test_df, features, y_train, y_test):
@@ -391,6 +411,7 @@ def evaluate_routed_model(train_df, test_df, features, y_test):
     available = [f for f in features if f in train_df.columns]
     preds = np.full(len(test_df), np.nan, dtype=float)
     cluster_results = []
+    cluster_models = {}
 
     print(f"\n  --- E_routed_cluster_ts ({len(available)} features) ---")
     for cluster_id in sorted(train_df["cluster_ts"].astype(int).unique()):
@@ -400,6 +421,7 @@ def evaluate_routed_model(train_df, test_df, features, y_test):
             continue
 
         model = train_quantile(cluster_train[available], cluster_train[DEMAND_TARGET], alpha=0.5)
+        cluster_models[int(cluster_id)] = model
         cluster_pred = predict_clipped(model, cluster_test[available])
         preds[test_df["cluster_ts"].astype(int) == cluster_id] = cluster_pred
         cluster_results.append(
@@ -411,10 +433,11 @@ def evaluate_routed_model(train_df, test_df, features, y_test):
             }
         )
 
+    fallback_model = None
     missing_mask = np.isnan(preds)
     if missing_mask.any():
-        fallback = train_quantile(train_df[available], train_df[DEMAND_TARGET], alpha=0.5)
-        preds[missing_mask] = predict_clipped(fallback, test_df.loc[missing_mask, available])
+        fallback_model = train_quantile(train_df[available], train_df[DEMAND_TARGET], alpha=0.5)
+        preds[missing_mask] = predict_clipped(fallback_model, test_df.loc[missing_mask, available])
 
     mae = mean_absolute_error(y_test, preds)
     wm = wmape(y_test, preds)
@@ -440,7 +463,8 @@ def evaluate_routed_model(train_df, test_df, features, y_test):
             bias_h = float(np.mean(y_test[mask] - preds[mask]))
             print(f"    demand>={threshold}: MAE={mae_h:.2f}, Bias={bias_h:+.2f}, N={mask.sum()}")
 
-    return preds, result, available
+    routed_models = {"cluster_models": cluster_models, "fallback": fallback_model}
+    return preds, result, available, routed_models
 
 
 def main():
@@ -465,13 +489,13 @@ def main():
 
     print(f"\n[3/7] Building location clusters...")
     loc_df = load_location_features()
-    loc_clusters, loc_summary, loc_meta = build_location_clusters(loc_df)
+    loc_clusters, loc_summary, loc_meta, loc_pipeline = build_location_clusters(loc_df)
     df = df.merge(loc_clusters, on=BAKERY_COL, how="left")
     df["cluster_loc"] = df["cluster_loc"].fillna(-1).astype(int)
     print(f"  Matched bakeries with location cluster: {df.loc[df['cluster_loc'] >= 0, BAKERY_COL].nunique()}")
 
     print(f"\n[4/7] Building time-series clusters...")
-    ts_clusters, ts_summary, ts_meta = build_ts_clusters(df)
+    ts_clusters, ts_summary, ts_meta, ts_pipeline = build_ts_clusters(df)
     df = df.merge(ts_clusters, on=[BAKERY_COL, PRODUCT_COL], how="left")
     df["cluster_ts"] = df["cluster_ts"].fillna(-1).astype(int)
 
@@ -519,7 +543,7 @@ def main():
             best_pred = pred
             best_available = available
 
-    pred_e, result_e, available_e = evaluate_routed_model(
+    pred_e, result_e, available_e, routed_models = evaluate_routed_model(
         train_df, test_df, exp63_features + ["cluster_loc", "cluster_ts"], y_test
     )
     all_results["E_routed_cluster_ts"] = result_e
@@ -527,12 +551,13 @@ def main():
     if result_e["mae"] < best_mae:
         best_variant = "E_routed_cluster_ts"
         best_mae = result_e["mae"]
-        best_model = None
+        best_model = routed_models
         best_pred = pred_e
         best_available = available_e
 
     print(f"\n[7/7] Reporting...")
-    if best_model is not None:
+    is_routed = isinstance(best_model, dict)
+    if not is_routed and best_model is not None:
         importance = pd.DataFrame(
             {"feature": best_available, "importance": best_model.feature_importances_}
         ).sort_values("importance", ascending=False)
@@ -549,6 +574,23 @@ def main():
         feature_importance_clusters = []
         print("\n  === Cluster feature importance ===")
         print("    best variant is routed; no single-model feature importance")
+
+    # Save best model
+    model_path = EXP_DIR / "best_model.joblib"
+    joblib.dump(
+        {
+            "variant": best_variant,
+            "model": best_model,
+            "features": best_available,
+            "n_features": len(best_available),
+            "mae": best_mae,
+            "loc_pipeline": loc_pipeline,
+            "ts_pipeline": ts_pipeline,
+            "loc_clusters": loc_clusters,
+        },
+        model_path,
+    )
+    print(f"\n  Best model saved to {model_path.name} ({best_variant}, MAE={best_mae:.4f})")
 
     print(f"\n  === Per-category ({best_variant}) ===")
     print_category_metrics(y_test, best_pred, test_df[CATEGORY_COL].values)

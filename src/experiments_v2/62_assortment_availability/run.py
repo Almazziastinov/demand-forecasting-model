@@ -267,7 +267,17 @@ def main():
             if row["feature"] in new_feats
         ],
     }
-    save_results(EXP_DIR, metrics)
+    predictions = pd.DataFrame({
+        "Дата": test["Дата"].values,
+        "Пекарня": test["Пекарня"].values,
+        "Номенклатура": test["Номенклатура"].values,
+        "Категория": test["Категория"].values,
+        "fact": y_test,
+        "pred": np.round(best_pred, 2),
+        "abs_error": np.round(np.abs(y_test - best_pred), 2),
+        "model": best_name,
+    })
+    save_results(EXP_DIR, metrics, predictions)
 
     elapsed = time.time() - t_start
     print(f"\n  Total time: {elapsed:.0f}s")
