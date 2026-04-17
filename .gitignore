@@ -47,6 +47,7 @@ catboost_info/
 web/data/
 
 # Generated experiment outputs
+reports/
 reports/*.csv
 reports/*.json
 reports/*.jsonl
