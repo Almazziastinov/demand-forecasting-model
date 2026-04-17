@@ -17,7 +17,9 @@ LOGS_DIR = os.path.join(BASE_DIR, "logs")
 # Файлы данных
 RAW_DATA_PATH = os.path.join(RAW_DIR, "beigl_data.xlsx")
 RAW_DATA_3MONTH = os.path.join(RAW_DIR, "3_month_data.xlsx")
-PROCESSED_DATA_PATH = os.path.join(PROCESSED_DIR, "preprocessed_data_3month_enriched.csv")
+PROCESSED_DATA_PATH = os.path.join(
+    PROCESSED_DIR, "preprocessed_data_3month_enriched.csv"
+)
 MERGED_DATA_PATH = os.path.join(PROCESSED_DIR, "preprocessed_data_merged_enriched.csv")
 
 # Файлы моделей
@@ -31,23 +33,47 @@ TARGET = "Продано"
 # --- Признаки ---
 FEATURES = [
     # Categorical
-    "Пекарня", "Номенклатура", "Категория", "Город",
+    "Пекарня",
+    "Номенклатура",
+    "Категория",
+    "Город",
     # Calendar
-    "ДеньНедели", "День", "IsWeekend", "Месяц", "НомерНедели",
+    "ДеньНедели",
+    "День",
+    "IsWeekend",
+    "Месяц",
+    "НомерНедели",
     # Sales lags
-    "sales_lag1", "sales_lag2", "sales_lag3", "sales_lag7",
-    "sales_lag14", "sales_lag30",
+    "sales_lag1",
+    "sales_lag2",
+    "sales_lag3",
+    "sales_lag7",
+    "sales_lag14",
+    "sales_lag30",
     # Rolling stats
-    "sales_roll_mean3", "sales_roll_mean7", "sales_roll_std7",
-    "sales_roll_mean14", "sales_roll_mean30",
+    "sales_roll_mean3",
+    "sales_roll_mean7",
+    "sales_roll_std7",
+    "sales_roll_mean14",
+    "sales_roll_mean30",
     # Stock features
-    "stock_lag1", "stock_sales_ratio", "stock_deficit",
+    "stock_lag1",
+    "stock_sales_ratio",
+    "stock_deficit",
     # Holiday / calendar
-    "is_holiday", "is_pre_holiday", "is_post_holiday", "is_payday_week",
-    "is_month_start", "is_month_end",
+    "is_holiday",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "is_payday_week",
+    "is_month_start",
+    "is_month_end",
     # Weather
-    "temp_mean", "temp_range", "precipitation",
-    "is_cold", "is_bad_weather", "weather_cat_code",
+    "temp_mean",
+    "temp_range",
+    "precipitation",
+    "is_cold",
+    "is_bad_weather",
+    "weather_cat_code",
 ]
 
 CATEGORICAL_COLS = ["Пекарня", "Номенклатура", "Категория", "Город", "Месяц"]
@@ -65,7 +91,7 @@ MODEL_PARAMS = {
     "reg_lambda": 2.204771489304501e-06,
     "random_state": 42,
     "n_jobs": -1,
-    "verbose": -1,
+    "verbose": 5000,
 }
 
 # --- Параметры обучения ---
