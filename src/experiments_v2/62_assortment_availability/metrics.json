@@ -13,7 +13,7 @@
       "n_features": 58,
       "delta_vs_v3": -0.0,
       "delta_vs_exp61": 0.0215,
-      "train_time_s": 346.4
+      "train_time_s": 362.9
     },
     "+bakery assortment": {
       "mae": 2.8719,
@@ -23,7 +23,7 @@
       "n_features": 61,
       "delta_vs_v3": -0.0097,
       "delta_vs_exp61": 0.0118,
-      "train_time_s": 405.5
+      "train_time_s": 371.5
     },
     "+category assortment": {
       "mae": 2.8814,
@@ -33,7 +33,7 @@
       "n_features": 60,
       "delta_vs_v3": -0.0002,
       "delta_vs_exp61": 0.0213,
-      "train_time_s": 445.5
+      "train_time_s": 370.5
     },
     "+all assortment": {
       "mae": 2.874,
@@ -43,7 +43,7 @@
       "n_features": 63,
       "delta_vs_v3": -0.0076,
       "delta_vs_exp61": 0.0139,
-      "train_time_s": 439.0
+      "train_time_s": 376.8
     }
   },
   "best_variant": "+bakery assortment",
@@ -66,5 +66,5 @@
       "rank": 23
     }
   ],
-  "timestamp": "2026-04-10T12:01:37.751141"
+  "timestamp": "2026-04-16T20:13:25.456362"
 }

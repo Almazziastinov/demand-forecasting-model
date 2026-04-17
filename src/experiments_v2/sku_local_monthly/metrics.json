@@ -1,0 +1,48 @@
+{
+  "experiment": "sku_local_monthly",
+  "status": "completed",
+  "prophet_available": false,
+  "test_days": 3,
+  "min_train_rows": 999999,
+  "rows_total": 2656534,
+  "rows_train": 2602511,
+  "rows_test": 54023,
+  "pairs_total": 21198,
+  "model_summary": [
+    {
+      "model": "prophet_local",
+      "n_pairs": 21198,
+      "avg_r2": -74.0802,
+      "median_r2": -0.5969,
+      "avg_mae": 3.0183,
+      "median_mae": 1.9207,
+      "avg_mse": 31.558,
+      "avg_wmape": 44.39,
+      "win_count": 12900
+    },
+    {
+      "model": "lgbm_local",
+      "n_pairs": 21198,
+      "avg_r2": -74.0802,
+      "median_r2": -0.5969,
+      "avg_mae": 3.0183,
+      "median_mae": 1.9207,
+      "avg_mse": 31.558,
+      "avg_wmape": 44.39,
+      "win_count": 0
+    },
+    {
+      "model": "two_week_avg",
+      "n_pairs": 21198,
+      "avg_r2": -86.4911,
+      "median_r2": -0.5951,
+      "avg_mae": 2.941,
+      "median_mae": 1.9188,
+      "avg_mse": 28.1502,
+      "avg_wmape": 45.87,
+      "win_count": 8298
+    }
+  ],
+  "best_by_sku_rows": 21198,
+  "timestamp": "2026-04-17T16:38:08.584827"
+}

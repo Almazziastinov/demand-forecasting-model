@@ -3,15 +3,22 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.pytest_cache/
+.pytest_tmp/
+.pytest_tmp_local/
 
 # Data (processed files are reproducible)
 data/processed/
 data/.weather_cache.sqlite
+.weather_cache.sqlite
 data/raw/sales_hrs_all.csv
 sales_hrs/
 
 # Models (binary artifacts)
 models/
+triangle_chicken_demand_*
+mlflow.db
+Demand Forecasting Bakery Data Analysis*
 
 # IDE
 .vscode/
@@ -38,3 +45,20 @@ catboost_info/
 
 # Web app cache
 web/data/
+
+# Generated experiment outputs
+reports/*.csv
+reports/*.json
+reports/*.jsonl
+src/experiments_v2/**/predictions*.csv
+src/experiments_v2/**/*predictions*.csv
+src/experiments_v2/**/metrics_*.csv
+src/experiments_v2/**/summary_*.csv
+src/experiments_v2/**/training_log.csv
+src/experiments_v2/**/best_by_sku*.csv
+src/experiments_v2/**/benchmark_all_models*.csv
+src/experiments_v2/**/selected_sku_subset.csv
+src/experiments_v2/**/run_manifest.csv
+src/experiments_v2/**/artifact_manifest.json
+src/experiments_v2/**/best_model.joblib
+src/experiments_v2/full_benchmark/

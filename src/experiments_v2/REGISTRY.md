@@ -20,6 +20,9 @@
 | `40_tweedie` | strong candidate | Небольшой, но устойчивый прирост на high-demand проблеме |
 | `60_baseline_v3` | active baseline | Опорный baseline для более новых v3/v2-экспериментов |
 | `66_cluster_features` | strong candidate | Лучший из текущих demand/v3-производных экспериментов: routed cluster_ts дал MAE 2.8469 |
+| `full_benchmark_monthly` | script-only | Train-safe 30-day full benchmark for global demand models |
+| `sku_local_monthly` | script-only | Per-SKU local Prophet and LightGBM benchmark on the same 30-day holdout |
+| `69_quantile_intervals_v3` | script-only | Demand quantile intervals on P10/P50/P90; new candidate before running |
 | `67_bakery_sku_benchmark` | completed | Новый benchmark-контур для сравнения global / SKU / baseline на фиксированных bakeries и SKU |
 | `68_prophet_benchmark` | in progress | Prophet-only контур, shortlist по `global_best_r2` уже работает; полный прогон требует установки `prophet` |
 | `03_demand_target` | strategic candidate | Не лучший по sales-MAE, но критически важен как переход к прогнозу спроса вместо продаж |

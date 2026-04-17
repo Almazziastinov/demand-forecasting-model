@@ -1,0 +1,70 @@
+{
+  "experiment": "68_prophet_benchmark",
+  "status": "completed",
+  "summary_path": "C:\\Users\\dns\\Desktop\\Projects\\demand-forecasting-model\\src\\experiments_v2\\67_bakery_sku_benchmark\\summary_best_by_sku.csv",
+  "r2_threshold": 0.3,
+  "selected_rows": 453,
+  "rows_total": 66179,
+  "rows_train": 46874,
+  "rows_test": 2629,
+  "pairs_total": 453,
+  "model_summary": [
+    {
+      "model": "prophet_base",
+      "n_pairs": 453,
+      "avg_r2": -1.0973,
+      "median_r2": -0.3507,
+      "avg_mae": 3.1162,
+      "median_mae": 2.1834,
+      "avg_mse": 28.6924,
+      "avg_wmape": 43.11,
+      "win_count": 141
+    },
+    {
+      "model": "prophet_holidays",
+      "n_pairs": 453,
+      "avg_r2": -1.0734,
+      "median_r2": -0.337,
+      "avg_mae": 3.0916,
+      "median_mae": 2.1821,
+      "avg_mse": 27.9388,
+      "avg_wmape": 43.01,
+      "win_count": 64
+    },
+    {
+      "model": "prophet_calendar",
+      "n_pairs": 453,
+      "avg_r2": -1.1128,
+      "median_r2": -0.3479,
+      "avg_mae": 3.0923,
+      "median_mae": 2.2,
+      "avg_mse": 27.9922,
+      "avg_wmape": 43.01,
+      "win_count": 93
+    },
+    {
+      "model": "prophet_calendar_holidays",
+      "n_pairs": 453,
+      "avg_r2": -1.4764,
+      "median_r2": -0.4359,
+      "avg_mae": 3.2295,
+      "median_mae": 2.3305,
+      "avg_mse": 29.6337,
+      "avg_wmape": 45.67,
+      "win_count": 73
+    },
+    {
+      "model": "prophet_safe_regressors",
+      "n_pairs": 453,
+      "avg_r2": -1.4909,
+      "median_r2": -0.4477,
+      "avg_mae": 3.2298,
+      "median_mae": 2.255,
+      "avg_mse": 29.6364,
+      "avg_wmape": 45.65,
+      "win_count": 82
+    }
+  ],
+  "best_by_sku_rows": 453,
+  "timestamp": "2026-04-16T16:43:14.395097"
+}

@@ -50,13 +50,16 @@
 | `66_cluster_features` | completed | yes | yes | yes | exp63 + location/time-series clusters |
 | `67_bakery_sku_benchmark` | completed | yes | yes | yes | per-bakery and per-SKU benchmark harness |
 | `68_prophet_benchmark` | partial | yes | yes | no | Prophet-only benchmark harness on the shared SKU contract |
+| `69_quantile_intervals_v3` | script-only | yes | no | no | demand-target quantile intervals P10/P50/P90 |
+| `full_benchmark_monthly` | script-only | yes | no | no | monthly train-safe full benchmark on 30-day holdout |
+| `sku_local_monthly` | script-only | yes | no | no | monthly per-SKU Prophet / LightGBM benchmark on 30-day holdout |
 | `__pycache__` | non-experiment | no | no | no | Python cache |
 
 ## Summary
 
 - `completed`: 24
 - `partial`: 6
-- `script-only`: 2
+- `script-only`: 5
 - `scaffold`: 1
 - `non-experiment`: 1
 

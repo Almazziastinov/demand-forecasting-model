@@ -31,8 +31,8 @@
   "n_products": 523,
   "n_categories": 23,
   "censored_pct": 45.1,
-  "train_time_quantiles_s": 973.9,
-  "train_time_mse_s": 222.2,
+  "train_time_quantiles_s": 1228.5,
+  "train_time_mse_s": 236.1,
   "feature_importance_top15": [
     {
       "feature": "Пекарня",
@@ -95,5 +95,5 @@
       "importance": 4650
     }
   ],
-  "timestamp": "2026-04-07T12:58:19.010761"
+  "timestamp": "2026-04-16T18:17:09.770607"
 }

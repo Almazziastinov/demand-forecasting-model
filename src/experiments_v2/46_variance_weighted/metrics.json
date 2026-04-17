@@ -12,8 +12,8 @@
   "r2": 0.9191,
   "train_rows": 3412075,
   "test_rows": 135344,
-  "train_time_s": 469.7,
+  "train_time_s": 438.4,
   "baseline_01_mae": 2.2904,
   "baseline_01_wmape": 25.91,
-  "timestamp": "2026-04-06T14:47:23.499272"
+  "timestamp": "2026-04-16T18:58:28.280584"
 }

@@ -9,7 +9,7 @@
   "r2": 0.9185,
   "train_rows": 3412075,
   "test_rows": 135344,
-  "train_time_s": 482.3,
+  "train_time_s": 443.1,
   "baseline_01_mae": 2.2904,
   "baseline_01_wmape": 25.91,
   "feature_importance_top10": [
@@ -54,5 +54,5 @@
       "importance": 7538
     }
   ],
-  "timestamp": "2026-04-06T14:38:29.250792"
+  "timestamp": "2026-04-16T18:50:28.773170"
 }

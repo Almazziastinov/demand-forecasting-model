@@ -10,7 +10,7 @@
       "r2": 0.8946,
       "n_features": 58,
       "delta_mae": -0.0,
-      "train_time_s": 353.9
+      "train_time_s": 437.7
     },
     "+A (censoring)": {
       "mae": 2.8809,
@@ -19,7 +19,7 @@
       "r2": 0.895,
       "n_features": 61,
       "delta_mae": -0.0007,
-      "train_time_s": 380.8
+      "train_time_s": 374.5
     },
     "+A+B (dow)": {
       "mae": 2.8662,
@@ -28,7 +28,7 @@
       "r2": 0.8963,
       "n_features": 63,
       "delta_mae": -0.0154,
-      "train_time_s": 384.0
+      "train_time_s": 375.6
     },
     "+A+B+C (trend)": {
       "mae": 2.8648,
@@ -37,7 +37,7 @@
       "r2": 0.8962,
       "n_features": 65,
       "delta_mae": -0.0168,
-      "train_time_s": 387.8
+      "train_time_s": 384.6
     },
     "+A+B+C+D (stale)": {
       "mae": 2.8601,
@@ -46,7 +46,7 @@
       "r2": 0.8968,
       "n_features": 66,
       "delta_mae": -0.0215,
-      "train_time_s": 408.6
+      "train_time_s": 386.7
     }
   },
   "best_variant": "+A+B+C+D (stale)",
@@ -94,5 +94,5 @@
       "rank": 59
     }
   ],
-  "timestamp": "2026-04-09T15:06:24.111013"
+  "timestamp": "2026-04-16T19:40:56.936330"
 }

@@ -1,0 +1,66 @@
+{
+  "experiment": "67_bakery_sku_benchmark",
+  "selected_bakeries": [
+    "Халтурина 8/20 Казань",
+    "проспект Мусы Джалиля 20 Наб Челны",
+    "Камая 1 Казань",
+    "Дзержинского 47 Курск",
+    "Фучика 105А Казань"
+  ],
+  "test_days": 7,
+  "min_train_rows": 30,
+  "global_model_path": "C:\\Users\\dns\\Desktop\\Projects\\demand-forecasting-model\\src\\experiments_v2\\66_cluster_features\\best_model.joblib",
+  "global_variant": "E_routed_cluster_ts",
+  "rows_total": 66179,
+  "rows_train": 62932,
+  "rows_test": 3247,
+  "pairs_total": 564,
+  "model_summary": [
+    {
+      "model": "global_best",
+      "n_pairs": 564,
+      "avg_r2": -0.2254,
+      "median_r2": -0.1001,
+      "avg_mae": 2.6713,
+      "median_mae": 1.8114,
+      "avg_mse": 21.4496,
+      "avg_wmape": 35.79,
+      "win_count": 301
+    },
+    {
+      "model": "sku_local",
+      "n_pairs": 564,
+      "avg_r2": -0.6534,
+      "median_r2": -0.1285,
+      "avg_mae": 3.006,
+      "median_mae": 2.0392,
+      "avg_mse": 27.7333,
+      "avg_wmape": 39.64,
+      "win_count": 145
+    },
+    {
+      "model": "bakery_local",
+      "n_pairs": 564,
+      "avg_r2": -11.4856,
+      "median_r2": -6.1823,
+      "avg_mae": 9.7714,
+      "median_mae": 5.0869,
+      "avg_mse": 307.7405,
+      "avg_wmape": 100.0,
+      "win_count": 0
+    },
+    {
+      "model": "two_week_avg",
+      "n_pairs": 564,
+      "avg_r2": -0.993,
+      "median_r2": -0.2095,
+      "avg_mae": 3.3237,
+      "median_mae": 2.1875,
+      "avg_mse": 32.8759,
+      "avg_wmape": 47.27,
+      "win_count": 118
+    }
+  ],
+  "best_by_sku_rows": 564,
+  "timestamp": "2026-04-16T14:59:15.373387"
+}
