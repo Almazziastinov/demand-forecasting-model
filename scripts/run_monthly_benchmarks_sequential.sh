@@ -19,11 +19,11 @@ echo "[start] monthly benchmarks: $(date -Iseconds)"
 echo "[info] root: $ROOT_DIR"
 
 echo "[run] full_benchmark_monthly"
-python src/experiments_v2/full_benchmark_monthly/run.py \
+python -m src.experiments_v2.full_benchmark_monthly.run \
   2>&1 | tee "$LOG_DIR/full_benchmark_monthly.log"
 
 echo "[run] sku_local_monthly"
-python src/experiments_v2/sku_local_monthly/run.py --test-days 30 --min-train-rows 30 \
+python -m src.experiments_v2.sku_local_monthly.run --test-days 30 --min-train-rows 30 \
   2>&1 | tee "$LOG_DIR/sku_local_monthly.log"
 
 echo "[done] monthly benchmarks: $(date -Iseconds)"

@@ -10,6 +10,7 @@ This is a train-safe replacement for the short-horizon full benchmark:
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 EXP_DIR = Path(__file__).resolve().parent
 ARTIFACTS_DIR = EXP_DIR / "artifacts"
 
@@ -27,15 +29,14 @@ from src.experiments_v2.benchmark_common import (  # noqa: E402
     CATEGORICAL_COLS_V2,
     DEMAND_8M_PATH,
     DEMAND_TARGET,
-    FEATURES_V3,
     make_train_test_split,
     predict_clipped,
     regression_metrics,
-    save_results,
     select_feature_columns,
     train_quantile,
     wmape,
 )
+from src.experiments_v2.common import FEATURES_V3, save_results  # noqa: E402
 from src.experiments_v2.monthly_benchmark_common import (  # noqa: E402
     FEATURES_61_EXTRA,
     FEATURES_62_EXTRA,
