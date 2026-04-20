@@ -311,6 +311,9 @@ def build_train_ts_clusters(train_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
 
 
 def merge_cluster_map(df: pd.DataFrame, cluster_map: pd.DataFrame, cluster_col: str) -> pd.DataFrame:
-    merged = df.merge(cluster_map, on=[BAKERY_COL, PRODUCT_COL], how="left")
+    join_keys = [col for col in (BAKERY_COL, PRODUCT_COL) if col in cluster_map.columns]
+    if not join_keys:
+        raise KeyError(f"Cluster map must contain at least one join key: {BAKERY_COL} or {PRODUCT_COL}")
+    merged = df.merge(cluster_map, on=join_keys, how="left")
     merged[cluster_col] = merged[cluster_col].fillna(-1).astype(int)
     return merged
