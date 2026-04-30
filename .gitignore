@@ -3,9 +3,11 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.venv-ai/
 .pytest_cache/
 .pytest_tmp/
 .pytest_tmp_local/
+.env
 
 # Data (processed files are reproducible)
 data/processed/
@@ -51,6 +53,7 @@ reports/
 reports/*.csv
 reports/*.json
 reports/*.jsonl
+src/experiments_v2/**/__pycache__/
 src/experiments_v2/**/predictions*.csv
 src/experiments_v2/**/*predictions*.csv
 src/experiments_v2/**/metrics_*.csv
@@ -63,3 +66,8 @@ src/experiments_v2/**/run_manifest.csv
 src/experiments_v2/**/artifact_manifest.json
 src/experiments_v2/**/best_model.joblib
 src/experiments_v2/full_benchmark/
+src/experiments_v2/Full_benchmark_mounth_results/
+
+# Local scratch artifacts
+test.png
+notebooks/test.png

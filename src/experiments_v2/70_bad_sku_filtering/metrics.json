@@ -1,0 +1,84 @@
+{
+  "experiment": "70_bad_sku_filtering",
+  "target": "Спрос",
+  "weak_r2_threshold": 0.0,
+  "global_model_name": "66_cluster_features",
+  "test_days": 30,
+  "baseline_v3_mae": 2.8816,
+  "best_variant": "downweight_weak_050",
+  "best_mae": 2.9255,
+  "best_wmape": 27.9,
+  "best_bias": 0.7878,
+  "best_r2": 0.8852,
+  "weak_share_pct": 36.83,
+  "train_rows": 2231972,
+  "test_rows": 424562,
+  "train_weak_rows": 797670,
+  "train_global66_weak_rows": 90646,
+  "test_weak_rows": 180792,
+  "summary_csv": "variant_summary.csv",
+  "predictions_csv": "variant_predictions.csv",
+  "variants": [
+    {
+      "variant": "downweight_weak_050",
+      "mae": 2.925530678304275,
+      "wmape": 27.903033538361065,
+      "bias": 0.7877626123781744,
+      "r2": 0.8852374389638342,
+      "weak_mae": 2.5550898573666863,
+      "weak_wmape": 32.790738136126826,
+      "train_time_s": 1538.0
+    },
+    {
+      "variant": "downweight_weak_025",
+      "mae": 2.926746826869083,
+      "wmape": 27.914632881496694,
+      "bias": 0.7862740120149294,
+      "r2": 0.885197154529704,
+      "weak_mae": 2.556846311143257,
+      "weak_wmape": 32.81327958047943,
+      "train_time_s": 1522.2
+    },
+    {
+      "variant": "baseline_all",
+      "mae": 2.9275085693450746,
+      "wmape": 27.921898204678165,
+      "bias": 0.7854196465226628,
+      "r2": 0.88491829282384,
+      "weak_mae": 2.5525574008804006,
+      "weak_wmape": 32.7582378632916,
+      "train_time_s": 302.5
+    },
+    {
+      "variant": "smooth_weak_roll7",
+      "mae": 2.929194783746022,
+      "wmape": 27.937980926808347,
+      "bias": 0.6914973839892877,
+      "r2": 0.8857256249069958,
+      "weak_mae": 2.535706731905392,
+      "weak_wmape": 32.541984852782015,
+      "train_time_s": 339.9
+    },
+    {
+      "variant": "exclude_weak",
+      "mae": 2.931831913249772,
+      "wmape": 27.96313325678863,
+      "bias": 0.7623002939129913,
+      "r2": 0.8849911922345878,
+      "weak_mae": 2.563569586792531,
+      "weak_wmape": 32.899562718662125,
+      "train_time_s": 206.0
+    },
+    {
+      "variant": "global66_weak_only",
+      "mae": 3.1822552619175406,
+      "wmape": 30.35161311395958,
+      "bias": 1.0495014446950948,
+      "r2": 0.8393666794359855,
+      "weak_mae": 2.623767094638076,
+      "weak_wmape": 33.672107257759095,
+      "train_time_s": 32.2
+    }
+  ],
+  "timestamp": "2026-04-21T12:58:43.862895"
+}

@@ -1,0 +1,157 @@
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from matplotlib.dates import DayLocator, DateFormatter
+
+
+def plot_daily_vs_existing_hourly_profile(
+    month_df: pd.DataFrame,
+    hourly_profiles: dict[str, pd.DataFrame],
+    bakery: str,
+    product: str,
+    date_col: str,
+    datetime_col: str,
+    bakery_col: str,
+    product_col: str,
+    qty_col: str,
+    month_tag: str,
+    out_dir: Path | None = None,
+):
+    """
+    Compare actual daily sales for one SKU against the expected daily sales
+    reconstructed from an already-built hourly profile.
+
+    The function expects hourly_profiles[product] to contain:
+        - hour
+        - avg_hour_share
+    """
+    if out_dir is None:
+        out_dir = Path("reports") / "monthly_demand_review"
+
+    if product not in hourly_profiles:
+        raise KeyError(f"Product not found in hourly_profiles: {product}")
+
+    data = month_df.copy()
+    data[date_col] = pd.to_datetime(data[date_col], errors="coerce", dayfirst=True)
+    data[datetime_col] = pd.to_datetime(data[datetime_col], errors="coerce", dayfirst=True)
+    data[qty_col] = pd.to_numeric(data[qty_col], errors="coerce")
+    data = data.dropna(subset=[date_col, datetime_col, qty_col])
+
+    bakery_df = data[data[bakery_col] == bakery].copy()
+    if bakery_df.empty:
+        raise ValueError(f"Bakery not found in data: {bakery}")
+
+    product_df = bakery_df[bakery_df[product_col] == product].copy()
+    if product_df.empty:
+        raise ValueError(f"Product not found for bakery {bakery}: {product}")
+
+    profile_df = hourly_profiles[product][["hour", "avg_hour_share"]].copy()
+
+    bakery_df["date"] = bakery_df[date_col].dt.normalize()
+    bakery_df["hour"] = bakery_df[datetime_col].dt.hour
+
+    product_df["date"] = product_df[date_col].dt.normalize()
+    product_df["hour"] = product_df[datetime_col].dt.hour
+
+    bakery_hourly = (
+        bakery_df.groupby(["date", "hour"], as_index=False)[qty_col]
+        .sum()
+        .rename(columns={qty_col: "bakery_hour_qty"})
+    )
+
+    product_hourly = (
+        product_df.groupby(["date", "hour"], as_index=False)[qty_col]
+        .sum()
+        .rename(columns={qty_col: "actual_product_hour_qty"})
+    )
+
+    hourly = bakery_hourly.merge(product_hourly, on=["date", "hour"], how="left")
+    hourly["actual_product_hour_qty"] = hourly["actual_product_hour_qty"].fillna(0.0)
+    hourly = hourly.merge(profile_df, on="hour", how="left")
+    hourly["expected_product_hour_qty"] = hourly["bakery_hour_qty"] * hourly["avg_hour_share"]
+
+    daily = (
+        hourly.groupby("date", as_index=False)
+        .agg(
+            bakery_daily_qty=("bakery_hour_qty", "sum"),
+            actual_daily_qty=("actual_product_hour_qty", "sum"),
+            expected_daily_qty=("expected_product_hour_qty", "sum"),
+        )
+    )
+
+    daily["daily_share"] = daily["actual_daily_qty"] / daily["bakery_daily_qty"].where(daily["bakery_daily_qty"] > 0)
+    daily["expected_share"] = daily["expected_daily_qty"] / daily["bakery_daily_qty"].where(daily["bakery_daily_qty"] > 0)
+    daily["gap_qty"] = daily["expected_daily_qty"] - daily["actual_daily_qty"]
+
+    daily_plot = daily.copy()
+    daily_plot["date"] = pd.to_datetime(daily_plot["date"])
+
+    fig, axes = plt.subplots(2, 1, figsize=(18, 12), gridspec_kw={"height_ratios": [2, 1]})
+
+    axes[0].plot(daily_plot["date"], daily_plot["actual_daily_qty"], label="Actual", linewidth=2, color="black")
+    axes[0].plot(
+        daily_plot["date"],
+        daily_plot["expected_daily_qty"],
+        label="Expected from existing hourly profile",
+        linewidth=2,
+        color="#1f77b4",
+    )
+    axes[0].set_title(f"{bakery} / {product} - actual vs expected daily sales")
+    axes[0].legend()
+    axes[0].grid(True, which="major", axis="x", linestyle="--", alpha=0.5)
+    axes[0].grid(True, which="major", axis="y", alpha=0.3)
+    axes[0].xaxis.set_major_locator(DayLocator(interval=1))
+    axes[0].xaxis.set_major_formatter(DateFormatter("%Y-%m-%d"))
+    axes[0].tick_params(axis="x", rotation=45)
+
+    axes[1].plot(
+        daily_plot["date"],
+        daily_plot["daily_share"],
+        marker="o",
+        linewidth=1.5,
+        color="#d95f02",
+        label="Actual share",
+    )
+    axes[1].plot(
+        daily_plot["date"],
+        daily_plot["expected_share"],
+        marker="o",
+        linewidth=1.5,
+        color="#2ca02c",
+        label="Expected share",
+    )
+    axes[1].set_title("Daily share in bakery sales")
+    axes[1].set_ylabel("Share")
+    axes[1].legend()
+    axes[1].grid(True, axis="y", alpha=0.3)
+    axes[1].xaxis.set_major_locator(DayLocator(interval=1))
+    axes[1].xaxis.set_major_formatter(DateFormatter("%Y-%m-%d"))
+    axes[1].tick_params(axis="x", rotation=45)
+
+    plt.tight_layout()
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_bakery = bakery.replace("/", "_").replace("\\", "_")
+    safe_product = product.replace("/", "_").replace("\\", "_")
+    out_path = out_dir / f"{month_tag}_{safe_bakery}_{safe_product}_daily_vs_existing_hourly_profile.png"
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.show()
+
+    return daily, hourly, out_path
+
+
+# Example usage:
+# daily, hourly, plot_path = plot_daily_vs_existing_hourly_profile(
+#     month_df=month_df,
+#     hourly_profiles=hourly_profiles,
+#     bakery="Проспект Победы 147 Казань",
+#     product="Вак-бэлиш",
+#     date_col=DATE_COL,
+#     datetime_col=DATETIME_COL,
+#     bakery_col=BAKERY_COL,
+#     product_col=PRODUCT_COL,
+#     qty_col=QTY_COL,
+#     month_tag=month_tag,
+# )
+# print("Saved to:", plot_path)

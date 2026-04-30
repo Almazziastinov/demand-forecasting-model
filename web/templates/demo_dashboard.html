@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid Demo Snapshot</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #f4efe8;
+            --panel: rgba(255, 255, 255, 0.88);
+            --text: #1f2937;
+            --muted: #6b7280;
+            --line: rgba(31, 41, 55, 0.12);
+            --accent: #b45309;
+            --accent-2: #0f766e;
+            --accent-3: #334155;
+            --shadow: 0 22px 60px rgba(30, 41, 59, 0.12);
+            --radius: 22px;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(180, 83, 9, 0.12), transparent 28%),
+                radial-gradient(circle at 85% 15%, rgba(15, 118, 110, 0.12), transparent 24%),
+                linear-gradient(180deg, #f7f2eb 0%, #efe8de 100%);
+            min-height: 100vh;
+        }
+
+        .shell {
+            max-width: 1520px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .hero,
+        .panel,
+        .sidebar {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--panel);
+            backdrop-filter: blur(14px);
+            box-shadow: var(--shadow);
+        }
+
+        .hero {
+            padding: 24px;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.08);
+            color: var(--accent-2);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .hero-grid {
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
+            gap: 18px;
+        }
+
+        h1 {
+            margin: 12px 0 10px;
+            font-size: clamp(28px, 4vw, 46px);
+            line-height: 1.02;
+            letter-spacing: -0.04em;
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.65;
+            font-size: 15px;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .chip {
+            padding: 8px 10px;
+            border-radius: 999px;
+            background: rgba(51, 65, 85, 0.05);
+            color: var(--accent-3);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .sidebar {
+            padding: 18px;
+            display: grid;
+            gap: 14px;
+            align-self: start;
+        }
+
+        .section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .control {
+            display: grid;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent-3);
+        }
+
+        select, button {
+            width: 100%;
+            border: 1px solid rgba(51, 65, 85, 0.14);
+            background: #fff;
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 14px;
+            color: var(--text);
+            outline: none;
+        }
+
+        button {
+            cursor: pointer;
+            background: rgba(180, 83, 9, 0.08);
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 320px minmax(0, 1fr);
+            gap: 20px;
+            margin-top: 20px;
+            align-items: start;
+        }
+
+        .panel {
+            padding: 18px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .metric {
+            padding: 14px 16px;
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(247, 242, 235, 0.88));
+        }
+
+        .metric .label {
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 8px;
+        }
+
+        .metric .value {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+        }
+
+        .metric .hint {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 5px;
+        }
+
+        .chart-wrap {
+            position: relative;
+            height: 420px;
+        }
+
+        .subgrid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .info-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: rgba(51, 65, 85, 0.04);
+            border: 1px solid rgba(51, 65, 85, 0.08);
+        }
+
+        .info-row span:first-child {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .info-row span:last-child {
+            font-size: 13px;
+            font-weight: 700;
+            text-align: right;
+        }
+
+        .title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        .table-scroll {
+            overflow: auto;
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            margin-top: 18px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255,255,255,0.78);
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.08);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        th {
+            position: sticky;
+            top: 0;
+            background: rgba(247, 242, 235, 0.96);
+            z-index: 1;
+            color: var(--muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            font-size: 11px;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        tbody tr:hover { background: rgba(180, 83, 9, 0.06); }
+        tbody tr.active { background: rgba(15, 118, 110, 0.09); }
+        .delta-pos { color: #0f766e; font-weight: 700; }
+        .delta-neg { color: #b91c1c; font-weight: 700; }
+
+        .footer-note {
+            margin-top: 12px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        @media (max-width: 1280px) {
+            .layout, .hero-grid, .subgrid { grid-template-columns: 1fr; }
+            .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 780px) {
+            .shell { padding: 14px; }
+            .summary-grid { grid-template-columns: 1fr; }
+            .chart-wrap { height: 320px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <section class="hero">
+            <span class="eyebrow">artifact snapshot</span>
+            <div class="hero-grid">
+                <div>
+                    <h1>Hybrid demo: R2 buckets, daily SKU charts, model comparison</h1>
+                    <p>
+                        This screen reads only saved benchmark artifacts. It lets you filter SKUs by best R2 bucket,
+                        inspect the daily month snapshot for a selected SKU, and compare any model from the monthly
+                        benchmark set.
+                    </p>
+                    <div class="chips">
+                        <span class="chip">snapshot: {{ date_range_label }}</span>
+                        <span class="chip">models: {{ models|length }}</span>
+                        <span class="chip">bakeries: {{ bakeries|length }}</span>
+                    </div>
+                </div>
+                <div class="sidebar">
+                    <div class="control">
+                        <label for="bakery">Bakery</label>
+                        <select id="bakery"></select>
+                    </div>
+                    <div class="control">
+                        <label for="bucket">R2 bucket</label>
+                        <select id="bucket"></select>
+                    </div>
+                    <div class="control">
+                        <label for="product">SKU</label>
+                        <select id="product"></select>
+                    </div>
+                    <div class="control">
+                        <label for="main_model">Main model</label>
+                        <select id="main_model"></select>
+                    </div>
+                    <div class="control">
+                        <label for="compare_model">Compare with</label>
+                        <select id="compare_model"></select>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="layout">
+            <aside class="panel">
+                <div class="section-title">Selected SKU</div>
+                <div class="title" id="sku-title">-</div>
+                <div class="footer-note" id="sku-subtitle">Choose bakery, bucket, and SKU</div>
+                <button id="use-best-model" type="button">Use SKU best model</button>
+                <div class="info-list" id="sku-info" style="margin-top: 14px;"></div>
+                <div class="section-title" style="margin-top: 18px;">Selected metrics</div>
+                <div class="info-list" id="metric-list"></div>
+                <div class="footer-note">
+                    Green means main beats compare. Red means the opposite.
+                </div>
+            </aside>
+
+            <main class="panel">
+                <div class="summary-grid">
+                    <div class="metric">
+                        <div class="label">SKU count</div>
+                        <div class="value" id="stat-sku-count">-</div>
+                        <div class="hint">rows in the current bucket</div>
+                    </div>
+                    <div class="metric">
+                        <div class="label">Best R2</div>
+                        <div class="value" id="stat-best-r2">-</div>
+                        <div class="hint">for the selected SKU</div>
+                    </div>
+                    <div class="metric">
+                        <div class="label">Main MAE</div>
+                        <div class="value" id="stat-main-mae">-</div>
+                        <div class="hint">artifact-based</div>
+                    </div>
+                    <div class="metric">
+                        <div class="label">Compare MAE</div>
+                        <div class="value" id="stat-compare-mae">-</div>
+                        <div class="hint">artifact-based</div>
+                    </div>
+                </div>
+
+                <div class="chart-wrap">
+                    <canvas id="chart"></canvas>
+                </div>
+
+                <div class="subgrid">
+                    <div class="panel" style="padding: 0;">
+                        <div style="padding: 18px 18px 0;">
+                            <div class="section-title">Selected SKU metrics</div>
+                        </div>
+                        <div style="padding: 0 18px 18px;">
+                            <div class="info-list" id="selected-metrics"></div>
+                        </div>
+                    </div>
+
+                    <div class="panel" style="padding: 0;">
+                        <div style="padding: 18px 18px 0;">
+                            <div class="section-title">Same bakery view</div>
+                            <div class="footer-note">Click a row to switch the SKU.</div>
+                        </div>
+                        <div style="padding: 0 18px 18px;">
+                            <div class="info-list" id="bakery-summary"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>SKU</th>
+                                <th>Best model</th>
+                                <th>Best R2</th>
+                                <th>Bucket</th>
+                                <th>Main MAE</th>
+                                <th>Compare MAE</th>
+                                <th>Delta MAE</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                </div>
+            </main>
+        </section>
+    </div>
+
+    <script>
+        const INITIAL_STATE = {
+            bakery: {{ default_bakery|tojson }},
+            bucket: {{ default_bucket|tojson }},
+            product: {{ default_product|tojson }},
+            main_model: {{ default_main_model|tojson }},
+            compare_model: {{ default_compare_model|tojson }},
+        };
+        const BAKERIES = {{ bakeries|tojson }};
+        const BUCKETS = {{ buckets|tojson }};
+        const MODELS = {{ models|tojson }};
+
+        const state = { ...INITIAL_STATE };
+        let chart = null;
+        let latestSkuInfo = null;
+
+        const bakeryEl = document.getElementById("bakery");
+        const bucketEl = document.getElementById("bucket");
+        const productEl = document.getElementById("product");
+        const mainModelEl = document.getElementById("main_model");
+        const compareModelEl = document.getElementById("compare_model");
+        const useBestModelBtn = document.getElementById("use-best-model");
+        const tableBodyEl = document.getElementById("table-body");
+
+        function formatNumber(value, digits = 2) {
+            if (value === null || value === undefined || Number.isNaN(value)) return "-";
+            return Number(value).toFixed(digits);
+        }
+
+        function formatSigned(value, digits = 2) {
+            if (value === null || value === undefined || Number.isNaN(value)) return "-";
+            const num = Number(value);
+            return `${num >= 0 ? "+" : ""}${num.toFixed(digits)}`;
+        }
+
+        function populateSelect(selectEl, values, selectedValue) {
+            selectEl.innerHTML = "";
+            for (const value of values) {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = value;
+                if (value === selectedValue) option.selected = true;
+                selectEl.appendChild(option);
+            }
+        }
+
+        function populateProductSelect(products, preferred) {
+            productEl.innerHTML = "";
+            for (const row of products) {
+                const option = document.createElement("option");
+                option.value = row.product;
+                const r2 = row.best_r2 === null || row.best_r2 === undefined ? "n/a" : Number(row.best_r2).toFixed(3);
+                option.textContent = `${row.product} - ${row.best_model} - R2 ${r2}`;
+                if (row.product === preferred) option.selected = true;
+                productEl.appendChild(option);
+            }
+        }
+
+        function populateModelSelect(selectEl, selectedValue) {
+            selectEl.innerHTML = "";
+            for (const value of MODELS) {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = value;
+                if (value === selectedValue) option.selected = true;
+                selectEl.appendChild(option);
+            }
+        }
+
+        async function fetchProducts() {
+            const params = new URLSearchParams({ bakery: state.bakery, bucket: state.bucket });
+            const response = await fetch(`/api/products?${params.toString()}`);
+            if (!response.ok) throw new Error("Unable to load products");
+            return response.json();
+        }
+
+        async function fetchPreview() {
+            const params = new URLSearchParams({
+                bakery: state.bakery,
+                bucket: state.bucket,
+                product: state.product,
+                main_model: state.main_model,
+                compare_model: state.compare_model,
+            });
+            const response = await fetch(`/api/preview?${params.toString()}`);
+            if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload.error || "Unable to load preview");
+            }
+            return response.json();
+        }
+
+        function buildList(containerId, rows) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = "";
+            for (const [label, value] of rows) {
+                const row = document.createElement("div");
+                row.className = "info-row";
+                row.innerHTML = `<span>${label}</span><span>${value}</span>`;
+                container.appendChild(row);
+            }
+        }
+
+        function renderChart(series) {
+            const ctx = document.getElementById("chart");
+            const labels = series.map((row) => row.date);
+            const fact = series.map((row) => row.fact);
+            const main = series.map((row) => row.main_pred);
+            const compare = series.map((row) => row.compare_pred);
+
+            if (chart) chart.destroy();
+
+            chart = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: "Fact",
+                            data: fact,
+                            borderColor: "#0f766e",
+                            backgroundColor: "rgba(15, 118, 110, 0.12)",
+                            tension: 0.28,
+                            pointRadius: 2,
+                            borderWidth: 2.5,
+                        },
+                        {
+                            label: `Main (${state.main_model})`,
+                            data: main,
+                            borderColor: "#b45309",
+                            backgroundColor: "rgba(180, 83, 9, 0.10)",
+                            tension: 0.28,
+                            pointRadius: 2,
+                            borderWidth: 2.5,
+                        },
+                        {
+                            label: `Compare (${state.compare_model})`,
+                            data: compare,
+                            borderColor: "#334155",
+                            backgroundColor: "rgba(51, 65, 85, 0.10)",
+                            tension: 0.28,
+                            pointRadius: 2,
+                            borderWidth: 2.5,
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: "index", intersect: false },
+                    plugins: {
+                        legend: {
+                            position: "top",
+                            labels: { usePointStyle: true, boxWidth: 10, padding: 18 },
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label(context) {
+                                    return `${context.dataset.label}: ${formatNumber(context.parsed.y, 2)}`;
+                                },
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: "#64748b", maxRotation: 0, autoSkip: true },
+                        },
+                        y: {
+                            grid: { color: "rgba(100, 116, 139, 0.12)" },
+                            ticks: { color: "#64748b" },
+                        },
+                    },
+                },
+            });
+        }
+
+        function renderTable(rows) {
+            tableBodyEl.innerHTML = "";
+            for (const row of rows) {
+                const tr = document.createElement("tr");
+                tr.className = row.product === state.product ? "active" : "";
+                tr.innerHTML = `
+                    <td>${row.product}</td>
+                    <td>${row.best_model ?? "-"}</td>
+                    <td>${row.best_r2 === null ? "-" : Number(row.best_r2).toFixed(4)}</td>
+                    <td>${row.bucket ?? "-"}</td>
+                    <td>${row.main_mae === null ? "-" : Number(row.main_mae).toFixed(4)}</td>
+                    <td>${row.compare_mae === null ? "-" : Number(row.compare_mae).toFixed(4)}</td>
+                    <td class="${row.delta_mae === null ? "" : (row.delta_mae <= 0 ? "delta-pos" : "delta-neg")}">
+                        ${row.delta_mae === null ? "-" : formatSigned(row.delta_mae)}
+                    </td>
+                `;
+                tr.addEventListener("click", async () => {
+                    state.product = row.product;
+                    productEl.value = row.product;
+                    await refreshPreview();
+                });
+                tableBodyEl.appendChild(tr);
+            }
+        }
+
+        function buildSkuInfo(data) {
+            const title = document.getElementById("sku-title");
+            const subtitle = document.getElementById("sku-subtitle");
+            const container = document.getElementById("sku-info");
+            container.innerHTML = "";
+            latestSkuInfo = data;
+
+            if (!data) {
+                title.textContent = "-";
+                subtitle.textContent = "No SKU selected";
+                return;
+            }
+
+            title.textContent = data.product || "-";
+            subtitle.textContent = `${data.bakery || "-"} - ${data.winner_source || "-"}`;
+
+            buildList("sku-info", [
+                ["Best model", data.best_model || "-"],
+                ["Best R2", data.best_r2 === null || data.best_r2 === undefined ? "-" : Number(data.best_r2).toFixed(4)],
+                ["Bucket", data.r2_bucket || "-"],
+                ["Best MAE", data.best_mae === null || data.best_mae === undefined ? "-" : Number(data.best_mae).toFixed(4)],
+                ["Best WMAPE", data.best_wmape === null || data.best_wmape === undefined ? "-" : `${Number(data.best_wmape).toFixed(2)}%`],
+                ["Winner source", data.winner_source || "-"],
+                ["avg_lag R2", data.avg_lag_7_14_core_r2 === null || data.avg_lag_7_14_core_r2 === undefined ? "-" : Number(data.avg_lag_7_14_core_r2).toFixed(4)],
+                ["avg_lag MAE", data.avg_lag_7_14_core_mae === null || data.avg_lag_7_14_core_mae === undefined ? "-" : Number(data.avg_lag_7_14_core_mae).toFixed(4)],
+                ["avg_lag WMAPE", data.avg_lag_7_14_core_wmape === null || data.avg_lag_7_14_core_wmape === undefined ? "-" : `${Number(data.avg_lag_7_14_core_wmape).toFixed(2)}%`],
+            ]);
+        }
+
+        function buildMetrics(metrics) {
+            buildList("metric-list", [
+                ["Main coverage", metrics.main?.coverage === null || metrics.main?.coverage === undefined ? "-" : `${formatNumber(metrics.main.coverage * 100)}%`],
+                ["Main MAE", formatNumber(metrics.main?.mae)],
+                ["Main WMAPE", metrics.main?.wmape === null || metrics.main?.wmape === undefined ? "-" : `${formatNumber(metrics.main.wmape)}%`],
+                ["Main R2", formatNumber(metrics.main?.r2)],
+                ["Compare coverage", metrics.compare?.coverage === null || metrics.compare?.coverage === undefined ? "-" : `${formatNumber(metrics.compare.coverage * 100)}%`],
+                ["Compare MAE", formatNumber(metrics.compare?.mae)],
+                ["Compare WMAPE", metrics.compare?.wmape === null || metrics.compare?.wmape === undefined ? "-" : `${formatNumber(metrics.compare.wmape)}%`],
+                ["Compare R2", formatNumber(metrics.compare?.r2)],
+                ["Bias main", formatSigned(metrics.main?.bias)],
+                ["Bias compare", formatSigned(metrics.compare?.bias)],
+            ]);
+        }
+
+        function buildSelectedMetrics(metrics) {
+            buildList("selected-metrics", [
+                ["Main coverage", metrics.main?.coverage === null || metrics.main?.coverage === undefined ? "-" : `${formatNumber(metrics.main.coverage * 100)}%`],
+                ["Main MAE", formatNumber(metrics.main?.mae)],
+                ["Compare coverage", metrics.compare?.coverage === null || metrics.compare?.coverage === undefined ? "-" : `${formatNumber(metrics.compare.coverage * 100)}%`],
+                ["Compare MAE", formatNumber(metrics.compare?.mae)],
+                ["Delta MAE", formatSigned((metrics.compare?.mae ?? 0) - (metrics.main?.mae ?? 0))],
+                ["Main R2", formatNumber(metrics.main?.r2)],
+                ["Compare R2", formatNumber(metrics.compare?.r2)],
+                ["Bias gap", formatSigned((metrics.main?.bias ?? 0) - (metrics.compare?.bias ?? 0))],
+            ]);
+        }
+
+        function buildBakerySummary(table) {
+            const top = table.slice(0, 5);
+            const container = document.getElementById("bakery-summary");
+            container.innerHTML = "";
+            if (!top.length) {
+                buildList("bakery-summary", [["Rows", "-"]]);
+                return;
+            }
+            for (const row of top) {
+                const item = document.createElement("div");
+                item.className = "info-row";
+                item.innerHTML = `
+                    <span>${row.product}</span>
+                    <span>${row.best_model} - delta ${row.delta_mae === null ? "-" : formatSigned(row.delta_mae)}</span>
+                `;
+                container.appendChild(item);
+            }
+        }
+
+        async function refreshPreview() {
+            const preview = await fetchPreview();
+            state.product = preview.product;
+            state.compare_model = preview.compare_model;
+            productEl.value = preview.product;
+            compareModelEl.value = preview.compare_model;
+
+            document.getElementById("stat-sku-count").textContent = String(preview.bakery_table.length);
+            document.getElementById("stat-best-r2").textContent = preview.sku_info?.best_r2 === null || preview.sku_info?.best_r2 === undefined
+                ? "-"
+                : Number(preview.sku_info.best_r2).toFixed(4);
+            document.getElementById("stat-main-mae").textContent = preview.metrics.main?.mae === null || preview.metrics.main?.mae === undefined
+                ? "-"
+                : Number(preview.metrics.main.mae).toFixed(3);
+            document.getElementById("stat-compare-mae").textContent = preview.metrics.compare?.mae === null || preview.metrics.compare?.mae === undefined
+                ? "-"
+                : Number(preview.metrics.compare.mae).toFixed(3);
+
+            buildSkuInfo(preview.sku_info);
+            buildMetrics(preview.metrics);
+            buildSelectedMetrics(preview.metrics);
+            buildBakerySummary(preview.bakery_table);
+            renderChart(preview.series);
+            renderTable(preview.bakery_table);
+        }
+
+        async function refreshProductsAndPreview() {
+            const payload = await fetchProducts();
+            const products = payload.products || [];
+            const preferred = products.some((row) => row.product === state.product)
+                ? state.product
+                : (products[0]?.product || "");
+            populateProductSelect(products, preferred);
+            state.product = preferred;
+            await refreshPreview();
+        }
+
+        function initControls() {
+            populateSelect(bakeryEl, BAKERIES, state.bakery);
+            populateSelect(bucketEl, BUCKETS, state.bucket);
+            populateModelSelect(mainModelEl, state.main_model);
+            populateModelSelect(compareModelEl, state.compare_model);
+        }
+
+        bakeryEl.addEventListener("change", async (event) => {
+            state.bakery = event.target.value;
+            await refreshProductsAndPreview();
+        });
+
+        bucketEl.addEventListener("change", async (event) => {
+            state.bucket = event.target.value;
+            await refreshProductsAndPreview();
+        });
+
+        productEl.addEventListener("change", async (event) => {
+            state.product = event.target.value;
+            await refreshPreview();
+        });
+
+        mainModelEl.addEventListener("change", async (event) => {
+            state.main_model = event.target.value;
+            if (state.main_model === state.compare_model) {
+                state.compare_model = MODELS.find((model) => model !== state.main_model) || state.compare_model;
+                compareModelEl.value = state.compare_model;
+            }
+            await refreshPreview();
+        });
+
+        compareModelEl.addEventListener("change", async (event) => {
+            state.compare_model = event.target.value;
+            if (state.compare_model === state.main_model) {
+                state.main_model = MODELS.find((model) => model !== state.compare_model) || state.main_model;
+                mainModelEl.value = state.main_model;
+            }
+            await refreshPreview();
+        });
+
+        useBestModelBtn.addEventListener("click", async () => {
+            if (!latestSkuInfo || !latestSkuInfo.best_model) return;
+            state.main_model = latestSkuInfo.best_model;
+            mainModelEl.value = latestSkuInfo.best_model;
+            if (state.main_model === state.compare_model) {
+                state.compare_model = MODELS.find((model) => model !== state.main_model) || state.compare_model;
+                compareModelEl.value = state.compare_model;
+            }
+            await refreshPreview();
+        });
+
+        initControls();
+        refreshProductsAndPreview().catch((error) => {
+            console.error(error);
+            document.getElementById("sku-title").textContent = "Load error";
+            document.getElementById("sku-subtitle").textContent = String(error);
+        });
+    </script>
+</body>
+</html>

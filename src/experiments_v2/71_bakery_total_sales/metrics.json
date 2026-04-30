@@ -1,0 +1,49 @@
+{
+  "experiment": "71_bakery_total_sales",
+  "target": "Продано",
+  "prophet_variant": "prophet_holidays",
+  "prophet_available": true,
+  "test_days": 30,
+  "min_train_rows": 30,
+  "rows_total": 31048,
+  "rows_train": 26757,
+  "rows_test": 4291,
+  "bakeries_total": 194,
+  "model_summary": [
+    {
+      "model": "global_lgbm",
+      "n_bakeries": 181,
+      "avg_r2": 0.3702,
+      "median_r2": 0.4589,
+      "avg_mae": 70.9841,
+      "median_mae": 63.2881,
+      "avg_mse": 9954.7363,
+      "avg_wmape": 8.26,
+      "win_count": 120
+    },
+    {
+      "model": "per_bakery_lgbm",
+      "n_bakeries": 181,
+      "avg_r2": -1.1842,
+      "median_r2": 0.354,
+      "avg_mae": 85.1661,
+      "median_mae": 72.5114,
+      "avg_mse": 17425.2778,
+      "avg_wmape": 10.15,
+      "win_count": 49
+    },
+    {
+      "model": "per_bakery_prophet_holidays",
+      "n_bakeries": 181,
+      "avg_r2": -1.9575,
+      "median_r2": -0.1675,
+      "avg_mae": 121.6537,
+      "median_mae": 103.0921,
+      "avg_mse": 28405.3898,
+      "avg_wmape": 14.31,
+      "win_count": 12
+    }
+  ],
+  "best_by_bakery_rows": 181,
+  "timestamp": "2026-04-28T13:56:39.628676"
+}
