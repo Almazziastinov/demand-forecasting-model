@@ -1,0 +1,205 @@
+PyMC block for demant_estimate.ipynb
+
+What to change
+
+1. Do not use `pm.fit(..., method="advi")` here.
+   Use `pm.sample(...)` so you get a real posterior and normal diagnostics.
+
+2. Make the block self-contained.
+   The code below explicitly creates `obs`, `mask`, `hours`, imports `pymc`, `numpy`, `arviz`, and does not depend on hidden notebook state.
+
+3. Use a more stable count model.
+   `NegativeBinomial` is safer than `Poisson` for hourly sales because the variance is usually larger than the mean.
+
+4. Keep the stockout mask strict.
+   If the mask is too broad, the model will interpret ordinary low-demand hours as lost sales and inflate demand.
+
+5. Do not trust the result unless diagnostics are OK.
+   Check `r_hat`, ESS, posterior predictive sanity, and whether the uplift is plausible.
+
+
+Suggested replacement block
+
+```python
+import numpy as np
+import pandas as pd
+import pymc as pm
+import arviz as az
+import matplotlib.pyplot as plt
+
+# Input assumptions:
+# - df_147_pivot: rows = days, columns = hours, values = sold quantity
+# - advanced_stockout_mask: same shape as df_147_pivot, 1 where stockout is suspected
+
+# Keep only strict and explicit stockout candidates
+strict_mask = (df_147_pivot <= 1) & (advanced_stockout_mask == 1)
+
+obs = df_147_pivot.to_numpy(dtype="int64")
+mask = strict_mask.to_numpy(dtype=bool)
+hours = df_147_pivot.columns.to_numpy()
+n_days, n_hours = obs.shape
+
+# Day-level effect helps avoid forcing one hour-profile to explain every day equally
+with pm.Model() as stockout_model:
+    # Global baseline demand
+    mu_global = pm.HalfNormal("mu_global", sigma=5.0)
+
+    # Hour effects
+    sigma_hour = pm.HalfNormal("sigma_hour", sigma=1.5)
+    hour_offset = pm.Normal("hour_offset", mu=0.0, sigma=1.0, shape=n_hours)
+    log_mu_hour = pm.Deterministic(
+        "log_mu_hour",
+        pm.math.log(mu_global + 1e-6) + sigma_hour * hour_offset,
+    )
+    mu_hour = pm.Deterministic("mu_hour", pm.math.exp(log_mu_hour))
+
+    # Day effects
+    sigma_day = pm.HalfNormal("sigma_day", sigma=0.7)
+    day_offset = pm.Normal("day_offset", mu=0.0, sigma=1.0, shape=n_days)
+    day_multiplier = pm.Deterministic("day_multiplier", pm.math.exp(sigma_day * day_offset))
+
+    # Mean demand matrix: day x hour
+    mu = pm.Deterministic("mu", day_multiplier[:, None] * mu_hour[None, :])
+
+    # Overdispersion for count data
+    alpha = pm.Exponential("alpha", lam=1.0)
+    base_dist = pm.NegativeBinomial.dist(mu=mu, alpha=alpha)
+
+    # For suspected stockouts:
+    # observed k means "true demand was >= k"
+    # This is left-censoring from below, so we use lower=k for masked cells.
+    lower = np.where(mask, obs, -np.inf)
+    upper = np.full_like(obs, np.inf, dtype="float64")
+
+    y = pm.Censored(
+        "y",
+        base_dist,
+        lower=lower,
+        upper=upper,
+        observed=obs,
+    )
+
+    trace = pm.sample(
+        draws=1000,
+        tune=1000,
+        chains=4,
+        cores=4,
+        target_accept=0.95,
+        random_seed=42,
+    )
+
+    ppc = pm.sample_posterior_predictive(trace, random_seed=42)
+```
+
+
+Why this is better than the current notebook version
+
+1. The current notebook uses:
+
+```python
+approx = pm.fit(n=40000, method="advi")
+trace = approx.sample(2000)
+```
+
+This is not equivalent to the reference example with `pm.sample(...)`.
+ADVI is an approximation, and in your notebook it was interrupted almost immediately, so the result is not trustworthy.
+
+2. The current notebook uses:
+
+```python
+upper=np.where(mask, obs, np.inf)
+lower=None
+```
+
+That means a masked zero becomes `upper=0, observed=0`.
+For your use case this is usually the wrong direction: if you suspect stockout, you are saying true demand was at least what was observed, not at most what was observed.
+
+3. The current notebook uses `Poisson`.
+Hourly sales often have overdispersion, so `NegativeBinomial` is usually a better fit.
+
+4. The current notebook models only hour-level demand.
+That forces the same hourly profile across all days and can inflate hidden demand.
+Adding a day effect reduces that problem.
+
+
+How to interpret censoring here
+
+Observed sales during a stockout-suspected hour are usually a lower bound on true demand.
+
+Examples:
+
+- If observed sales = 0 and you strongly believe the item was unavailable, then true demand could be 0, 1, 2, ...
+- If observed sales = 1 and you strongly believe stock ended during the hour, then true demand could be 1, 2, 3, ...
+
+That is why `lower=np.where(mask, obs, -np.inf)` is more defensible than `upper=np.where(mask, obs, np.inf)`.
+
+
+Diagnostics to run after sampling
+
+```python
+summary = az.summary(trace, var_names=["mu_global", "sigma_hour", "sigma_day", "alpha", "mu_hour"])
+print(summary)
+
+az.plot_trace(trace, var_names=["mu_global", "sigma_hour", "sigma_day", "alpha"])
+plt.tight_layout()
+plt.show()
+```
+
+Look for:
+
+- `r_hat` close to 1.00
+- no divergences
+- reasonable ESS
+- no obviously unstable chains
+
+
+How to compare observed sales vs restored demand
+
+```python
+mu_post = trace.posterior["mu"].mean(dim=("chain", "draw")).values
+restored_hour_mean = mu_post.mean(axis=0)
+real_hour_mean = obs.mean(axis=0)
+
+plt.figure(figsize=(12, 6))
+plt.plot(hours, real_hour_mean, marker="o", label="Observed sales")
+plt.plot(hours, restored_hour_mean, marker="s", linestyle="--", label="Restored demand")
+plt.fill_between(hours, real_hour_mean, restored_hour_mean, alpha=0.15)
+plt.title("Observed sales vs restored demand")
+plt.xlabel("Hour")
+plt.ylabel("Average quantity")
+plt.xticks(hours)
+plt.grid(True, linestyle=":", alpha=0.6)
+plt.legend()
+plt.show()
+
+total_real = real_hour_mean.sum()
+total_restored = restored_hour_mean.sum()
+uplift_pct = (total_restored / total_real - 1.0) * 100
+
+print(f"Observed daily mean: {total_real:.2f}")
+print(f"Restored daily mean: {total_restored:.2f}")
+print(f"Estimated uplift: {uplift_pct:.1f}%")
+```
+
+
+Important caveat
+
+Even this improved version still depends heavily on the quality of `advanced_stockout_mask`.
+If the mask is noisy, the model will still overestimate hidden demand.
+So the priority is:
+
+1. tighten the stockout mask
+2. sample with MCMC, not ADVI
+3. check diagnostics
+4. compare results against obviously non-stockout days
+
+
+Minimal fallback version
+
+If the full day-effect model samples too slowly, simplify to hour-only demand but still keep:
+
+- `NegativeBinomial`
+- `pm.sample(...)`
+- lower-censoring for masked cells
+
+Do not go back to interrupted ADVI for final conclusions.

@@ -71,3 +71,6 @@ src/experiments_v2/Full_benchmark_mounth_results/
 # Local scratch artifacts
 test.png
 notebooks/test.png
+notebooks/stockout_estimation_details.csv
+notebooks/work_stockout_estimation_details.csv
+notebooks/strict_stockout_exports/
