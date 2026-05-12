@@ -10,6 +10,7 @@ pyyaml==6.0.3
 openmeteo-requests
 requests-cache
 retry-requests
+geopy
 catboost
 mlflow
 prophet
