@@ -14,6 +14,7 @@ data/processed/
 data/.weather_cache.sqlite
 .weather_cache.sqlite
 data/raw/sales_hrs_all.csv
+data/raw/sales_hrs_all_clickhouse.csv
 sales_hrs/
 
 # Models (binary artifacts)
