@@ -1,0 +1,70 @@
+{
+  "experiment": "73_weekly_total_recursive",
+  "dataset_path": "data\\processed\\bakery_daily_sales.csv",
+  "test_days": 14,
+  "min_train_rows": 90,
+  "recent_weeks": 4,
+  "rows_total": 83283,
+  "rows_train": 80751,
+  "rows_test": 2532,
+  "bakeries_total": 212,
+  "test_start": "2026-04-29",
+  "summary_by_model": [
+    {
+      "model": "seasonal_naive_lag7_recursive",
+      "n_bakeries": 182,
+      "avg_mae": 173.205512,
+      "median_mae": 151.077965,
+      "avg_mse": 69964.853725,
+      "avg_wmape": 17.095921,
+      "avg_bias": -83.16932,
+      "median_abs_bias": 76.764285,
+      "win_count": 25
+    },
+    {
+      "model": "repeat_last_week_recursive",
+      "n_bakeries": 182,
+      "avg_mae": 172.776308,
+      "median_mae": 151.077965,
+      "avg_mse": 67716.09706,
+      "avg_wmape": 17.069912,
+      "avg_bias": -90.119401,
+      "median_abs_bias": 77.276821,
+      "win_count": 1
+    },
+    {
+      "model": "recursive_daily_baseline",
+      "n_bakeries": 182,
+      "avg_mae": 147.425447,
+      "median_mae": 129.656784,
+      "avg_mse": 48885.721902,
+      "avg_wmape": 14.421073,
+      "avg_bias": 3.43767,
+      "median_abs_bias": 38.18509,
+      "win_count": 81
+    },
+    {
+      "model": "heuristic_blend_recursive",
+      "n_bakeries": 182,
+      "avg_mae": 145.333313,
+      "median_mae": 123.429018,
+      "avg_mse": 50044.743306,
+      "avg_wmape": 14.236078,
+      "avg_bias": -20.253159,
+      "median_abs_bias": 42.388266,
+      "win_count": 63
+    },
+    {
+      "model": "weekly_total_daily_share_recursive",
+      "n_bakeries": 182,
+      "avg_mae": 176.157009,
+      "median_mae": 149.92418,
+      "avg_mse": 75189.506555,
+      "avg_wmape": 17.526427,
+      "avg_bias": 2.930458,
+      "median_abs_bias": 36.315152,
+      "win_count": 12
+    }
+  ],
+  "timestamp": "2026-05-14T18:28:48.166636"
+}
