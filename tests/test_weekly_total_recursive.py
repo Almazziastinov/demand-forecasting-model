@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +25,7 @@ EXP73_RUN = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(EXP73_RUN)
 build_complete_weekly_history = EXP73_RUN.build_complete_weekly_history
+compute_heuristic_blend_prediction = EXP73_RUN.compute_heuristic_blend_prediction
 build_elapsed_week_sales_lookup = EXP73_RUN.build_elapsed_week_sales_lookup
 heuristic_blend_recursive_backtest = EXP73_RUN.heuristic_blend_recursive_backtest
 repeat_last_week_recursive_backtest = EXP73_RUN.repeat_last_week_recursive_backtest
@@ -171,3 +173,20 @@ def test_heuristic_blend_recursive_returns_non_negative_predictions():
     assert len(preds) == len(test)
     assert (preds["prediction"] >= 0).all()
     assert "heuristic_blend" in info["status"]
+
+
+def test_compute_heuristic_blend_prediction_uses_selective_lag_trust_gate():
+    feature_rows = pd.DataFrame(
+        {
+            "bakery_sales_lag7": [220.0, 220.0],
+            "bakery_sales_lag14": [218.0, 120.0],
+            "bakery_sales_dow_mean": [160.0, 160.0],
+            "bakery_sales_roll_mean7": [190.0, 190.0],
+            "bakery_sales_roll_mean30": [130.0, 130.0],
+            "bakery_sales_cv_7d": [0.10, 0.10],
+        }
+    )
+
+    preds = compute_heuristic_blend_prediction(feature_rows, base_pred=np.array([40.0, 40.0]), fallback_mean=100.0)
+
+    assert preds.iloc[0] > preds.iloc[1]

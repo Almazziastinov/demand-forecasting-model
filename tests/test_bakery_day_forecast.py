@@ -69,6 +69,46 @@ def test_build_future_feature_rows_uses_latest_history():
     assert round(float(row["avg_price"]), 4) == 107.0
 
 
+def test_build_model_frame_adds_event_cluster_features():
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-03-19", "2026-03-20", "2026-03-21"]),
+            "bakery_id": ["B1", "B1", "B1"],
+            "bakery_name": ["B1", "B1", "B1"],
+            "city": ["Kazan", "Kazan", "Kazan"],
+            "bakery_sales": [10.0, 12.0, 11.0],
+            "avg_price": [100.0, 100.0, 100.0],
+            "dow": [3, 4, 5],
+            "day": [19, 20, 21],
+            "month": [3, 3, 3],
+            "iso_week": [12, 12, 12],
+            "is_weekend": [0, 0, 1],
+            "is_month_start": [0, 0, 0],
+            "is_month_end": [0, 0, 0],
+            "is_payday_week": [1, 1, 1],
+            "bakery_sales_lag1": [0.0, 10.0, 12.0],
+            "bakery_sales_lag2": [0.0, 0.0, 10.0],
+            "bakery_sales_lag3": [0.0, 0.0, 0.0],
+            "bakery_sales_lag7": [0.0, 0.0, 0.0],
+            "bakery_sales_lag14": [0.0, 0.0, 0.0],
+            "bakery_sales_lag30": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean3": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean7": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean14": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean30": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_std7": [0.0, 0.0, 0.0],
+        }
+    )
+    frame = build_model_frame(df)
+    row_before = frame[frame["date"] == pd.Timestamp("2026-03-19")].iloc[0]
+    row_event = frame[frame["date"] == pd.Timestamp("2026-03-20")].iloc[0]
+
+    assert row_before["next_event_cluster"] == "cluster_1"
+    assert int(row_before["days_to_next_event"]) == 1
+    assert row_event["current_event_cluster"] == "cluster_1"
+    assert int(row_event["is_near_event_window"]) == 1
+
+
 def test_recursive_forecast_returns_horizon_for_each_bakery():
     history = _history()
     feature_cols = [
@@ -84,7 +124,12 @@ def test_recursive_forecast_returns_horizon_for_each_bakery():
         "is_payday_week",
         "is_holiday",
         "is_pre_holiday",
-        "is_post_holiday",
+        "current_event_cluster",
+        "prev_event_cluster",
+        "next_event_cluster",
+        "days_since_prev_event",
+        "days_to_next_event",
+        "is_near_event_window",
         "avg_price",
         "bakery_sales_lag1",
         "bakery_sales_lag2",

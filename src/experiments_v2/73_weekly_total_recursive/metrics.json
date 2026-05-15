@@ -46,11 +46,11 @@
     {
       "model": "heuristic_blend_recursive",
       "n_bakeries": 182,
-      "avg_mae": 145.333313,
+      "avg_mae": 145.327874,
       "median_mae": 123.429018,
-      "avg_mse": 50044.743306,
-      "avg_wmape": 14.236078,
-      "avg_bias": -20.253159,
+      "avg_mse": 50052.702416,
+      "avg_wmape": 14.237337,
+      "avg_bias": -20.31345,
       "median_abs_bias": 42.388266,
       "win_count": 63
     },
@@ -66,5 +66,5 @@
       "win_count": 12
     }
   ],
-  "timestamp": "2026-05-14T18:28:48.166636"
+  "timestamp": "2026-05-15T10:17:47.704282"
 }

@@ -1,0 +1,82 @@
+{
+  "experiment": "74_bakery_non_recursive",
+  "dataset_path": "data\\processed\\bakery_daily_sales.csv",
+  "test_days": 30,
+  "min_train_rows": 90,
+  "rows_total": 83283,
+  "rows_train": 77875,
+  "rows_test": 5408,
+  "bakeries_total": 212,
+  "test_start": "2026-04-13",
+  "summary_by_model": [
+    {
+      "model": "seasonal_naive_lag7_non_recursive",
+      "n_bakeries": 182,
+      "avg_mae": 181.58351,
+      "median_mae": 156.77675,
+      "avg_mse": 80959.61724,
+      "avg_wmape": 17.184567,
+      "avg_bias": -52.053701,
+      "median_abs_bias": 53.675833,
+      "win_count": 1
+    },
+    {
+      "model": "daily_baseline_non_recursive",
+      "n_bakeries": 182,
+      "avg_mae": 122.403167,
+      "median_mae": 114.684102,
+      "avg_mse": 31689.310331,
+      "avg_wmape": 11.717963,
+      "avg_bias": -3.241317,
+      "median_abs_bias": 22.462828,
+      "win_count": 158
+    },
+    {
+      "model": "heuristic_blend_non_recursive",
+      "n_bakeries": 182,
+      "avg_mae": 145.872386,
+      "median_mae": 132.26802,
+      "avg_mse": 46524.651003,
+      "avg_wmape": 13.795739,
+      "avg_bias": -29.302633,
+      "median_abs_bias": 28.707532,
+      "win_count": 23
+    }
+  ],
+  "training_log": [
+    {
+      "model": "seasonal_naive_lag7_non_recursive",
+      "status": "non_recursive_lag7",
+      "n_features": 1,
+      "rows_train": 77875,
+      "rows_test": 5408,
+      "mae": 179.693202,
+      "mse": 77710.857092,
+      "wmape": 16.459472,
+      "bias": -53.215834
+    },
+    {
+      "model": "daily_baseline_non_recursive",
+      "status": "trained",
+      "n_features": 27,
+      "rows_train": 77875,
+      "rows_test": 5408,
+      "mae": 121.93509,
+      "mse": 31260.700212,
+      "wmape": 11.168965,
+      "bias": -2.988115
+    },
+    {
+      "model": "heuristic_blend_non_recursive",
+      "status": "trained_plus_non_recursive_heuristic_blend",
+      "n_features": 27,
+      "rows_train": 77875,
+      "rows_test": 5408,
+      "mae": 144.834348,
+      "mse": 45369.908813,
+      "wmape": 13.266483,
+      "bias": -29.547903
+    }
+  ],
+  "timestamp": "2026-05-15T12:19:44.061514"
+}

@@ -56,7 +56,12 @@ BASE_FEATURES = [
     "is_payday_week",
     "is_holiday",
     "is_pre_holiday",
-    "is_post_holiday",
+    "current_event_cluster",
+    "prev_event_cluster",
+    "next_event_cluster",
+    "days_since_prev_event",
+    "days_to_next_event",
+    "is_near_event_window",
     "avg_price",
     "bakery_sales_lag1",
     "bakery_sales_lag2",
@@ -74,23 +79,66 @@ BASE_FEATURES = [
     "bakery_sales_cv_7d",
 ]
 
-CATEGORICAL_COLS = [BAKERY_ID_COL, CITY_COL, "month"]
+CATEGORICAL_COLS = [BAKERY_ID_COL, CITY_COL, "month", "current_event_cluster", "prev_event_cluster", "next_event_cluster"]
 
-RU_HOLIDAYS = {
-    (1, 1),
-    (1, 2),
-    (1, 3),
-    (1, 4),
-    (1, 5),
-    (1, 6),
-    (1, 7),
-    (1, 8),
-    (2, 23),
-    (3, 8),
+FIXED_HOLIDAY_LABELS = {
+    (1, 1): "new_year_day",
+    (1, 2): "new_year_holiday_2",
+    (1, 3): "new_year_holiday_3",
+    (1, 4): "new_year_holiday_4",
+    (1, 5): "new_year_holiday_5",
+    (1, 6): "new_year_holiday_6",
+    (1, 7): "christmas",
+    (1, 8): "new_year_holiday_8",
+    (2, 23): "defender_day",
+    (3, 8): "womens_day",
+    (5, 1): "spring_labor_day",
+    (5, 9): "victory_day",
+    (6, 12): "russia_day",
+    (8, 30): "tatarstan_day",
+    (11, 4): "unity_day",
+    (11, 6): "constitution_day_rt",
+}
+
+SPECIAL_HOLIDAY_DATES = {
+    pd.Timestamp("2025-03-30"): "uraza_bayram",
+    pd.Timestamp("2025-04-20"): "orthodox_easter",
+    pd.Timestamp("2025-06-06"): "kurban_bayram",
+    pd.Timestamp("2026-03-20"): "uraza_bayram",
+    pd.Timestamp("2026-04-12"): "orthodox_easter",
+    pd.Timestamp("2026-05-27"): "kurban_bayram",
+}
+
+DISABLED_PRE_HOLIDAY_TARGETS = {
     (5, 1),
     (5, 9),
-    (6, 12),
-    (11, 4),
+}
+
+DISABLED_POST_HOLIDAY_DATES = {
+    (5, 2),
+    (5, 10),
+}
+
+EVENT_CLUSTER_MAP = {
+    "new_year_day": "cluster_0",
+    "new_year_holiday_2": "cluster_0",
+    "new_year_holiday_3": "cluster_0",
+    "new_year_holiday_4": "cluster_0",
+    "new_year_holiday_5": "cluster_0",
+    "new_year_holiday_6": "cluster_2",
+    "new_year_holiday_8": "cluster_0",
+    "christmas": "cluster_3",
+    "defender_day": "cluster_1",
+    "womens_day": "cluster_1",
+    "spring_labor_day": "cluster_1",
+    "victory_day": "cluster_3",
+    "russia_day": "cluster_2",
+    "tatarstan_day": "cluster_1",
+    "unity_day": "cluster_3",
+    "constitution_day_rt": "cluster_2",
+    "orthodox_easter": "cluster_1",
+    "uraza_bayram": "cluster_1",
+    "kurban_bayram": "cluster_2",
 }
 
 
@@ -152,15 +200,99 @@ def load_dataset(path: str | Path) -> pd.DataFrame:
     return df.sort_values([BAKERY_ID_COL, DATE_COL]).reset_index(drop=True)
 
 
+def build_event_calendar(start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
+    rows: list[dict] = []
+    years = range(start_date.year - 1, end_date.year + 2)
+    for year in years:
+        for (month, day), holiday_name in FIXED_HOLIDAY_LABELS.items():
+            rows.append(
+                {
+                    DATE_COL: pd.Timestamp(year=year, month=month, day=day),
+                    "holiday_name": holiday_name,
+                }
+            )
+    for date_value, holiday_name in SPECIAL_HOLIDAY_DATES.items():
+        rows.append({DATE_COL: date_value.normalize(), "holiday_name": holiday_name})
+
+    events = pd.DataFrame(rows).drop_duplicates(subset=[DATE_COL], keep="last")
+    events = events[(events[DATE_COL] >= start_date) & (events[DATE_COL] <= end_date)].copy()
+    events["event_cluster"] = events["holiday_name"].map(EVENT_CLUSTER_MAP).fillna("cluster_other")
+    return events.sort_values(DATE_COL).reset_index(drop=True)
+
+
 def add_holiday_features(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
-    work["is_holiday"] = work[DATE_COL].apply(lambda d: int((d.month, d.day) in RU_HOLIDAYS))
-    work["is_pre_holiday"] = work[DATE_COL].apply(
-        lambda d: int(((d + pd.Timedelta(days=1)).month, (d + pd.Timedelta(days=1)).day) in RU_HOLIDAYS)
+    calendar = build_event_calendar(
+        work[DATE_COL].min() - pd.Timedelta(days=1),
+        work[DATE_COL].max() + pd.Timedelta(days=1),
     )
-    work["is_post_holiday"] = work[DATE_COL].apply(
-        lambda d: int(((d - pd.Timedelta(days=1)).month, (d - pd.Timedelta(days=1)).day) in RU_HOLIDAYS)
+    holiday_lookup = calendar.set_index(DATE_COL)["holiday_name"].to_dict()
+
+    def is_holiday_date(d: pd.Timestamp) -> bool:
+        return d.normalize() in holiday_lookup
+
+    def holiday_name(d: pd.Timestamp) -> str:
+        return str(holiday_lookup.get(d.normalize(), ""))
+
+    def is_pre_holiday_date(d: pd.Timestamp) -> int:
+        next_day = d + pd.Timedelta(days=1)
+        if (next_day.month, next_day.day) in DISABLED_PRE_HOLIDAY_TARGETS:
+            return 0
+        return int(is_holiday_date(next_day))
+
+    def is_post_holiday_date(d: pd.Timestamp) -> int:
+        if (d.month, d.day) in DISABLED_POST_HOLIDAY_DATES:
+            return 0
+        prev_day = d - pd.Timedelta(days=1)
+        return int(is_holiday_date(prev_day))
+
+    work["holiday_name"] = work[DATE_COL].apply(holiday_name)
+    work["is_holiday"] = work[DATE_COL].apply(lambda d: int(is_holiday_date(d)))
+    work["is_pre_holiday"] = work[DATE_COL].apply(is_pre_holiday_date)
+    work["is_post_holiday"] = work[DATE_COL].apply(is_post_holiday_date)
+    return work
+
+
+def add_event_cluster_features(df: pd.DataFrame) -> pd.DataFrame:
+    work = df.sort_values(DATE_COL).copy().reset_index(drop=True)
+    events = build_event_calendar(
+        work[DATE_COL].min() - pd.Timedelta(days=370),
+        work[DATE_COL].max() + pd.Timedelta(days=370),
+    )[[DATE_COL, "holiday_name", "event_cluster"]].copy()
+    events = events.sort_values(DATE_COL).reset_index(drop=True)
+
+    work["current_event_cluster"] = np.where(
+        work["is_holiday"] == 1,
+        work["holiday_name"].map(EVENT_CLUSTER_MAP).fillna("cluster_other"),
+        "cluster_none",
     )
+
+    prev_events = pd.merge_asof(
+        work[[DATE_COL]].sort_values(DATE_COL),
+        events.rename(columns={DATE_COL: "prev_event_date", "event_cluster": "prev_event_cluster"}),
+        left_on=DATE_COL,
+        right_on="prev_event_date",
+        direction="backward",
+    )
+    next_events = pd.merge_asof(
+        work[[DATE_COL]].sort_values(DATE_COL),
+        events.rename(columns={DATE_COL: "next_event_date", "event_cluster": "next_event_cluster"}),
+        left_on=DATE_COL,
+        right_on="next_event_date",
+        direction="forward",
+    )
+
+    work["prev_event_cluster"] = prev_events["prev_event_cluster"].fillna("cluster_none")
+    work["next_event_cluster"] = next_events["next_event_cluster"].fillna("cluster_none")
+    work["days_since_prev_event"] = (
+        (work[DATE_COL] - pd.to_datetime(prev_events["prev_event_date"], errors="coerce")).dt.days.fillna(999).clip(lower=0)
+    )
+    work["days_to_next_event"] = (
+        (pd.to_datetime(next_events["next_event_date"], errors="coerce") - work[DATE_COL]).dt.days.fillna(999).clip(lower=0)
+    )
+    work["is_near_event_window"] = (
+        np.minimum(work["days_since_prev_event"], work["days_to_next_event"]) <= 3
+    ).astype(int)
     return work
 
 
@@ -205,6 +337,7 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
 def build_model_frame(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
     work = add_holiday_features(work)
+    work = add_event_cluster_features(work)
     work = add_derived_features(work)
     return work.sort_values([BAKERY_ID_COL, DATE_COL]).reset_index(drop=True)
 
@@ -327,9 +460,6 @@ def build_future_feature_rows(history_df: pd.DataFrame, forecast_date: pd.Timest
     day = int(forecast_date.day)
     month = int(forecast_date.month)
     iso_week = int(forecast_date.isocalendar().week)
-    is_holiday = int((forecast_date.month, forecast_date.day) in RU_HOLIDAYS)
-    is_pre_holiday = int(((forecast_date + pd.Timedelta(days=1)).month, (forecast_date + pd.Timedelta(days=1)).day) in RU_HOLIDAYS)
-    is_post_holiday = int(((forecast_date - pd.Timedelta(days=1)).month, (forecast_date - pd.Timedelta(days=1)).day) in RU_HOLIDAYS)
 
     for bakery_id, group in history_df.groupby(BAKERY_ID_COL, sort=False):
         group = group.sort_values(DATE_COL).copy()
@@ -351,9 +481,6 @@ def build_future_feature_rows(history_df: pd.DataFrame, forecast_date: pd.Timest
                 "is_month_start": int(day <= 5),
                 "is_month_end": int(day >= 25),
                 "is_payday_week": int(day in [4, 5, 6, 19, 20, 21]),
-                "is_holiday": is_holiday,
-                "is_pre_holiday": is_pre_holiday,
-                "is_post_holiday": is_post_holiday,
                 "avg_price": float(avg_price.iloc[-1]) if len(avg_price) else 0.0,
                 "bakery_sales_lag1": _safe_tail_value(sales, 1),
                 "bakery_sales_lag2": _safe_tail_value(sales, 2),
@@ -371,6 +498,8 @@ def build_future_feature_rows(history_df: pd.DataFrame, forecast_date: pd.Timest
         )
 
     future = pd.DataFrame(rows)
+    future = add_holiday_features(future)
+    future = add_event_cluster_features(future)
     future["bakery_sales_trend"] = future["bakery_sales_roll_mean7"] / (future["bakery_sales_roll_mean30"] + 1e-8)
     future["bakery_sales_cv_7d"] = future["bakery_sales_roll_std7"] / (future["bakery_sales_roll_mean7"] + 1.0)
     return future

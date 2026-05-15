@@ -250,8 +250,7 @@ def recursive_daily_baseline_backtest(
             preds = np.full(len(feature_rows), fallback_mean, dtype=float)
         else:
             predict_x = feature_rows[feature_cols].copy()
-            for col in [c for c in ["bakery_id", "city", "month"] if c in feature_cols]:
-                predict_x[col] = predict_x[col].astype("category")
+            _, predict_x = cast_category_columns(train_df[feature_cols].copy(), predict_x, feature_cols)
             preds = predict_clipped(model, predict_x)
         feature_rows["prediction"] = preds
         pred_parts.append(feature_rows[[DATE_COL, BAKERY_ID_COL, "prediction"]].copy())
@@ -259,6 +258,58 @@ def recursive_daily_baseline_backtest(
         history = pd.concat([history, feature_rows], ignore_index=True, sort=False)
 
     return pd.concat(pred_parts, ignore_index=True), info
+
+
+def compute_heuristic_blend_prediction(
+    feature_rows: pd.DataFrame,
+    base_pred: np.ndarray,
+    *,
+    fallback_mean: float,
+) -> pd.Series:
+    lag7 = pd.to_numeric(feature_rows.get("bakery_sales_lag7", 0.0), errors="coerce").fillna(fallback_mean).clip(lower=0.0)
+    lag14 = (
+        pd.to_numeric(feature_rows.get("bakery_sales_lag14", 0.0), errors="coerce").fillna(lag7).clip(lower=0.0)
+    )
+    dow_mean = (
+        pd.to_numeric(feature_rows.get("bakery_sales_dow_mean", 0.0), errors="coerce").fillna(lag7).clip(lower=0.0)
+    )
+    roll7 = (
+        pd.to_numeric(feature_rows.get("bakery_sales_roll_mean7", 0.0), errors="coerce").fillna(lag7).clip(lower=0.0)
+    )
+    roll30 = (
+        pd.to_numeric(feature_rows.get("bakery_sales_roll_mean30", 0.0), errors="coerce").fillna(roll7).clip(lower=0.0)
+    )
+    cv7 = pd.to_numeric(feature_rows.get("bakery_sales_cv_7d", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
+
+    trend_ratio = (roll7 / (roll30 + 1e-8)).clip(lower=0.75, upper=1.30)
+    trend_scale = trend_ratio.clip(lower=0.90, upper=1.18)
+    lag7_trend = lag7 * trend_scale
+    seasonal_anchor = 0.70 * lag7 + 0.30 * dow_mean
+    heuristic_anchor = 0.65 * lag7_trend + 0.35 * seasonal_anchor
+
+    base_pred_series = pd.Series(base_pred, index=feature_rows.index, dtype=float)
+    stability = (1.0 - cv7.clip(lower=0.0, upper=1.0)).clip(lower=0.0, upper=1.0)
+    anchor_weight = (0.30 + 0.30 * stability).clip(lower=0.30, upper=0.60)
+
+    ml_gap = ((lag7 - base_pred_series) / (lag7.abs() + 1.0)).clip(lower=-1.0, upper=1.0)
+    uptrend_signal = ((trend_ratio - 1.02) / 0.16).clip(lower=0.0, upper=1.0)
+    stable_signal = ((0.35 - cv7) / 0.20).clip(lower=0.0, upper=1.0)
+    underpredict_signal = (ml_gap / 0.22).clip(lower=0.0, upper=1.0)
+    lag_boost = 0.18 * uptrend_signal * stable_signal * underpredict_signal
+
+    anchor_weight = (anchor_weight + lag_boost).clip(lower=0.30, upper=0.72)
+    blend_pred = (1.0 - anchor_weight) * base_pred_series + anchor_weight * heuristic_anchor
+
+    weekly_stability = (1.0 - ((lag7 - lag14).abs() / (lag14.abs() + 1.0)).clip(lower=0.0, upper=1.0)).clip(
+        lower=0.0,
+        upper=1.0,
+    )
+    gap_ratio = ((lag7 - blend_pred) / (lag7.abs() + 1.0)).clip(lower=-1.0, upper=1.0)
+    trust_mask = (weekly_stability >= 0.90) & (gap_ratio >= 0.12) & (trend_ratio >= 1.00) & (cv7 <= 0.30)
+    extra_weight = 0.24 * weekly_stability * gap_ratio.clip(lower=0.0, upper=1.0)
+    final_pred = blend_pred.where(~trust_mask, (1.0 - extra_weight) * blend_pred + extra_weight * lag7)
+
+    return pd.to_numeric(final_pred, errors="coerce").fillna(fallback_mean).clip(lower=0.0)
 
 
 def heuristic_blend_recursive_backtest(
@@ -278,37 +329,14 @@ def heuristic_blend_recursive_backtest(
             base_pred = np.full(len(feature_rows), fallback_mean, dtype=float)
         else:
             predict_x = feature_rows[feature_cols].copy()
-            for col in [c for c in ["bakery_id", "city", "month"] if c in feature_cols]:
-                predict_x[col] = predict_x[col].astype("category")
+            _, predict_x = cast_category_columns(train_df[feature_cols].copy(), predict_x, feature_cols)
             base_pred = predict_clipped(model, predict_x)
 
-        lag7 = pd.to_numeric(feature_rows.get("bakery_sales_lag7", 0.0), errors="coerce").fillna(fallback_mean).clip(lower=0.0)
-        dow_mean = pd.to_numeric(feature_rows.get("bakery_sales_dow_mean", 0.0), errors="coerce").fillna(lag7).clip(lower=0.0)
-        roll7 = pd.to_numeric(feature_rows.get("bakery_sales_roll_mean7", 0.0), errors="coerce").fillna(lag7).clip(lower=0.0)
-        roll30 = pd.to_numeric(feature_rows.get("bakery_sales_roll_mean30", 0.0), errors="coerce").fillna(roll7).clip(lower=0.0)
-        cv7 = pd.to_numeric(feature_rows.get("bakery_sales_cv_7d", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
-
-        trend_ratio = (roll7 / (roll30 + 1e-8)).clip(lower=0.75, upper=1.30)
-        trend_scale = trend_ratio.clip(lower=0.90, upper=1.18)
-        lag7_trend = lag7 * trend_scale
-        seasonal_anchor = 0.70 * lag7 + 0.30 * dow_mean
-        heuristic_anchor = 0.65 * lag7_trend + 0.35 * seasonal_anchor
-
-        base_pred_series = pd.Series(base_pred, index=feature_rows.index, dtype=float)
-        stability = (1.0 - cv7.clip(lower=0.0, upper=1.0)).clip(lower=0.0, upper=1.0)
-        anchor_weight = (0.30 + 0.30 * stability).clip(lower=0.30, upper=0.60)
-
-        ml_gap = ((lag7 - base_pred_series) / (lag7.abs() + 1.0)).clip(lower=-1.0, upper=1.0)
-        uptrend_signal = ((trend_ratio - 1.02) / 0.16).clip(lower=0.0, upper=1.0)
-        stable_signal = ((0.35 - cv7) / 0.20).clip(lower=0.0, upper=1.0)
-        underpredict_signal = (ml_gap / 0.22).clip(lower=0.0, upper=1.0)
-        lag_boost = 0.18 * uptrend_signal * stable_signal * underpredict_signal
-
-        anchor_weight = (anchor_weight + lag_boost).clip(lower=0.30, upper=0.72)
-        base_weight = 1.0 - anchor_weight
-        blend_pred = base_weight * base_pred_series + anchor_weight * heuristic_anchor
-
-        feature_rows["prediction"] = pd.to_numeric(blend_pred, errors="coerce").fillna(fallback_mean).clip(lower=0.0)
+        feature_rows["prediction"] = compute_heuristic_blend_prediction(
+            feature_rows,
+            base_pred,
+            fallback_mean=fallback_mean,
+        )
         pred_parts.append(feature_rows[[DATE_COL, BAKERY_ID_COL, "prediction"]].copy())
         feature_rows[TARGET_COL] = feature_rows["prediction"]
         history = pd.concat([history, feature_rows], ignore_index=True, sort=False)
