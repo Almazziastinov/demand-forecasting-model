@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="panel">
+  <form method="get" action="/">
+    <label for="date">Дата</label>
+    <select id="date" name="date" onchange="this.form.submit()">
+      {% for value in dates %}
+      <option value="{{ value }}" {% if value == selected_date %}selected{% endif %}>{{ value }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Пекарни</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Пекарня</th>
+        <th>Город</th>
+        <th>Прогноз</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bakery in bakeries %}
+      <tr>
+        <td><a href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}">{{ bakery.bakery_name }}</a></td>
+        <td>{{ bakery.city }}</td>
+        <td>{{ "%.2f"|format(bakery.forecast_final) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

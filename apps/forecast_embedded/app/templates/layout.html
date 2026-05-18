@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ active_run.run_id if active_run else "Forecast" }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="page-header">
+    <div>
+      <h1>Bakery Forecast Embedded</h1>
+      {% if active_run %}
+      <p class="muted">
+        run: {{ active_run.run_id }} |
+        model: {{ active_run.model_version }} |
+        profile: {{ active_run.profile_version }}
+      </p>
+      {% endif %}
+    </div>
+    <nav>
+      <a href="/">Главная</a>
+    </nav>
+  </header>
+  <main class="page-body">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,1 @@
+"""Forecast embedded app package."""

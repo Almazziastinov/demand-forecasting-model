@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="panel">
+  <h2>{{ bakery.bakery_name }}</h2>
+  <p class="muted">{{ bakery.city }} | {{ selected_date }}</p>
+  <div class="metrics">
+    <div class="metric-card">
+      <span>Base</span>
+      <strong>{{ "%.2f"|format(bakery.forecast_base or 0) }}</strong>
+    </div>
+    <div class="metric-card">
+      <span>Final</span>
+      <strong>{{ "%.2f"|format(bakery.forecast_final) }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Почасовой total</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Час</th>
+        <th>Прогноз</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in hourly_total %}
+      <tr>
+        <td>{{ row.hour }}:00</td>
+        <td>{{ "%.2f"|format(row.forecast_qty) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h3>Top SKU</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>Категория</th>
+        <th>Прогноз</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in top_sku %}
+      <tr>
+        <td>{{ row.product_name }}</td>
+        <td>{{ row.category_name }}</td>
+        <td>{{ "%.2f"|format(row.forecast_qty) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>
+    <a href="/api/v1/export/bakery?bakery_id={{ bakery.bakery_id }}&date={{ selected_date }}">Скачать CSV</a>
+  </p>
+</section>
+{% endblock %}
