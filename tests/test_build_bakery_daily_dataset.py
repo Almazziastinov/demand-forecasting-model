@@ -1,95 +1,172 @@
-"""Tests for bakery-level daily dataset builder."""
+"""Tests for raw bakery daily dataset building and strict raw-line deduplication."""
 
 from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.experiments_v2.build_bakery_daily_dataset import (  # noqa: E402
-    add_calendar_features,
-    add_lag_features,
-    aggregate_chunk,
-    merge_partial_results,
-)
+from src.experiments_v2.build_bakery_daily_dataset import build_bakery_daily_dataset  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import build_summary  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import RU_BAKERY_NAME_COL  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import RU_CHECK_DATE_COL  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import RU_CHECK_DATETIME_COL  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import RU_EVENT_COL  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import RU_PRICE_COL  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import RU_PRODUCT_NAME_COL  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import RU_QUANTITY_COL  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import TARGET_COL  # noqa: E402
+from src.experiments_v2.raw_sales_dedup import deduplicate_sales_chunk  # noqa: E402
+from src.experiments_v2.raw_sales_dedup import prepare_sales_chunk  # noqa: E402
 
 
-def _raw_chunk() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "check_date": "2026-01-05",
-                "cash_event_type": "Продажа",
-                "quantity": 2.0,
-                "price": 100.0,
-                "line_amount": 200.0,
-                "bakery_id": "B1",
-                "bakery_name": "Bakery 1",
-                "city": "Kazan",
-            },
-            {
-                "check_date": "2026-01-05",
-                "cash_event_type": "Продажа",
-                "quantity": 3.0,
-                "price": 100.0,
-                "line_amount": 300.0,
-                "bakery_id": "B1",
-                "bakery_name": "Bakery 1",
-                "city": "Kazan",
-            },
-            {
-                "check_date": "2026-01-06",
-                "cash_event_type": "Возврат",
-                "quantity": 5.0,
-                "price": 90.0,
-                "line_amount": 450.0,
-                "bakery_id": "B1",
-                "bakery_name": "Bakery 1",
-                "city": "Kazan",
-            },
-        ]
-    )
+SALES_EVENT = "\u041f\u0440\u043e\u0434\u0430\u0436\u0430"
 
 
-def test_aggregate_chunk_keeps_only_sales():
-    part = aggregate_chunk(_raw_chunk())
-    assert len(part) == 1
-    row = part.iloc[0]
-    assert row["bakery_sales"] == 5.0
-    assert row["line_amount_sum"] == 500.0
-
-
-def test_add_lag_features_builds_bakery_lags():
-    daily = pd.DataFrame(
-        [
-            {"date": pd.Timestamp("2026-01-01"), "bakery_id": "B1", "bakery_name": "Bakery 1", "city": "Kazan", "bakery_sales": 1.0, "line_amount_sum": 100.0, "priced_quantity": 1.0, "price_x_qty_sum": 100.0},
-            {"date": pd.Timestamp("2026-01-02"), "bakery_id": "B1", "bakery_name": "Bakery 1", "city": "Kazan", "bakery_sales": 2.0, "line_amount_sum": 200.0, "priced_quantity": 2.0, "price_x_qty_sum": 200.0},
-            {"date": pd.Timestamp("2026-01-03"), "bakery_id": "B1", "bakery_name": "Bakery 1", "city": "Kazan", "bakery_sales": 3.0, "line_amount_sum": 300.0, "priced_quantity": 3.0, "price_x_qty_sum": 300.0},
-        ]
-    )
-    daily = add_calendar_features(daily)
-    daily = add_lag_features(daily)
-    assert daily.loc[daily["date"] == pd.Timestamp("2026-01-02"), "bakery_sales_lag1"].iloc[0] == 1.0
-
-
-def test_aggregate_chunk_supports_legacy_russian_snapshot_columns():
+def test_deduplicate_sales_chunk_removes_only_strict_duplicates():
     raw = pd.DataFrame(
         [
             {
-                "Дата продажи": "01.01.2026",
-                "Вид события по кассе": "Продажа",
-                "Касса.Торговая точка": "Bakery Legacy",
-                "Цена": 120.0,
-                "Кол-во": 2.0,
+                "check_date": "2026-04-21",
+                "check_datetime": "2026-04-21 09:00:00",
+                "cash_event_type": SALES_EVENT,
+                "quantity": 2.0,
+                "price": 100.0,
+                "line_amount": 200.0,
+                "bakery_id": 10,
+                "bakery_name": "B1",
+                "city": "Kazan",
+                "product_id": 101,
+            },
+            {
+                "check_date": "2026-04-21",
+                "check_datetime": "2026-04-21 09:00:00",
+                "cash_event_type": SALES_EVENT,
+                "quantity": 2.0,
+                "price": 100.0,
+                "line_amount": 200.0,
+                "bakery_id": 10,
+                "bakery_name": "B1",
+                "city": "Kazan",
+                "product_id": 101,
+            },
+            {
+                "check_date": "2026-04-21",
+                "check_datetime": "2026-04-21 09:00:00",
+                "cash_event_type": SALES_EVENT,
+                "quantity": 3.0,
+                "price": 100.0,
+                "line_amount": 300.0,
+                "bakery_id": 10,
+                "bakery_name": "B1",
+                "city": "Kazan",
+                "product_id": 101,
+            },
+        ]
+    )
+
+    sales = prepare_sales_chunk(raw, sales_events={SALES_EVENT})
+    deduped, stats = deduplicate_sales_chunk(sales)
+
+    assert len(deduped) == 2
+    assert stats["removed_rows"] == 1
+    assert stats["removed_quantity_sum"] == 2.0
+    assert float(deduped["quantity"].sum()) == 5.0
+
+
+def test_build_bakery_daily_dataset_applies_strict_dedup():
+    source = Path("raw_sales_build_bakery_daily_dataset_test.csv")
+    raw = pd.DataFrame(
+        [
+            {
+                "check_date": "2026-04-21",
+                "check_datetime": "2026-04-21 09:00:00",
+                "cash_event_type": SALES_EVENT,
+                "quantity": 2.0,
+                "price": 100.0,
+                "line_amount": 200.0,
+                "bakery_id": 10,
+                "bakery_name": "B1",
+                "city": "Kazan",
+                "product_id": 101,
+            },
+            {
+                "check_date": "2026-04-21",
+                "check_datetime": "2026-04-21 09:00:00",
+                "cash_event_type": SALES_EVENT,
+                "quantity": 2.0,
+                "price": 100.0,
+                "line_amount": 200.0,
+                "bakery_id": 10,
+                "bakery_name": "B1",
+                "city": "Kazan",
+                "product_id": 101,
+            },
+            {
+                "check_date": "2026-04-21",
+                "check_datetime": "2026-04-21 09:00:00",
+                "cash_event_type": SALES_EVENT,
+                "quantity": 3.0,
+                "price": 100.0,
+                "line_amount": 300.0,
+                "bakery_id": 10,
+                "bakery_name": "B1",
+                "city": "Kazan",
+                "product_id": 101,
+            },
+            {
+                "check_date": "2026-04-22",
+                "check_datetime": "2026-04-22 10:00:00",
+                "cash_event_type": SALES_EVENT,
+                "quantity": 4.0,
+                "price": 90.0,
+                "line_amount": 360.0,
+                "bakery_id": 10,
+                "bakery_name": "B1",
+                "city": "Kazan",
+                "product_id": 102,
+            },
+        ]
+    )
+    raw.to_csv(source, index=False, encoding="utf-8-sig")
+
+    result = build_bakery_daily_dataset(source, chunk_size=2)
+    summary = build_summary(result)
+
+    assert len(result) == 2
+    assert float(result.iloc[0][TARGET_COL]) == 5.0
+    assert float(result.iloc[1][TARGET_COL]) == 4.0
+    assert summary["raw_sales_dedup"]["removed_rows"] == 1
+    assert summary["raw_sales_dedup"]["removed_quantity_sum"] == 2.0
+    assert summary["raw_sales_dedup"]["deduped_rows"] == 3
+    source.unlink()
+
+
+def test_build_bakery_daily_dataset_supports_legacy_russian_columns():
+    source = Path("raw_sales_build_bakery_daily_dataset_legacy_test.csv")
+    raw = pd.DataFrame(
+        [
+            {
+                RU_CHECK_DATE_COL: "21.04.2026",
+                RU_CHECK_DATETIME_COL: "21.04.2026 09:00:00",
+                RU_EVENT_COL: SALES_EVENT,
+                RU_BAKERY_NAME_COL: "Legacy Bakery",
+                RU_PRICE_COL: 120.0,
+                RU_QUANTITY_COL: 2.0,
+                RU_PRODUCT_NAME_COL: "Bread",
             }
         ]
     )
-    part = aggregate_chunk(raw)
-    assert len(part) == 1
-    row = part.iloc[0]
-    assert row["bakery_id"] == "Bakery Legacy"
-    assert row["city"] == "unknown"
-    assert row["line_amount_sum"] == 240.0
+    raw.to_csv(source, index=False, encoding="utf-8-sig")
+
+    result = build_bakery_daily_dataset(source, chunk_size=1)
+
+    assert len(result) == 1
+    assert result.iloc[0]["bakery_id"] == "Legacy Bakery"
+    assert result.iloc[0]["city"] == "unknown"
+    assert float(result.iloc[0][TARGET_COL]) == 2.0
+    source.unlink()

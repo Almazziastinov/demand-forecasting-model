@@ -13,6 +13,9 @@ Required raw columns:
   city
 
 Optional raw columns:
+  check_datetime
+  product_id
+  product_name
   price
   line_amount
 
@@ -29,20 +32,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.experiments_v2.raw_snapshot_schema import normalize_snapshot_chunk
-from src.experiments_v2.raw_snapshot_schema import parse_snapshot_date
+from src.experiments_v2.raw_sales_dedup import RAW_AMOUNT_COL
+from src.experiments_v2.raw_sales_dedup import RAW_BAKERY_ID_COL
+from src.experiments_v2.raw_sales_dedup import RAW_BAKERY_NAME_COL
+from src.experiments_v2.raw_sales_dedup import RAW_CITY_COL
+from src.experiments_v2.raw_sales_dedup import RAW_DATE_COL
+from src.experiments_v2.raw_sales_dedup import RAW_PRICE_COL
+from src.experiments_v2.raw_sales_dedup import RAW_QTY_COL
+from src.experiments_v2.raw_sales_dedup import deduplicate_sales_chunk
+from src.experiments_v2.raw_sales_dedup import prepare_sales_chunk
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
-RAW_DATE_COL = "check_date"
 RAW_EVENT_COL = "cash_event_type"
-RAW_QTY_COL = "quantity"
-RAW_PRICE_COL = "price"
-RAW_AMOUNT_COL = "line_amount"
-RAW_BAKERY_ID_COL = "bakery_id"
-RAW_BAKERY_NAME_COL = "bakery_name"
-RAW_CITY_COL = "city"
 
 DATE_COL = "date"
 BAKERY_ID_COL = "bakery_id"
@@ -50,65 +53,83 @@ BAKERY_NAME_COL = "bakery_name"
 CITY_COL = "city"
 TARGET_COL = "bakery_sales"
 
-SALES_EVENT = "Продажа"
+SALES_EVENT = "\u041f\u0440\u043e\u0434\u0430\u0436\u0430"
 CHUNK_SIZE = 1_000_000
-SALES_EVENTS = {"Продажа", SALES_EVENT}
+SALES_EVENTS = {"\u041f\u0440\u043e\u0434\u0430\u0436\u0430", SALES_EVENT}
 
 OUTPUT_NAME = "bakery_daily_sales.csv"
 SUMMARY_OUTPUT_NAME = "bakery_daily_sales_summary.json"
+RU_CHECK_DATE_COL = (
+    "\u0414\u0430\u0442\u0430 \u043f\u0440\u043e\u0434\u0430\u0436\u0438"
+)
+RU_CHECK_DATETIME_COL = (
+    "\u0414\u0430\u0442\u0430 \u0432\u0440\u0435\u043c\u044f \u0447\u0435\u043a\u0430"
+)
+RU_EVENT_COL = (
+    "\u0412\u0438\u0434 \u0441\u043e\u0431\u044b\u0442\u0438\u044f "
+    "\u043f\u043e \u043a\u0430\u0441\u0441\u0435"
+)
+RU_BAKERY_NAME_COL = (
+    "\u041a\u0430\u0441\u0441\u0430.\u0422\u043e\u0440\u0433\u043e\u0432\u0430\u044f "
+    "\u0442\u043e\u0447\u043a\u0430"
+)
+RU_PRICE_COL = "\u0426\u0435\u043d\u0430"
+RU_QUANTITY_COL = "\u041a\u043e\u043b-\u0432\u043e"
+RU_PRODUCT_NAME_COL = (
+    "\u041d\u043e\u043c\u0435\u043d\u043a\u043b\u0430\u0442\u0443\u0440\u0430"
+)
 
 
-def aggregate_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
-    chunk = normalize_snapshot_chunk(chunk)
-    sales = chunk[chunk[RAW_EVENT_COL].isin(SALES_EVENTS)].copy()
+def _empty_chunk_aggregate() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            DATE_COL,
+            BAKERY_ID_COL,
+            BAKERY_NAME_COL,
+            CITY_COL,
+            TARGET_COL,
+            "line_amount_sum",
+            "priced_quantity",
+            "price_x_qty_sum",
+        ]
+    )
+
+
+def _empty_dedup_stats() -> dict[str, float | int]:
+    return {
+        "raw_rows": 0,
+        "deduped_rows": 0,
+        "removed_rows": 0,
+        "duplicate_groups": 0,
+        "raw_quantity_sum": 0.0,
+        "deduped_quantity_sum": 0.0,
+        "removed_quantity_sum": 0.0,
+        "raw_line_amount_sum": 0.0,
+        "deduped_line_amount_sum": 0.0,
+        "removed_line_amount_sum": 0.0,
+    }
+
+
+def aggregate_chunk(chunk: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    sales = prepare_sales_chunk(chunk, sales_events=SALES_EVENTS)
     if sales.empty:
-        return pd.DataFrame(
-            columns=[
-                DATE_COL,
-                BAKERY_ID_COL,
-                BAKERY_NAME_COL,
-                CITY_COL,
-                TARGET_COL,
-                "line_amount_sum",
-                "priced_quantity",
-                "price_x_qty_sum",
-            ]
-        )
+        return _empty_chunk_aggregate(), _empty_dedup_stats()
 
-    sales[DATE_COL] = parse_snapshot_date(sales[RAW_DATE_COL]).dt.normalize()
-    sales = sales.dropna(subset=[DATE_COL, RAW_BAKERY_ID_COL, RAW_BAKERY_NAME_COL])
-    if sales.empty:
-        return pd.DataFrame(
-            columns=[
-                DATE_COL,
-                BAKERY_ID_COL,
-                BAKERY_NAME_COL,
-                CITY_COL,
-                TARGET_COL,
-                "line_amount_sum",
-                "priced_quantity",
-                "price_x_qty_sum",
-            ]
-        )
-
-    sales[RAW_QTY_COL] = pd.to_numeric(sales[RAW_QTY_COL], errors="coerce").fillna(0.0)
-    sales[RAW_QTY_COL] = sales[RAW_QTY_COL].clip(lower=0.0)
-
-    if RAW_AMOUNT_COL in sales.columns:
-        sales[RAW_AMOUNT_COL] = pd.to_numeric(sales[RAW_AMOUNT_COL], errors="coerce").fillna(0.0)
-    else:
-        sales[RAW_AMOUNT_COL] = 0.0
-
-    if RAW_PRICE_COL in sales.columns:
-        sales[RAW_PRICE_COL] = pd.to_numeric(sales[RAW_PRICE_COL], errors="coerce")
-        sales["price_x_qty_sum"] = sales[RAW_PRICE_COL].fillna(0.0) * sales[RAW_QTY_COL]
-        sales["priced_quantity"] = np.where(sales[RAW_PRICE_COL].notna(), sales[RAW_QTY_COL], 0.0)
-    else:
-        sales["price_x_qty_sum"] = 0.0
-        sales["priced_quantity"] = 0.0
+    sales, dedup_stats = deduplicate_sales_chunk(sales)
+    sales[DATE_COL] = sales[RAW_DATE_COL]
+    sales[RAW_AMOUNT_COL] = sales[RAW_AMOUNT_COL].fillna(0.0)
+    sales["price_x_qty_sum"] = sales[RAW_PRICE_COL].fillna(0.0) * sales[RAW_QTY_COL]
+    sales["priced_quantity"] = np.where(
+        sales[RAW_PRICE_COL].notna(),
+        sales[RAW_QTY_COL],
+        0.0,
+    )
 
     grouped = (
-        sales.groupby([DATE_COL, RAW_BAKERY_ID_COL, RAW_BAKERY_NAME_COL, RAW_CITY_COL], as_index=False)
+        sales.groupby(
+            [DATE_COL, RAW_BAKERY_ID_COL, RAW_BAKERY_NAME_COL, RAW_CITY_COL],
+            as_index=False,
+        )
         .agg(
             bakery_sales=(RAW_QTY_COL, "sum"),
             line_amount_sum=(RAW_AMOUNT_COL, "sum"),
@@ -123,7 +144,7 @@ def aggregate_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
             }
         )
     )
-    return grouped
+    return grouped, dedup_stats
 
 
 def merge_partial_results(parts: list[pd.DataFrame]) -> pd.DataFrame:
@@ -132,7 +153,10 @@ def merge_partial_results(parts: list[pd.DataFrame]) -> pd.DataFrame:
 
     daily = pd.concat(parts, ignore_index=True)
     daily = (
-        daily.groupby([DATE_COL, BAKERY_ID_COL, BAKERY_NAME_COL, CITY_COL], as_index=False)
+        daily.groupby(
+            [DATE_COL, BAKERY_ID_COL, BAKERY_NAME_COL, CITY_COL],
+            as_index=False,
+        )
         .agg(
             bakery_sales=(TARGET_COL, "sum"),
             line_amount_sum=("line_amount_sum", "sum"),
@@ -184,9 +208,14 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
-def build_bakery_daily_dataset(source_path: str | Path, *, chunk_size: int = CHUNK_SIZE) -> pd.DataFrame:
+def build_bakery_daily_dataset(
+    source_path: str | Path,
+    *,
+    chunk_size: int = CHUNK_SIZE,
+) -> pd.DataFrame:
     usecols = [
         RAW_DATE_COL,
+        "check_datetime",
         RAW_EVENT_COL,
         RAW_QTY_COL,
         RAW_BAKERY_ID_COL,
@@ -194,18 +223,30 @@ def build_bakery_daily_dataset(source_path: str | Path, *, chunk_size: int = CHU
         RAW_CITY_COL,
         RAW_PRICE_COL,
         RAW_AMOUNT_COL,
-        "Дата продажи",
-        "Вид события по кассе",
-        "Касса.Торговая точка",
-        "Цена",
-        "Кол-во",
+        "product_id",
+        "product_name",
+        RU_CHECK_DATE_COL,
+        RU_CHECK_DATETIME_COL,
+        RU_EVENT_COL,
+        RU_BAKERY_NAME_COL,
+        RU_PRICE_COL,
+        RU_QUANTITY_COL,
+        RU_PRODUCT_NAME_COL,
     ]
     parts: list[pd.DataFrame] = []
+    dedup_totals = _empty_dedup_stats()
 
-    reader = pd.read_csv(source_path, encoding="utf-8-sig", usecols=lambda c: c in usecols, chunksize=chunk_size)
+    reader = pd.read_csv(
+        source_path,
+        encoding="utf-8-sig",
+        usecols=lambda c: c in usecols,
+        chunksize=chunk_size,
+    )
     for i, chunk in enumerate(reader, start=1):
-        part = aggregate_chunk(chunk)
+        part, dedup_stats = aggregate_chunk(chunk)
         parts.append(part)
+        for key, value in dedup_stats.items():
+            dedup_totals[key] += value
         if i % 5 == 0:
             print(f"processed chunks: {i}", flush=True)
 
@@ -213,11 +254,12 @@ def build_bakery_daily_dataset(source_path: str | Path, *, chunk_size: int = CHU
     daily = add_price_features(daily)
     daily = add_calendar_features(daily)
     daily = add_lag_features(daily)
+    daily.attrs["dedup_summary"] = dedup_totals
     return daily
 
 
 def build_summary(df: pd.DataFrame) -> dict:
-    return {
+    summary = {
         "rows": int(len(df)),
         "date_min": None if df.empty else str(df[DATE_COL].min().date()),
         "date_max": None if df.empty else str(df[DATE_COL].max().date()),
@@ -226,21 +268,40 @@ def build_summary(df: pd.DataFrame) -> dict:
         "cities": int(df[CITY_COL].nunique()) if len(df) else 0,
         "mean_bakery_sales": round(float(df[TARGET_COL].mean()), 6) if len(df) else 0.0,
     }
+    dedup_summary = df.attrs.get("dedup_summary")
+    if dedup_summary:
+        summary["raw_sales_dedup"] = {
+            key: (round(float(value), 6) if isinstance(value, float) else int(value))
+            for key, value in dedup_summary.items()
+        }
+    return summary
 
 
-def save_outputs(output_dir: str | Path, df: pd.DataFrame, summary: dict) -> dict[str, Path]:
+def save_outputs(
+    output_dir: str | Path,
+    df: pd.DataFrame,
+    summary: dict,
+) -> dict[str, Path]:
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / OUTPUT_NAME
     summary_path = out_dir / SUMMARY_OUTPUT_NAME
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return {"dataset": csv_path, "summary": summary_path}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build bakery-level daily dataset from raw checks")
-    parser.add_argument("--source-path", default=str(ROOT / "data" / "raw" / "sales_hrs_all.csv"))
+    parser = argparse.ArgumentParser(
+        description="Build bakery-level daily dataset from raw checks"
+    )
+    parser.add_argument(
+        "--source-path",
+        default=str(ROOT / "data" / "raw" / "sales_hrs_all.csv"),
+    )
     parser.add_argument("--output-dir", default=str(ROOT / "data" / "processed"))
     parser.add_argument("--chunk-size", type=int, default=CHUNK_SIZE)
     args = parser.parse_args()
