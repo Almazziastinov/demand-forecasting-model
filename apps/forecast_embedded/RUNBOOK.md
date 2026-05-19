@@ -15,10 +15,11 @@ The embedded app serves forecast data only. It does not train models and does no
 
 - app directory: `apps/forecast_embedded`
 - serving tables:
-  - `forecast_runs_embedded`
-  - `bakery_forecast_day_embedded`
-  - `sku_forecast_day_embedded`
-  - `sku_forecast_hour_embedded`
+- `forecast_runs_embedded`
+- `bakery_forecast_day_embedded`
+- `sku_forecast_day_embedded`
+- `sku_forecast_hour_embedded`
+- `sku_hour_share_profile_smoothed_embedded`
 
 ## Required Runtime Configuration
 
@@ -145,6 +146,59 @@ Use this sequence for every forecast update:
 4. activate only after review
 
 Do not overwrite old rows in place.
+
+## Automated Nightly Mode
+
+There is now a repository-level orchestration script for the serving pipeline:
+
+```bash
+.venv\Scripts\python.exe pipelines\forecast_publish\nightly_refresh.py
+```
+
+Default nightly behavior:
+
+1. export raw sales from ClickHouse from `2025-01-01` through `yesterday`
+2. rebuild `data/processed/bakery_daily_sales.csv`
+3. run bakery forecast from `today` for `7` days ahead
+4. apply existing bakery-hour and smoothed SKU-hour profiles
+5. publish the new run into ClickHouse
+6. activate the new run immediately
+
+Operational assumptions:
+
+- model retraining is **not** part of the nightly job
+- profile rebuild is **not** part of the nightly job
+- large SKU profile delivery to Blackhole should use ClickHouse storage, not deploy upload
+- the job uses the existing:
+  - `models/bakery_day_model.joblib`
+  - `models/bakery_day_meta.joblib`
+  - `reports/bakery_day_model_bias_by_bakery.csv`
+  - `data/processed/bakery_hour_profile.csv`
+  - `sku_hour_share_profile_smoothed_embedded` in ClickHouse
+
+One-time profile load into ClickHouse:
+
+```bash
+.venv\Scripts\python.exe pipelines\forecast_publish\sku_hour_profile_store.py --mode load --truncate
+```
+
+If the nightly job runs with `--profile-source clickhouse`, it will export the profile
+to a local cache file only when the cache is missing or when `--refresh-profile-cache`
+is passed explicitly.
+
+Useful flags:
+
+```bash
+.venv\Scripts\python.exe pipelines\forecast_publish\nightly_refresh.py --skip-export --skip-publish
+```
+
+This is useful for a local dry-run on already exported raw data.
+
+On Windows, the repository includes a helper to register a daily scheduled task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register_nightly_forecast_task.ps1
+```
 
 ## Model Updates vs UI Updates
 

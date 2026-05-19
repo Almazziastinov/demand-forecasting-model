@@ -50,3 +50,21 @@ create table if not exists sku_forecast_hour_embedded (
 engine = MergeTree
 partition by toYYYYMM(forecast_date)
 order by (run_id, forecast_date, bakery_id, product_id, hour);
+
+create table if not exists sku_hour_share_profile_smoothed_embedded (
+  bakery_id Int64,
+  bakery_name String,
+  product_id Int64,
+  product_name Nullable(String),
+  category_name Nullable(String),
+  dow Int16,
+  hour Int16,
+  n_days Int32,
+  mean_sku_share_in_hour Float64,
+  mean_sku_hour_sales Float64,
+  median_sku_share_in_hour Float64,
+  std_sku_share_in_hour Float64,
+  mean_sku_share_in_hour_norm Float64
+)
+engine = MergeTree
+order by (bakery_id, dow, hour, product_id);

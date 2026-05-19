@@ -17,6 +17,12 @@ DEFAULT_PROFILE_PATH = ROOT / "data" / "processed" / "sku_hour_share_profile_smo
 DEFAULT_ENV_PATH = ROOT / ".env"
 
 
+def _as_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
     env: dict[str, str] = {}
     file_path = Path(path)
@@ -32,14 +38,29 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
     return env
 
 
-def create_client(env_path: str | Path):
+def get_clickhouse_settings(env_path: str | Path = DEFAULT_ENV_PATH) -> dict[str, object]:
     env = load_env_file(env_path)
+    return {
+        "host": env.get("HOST") or env.get("CLICKHOUSE_HOST"),
+        "port": int(env.get("PORT") or env.get("CLICKHOUSE_PORT") or "8443"),
+        "username": env.get("USER") or env.get("CLICKHOUSE_USER"),
+        "password": env.get("PASSWORD") or env.get("CLICKHOUSE_PASSWORD"),
+        "database": env.get("DATABASE") or env.get("CLICKHOUSE_DATABASE"),
+        "secure": _as_bool(env.get("SECURE") or env.get("CLICKHOUSE_SECURE"), default=True),
+        "verify": _as_bool(env.get("VERIFY") or env.get("CLICKHOUSE_VERIFY"), default=False),
+    }
+
+
+def create_client(env_path: str | Path):
+    settings = get_clickhouse_settings(env_path)
     return clickhouse_connect.get_client(
-        host=env["HOST"],
-        port=int(env["PORT"]),
-        username=env["USER"],
-        password=env["PASSWORD"],
-        database=env["DATABASE"],
+        host=settings["host"],
+        port=int(settings["port"]),
+        username=settings["username"],
+        password=settings["password"],
+        database=settings["database"],
+        secure=bool(settings["secure"]),
+        verify=bool(settings["verify"]),
     )
 
 

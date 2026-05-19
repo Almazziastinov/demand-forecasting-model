@@ -96,14 +96,16 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
 def get_connection_settings(env_path: str | Path) -> dict[str, str]:
     env = load_env_file(env_path)
     settings = {
-        "host": env.get("HOST", os.getenv("HOST")),
-        "port": env.get("PORT", os.getenv("PORT")),
-        "username": env.get("USER", os.getenv("USER")),
-        "password": env.get("PASSWORD", os.getenv("PASSWORD")),
-        "database": env.get("DATABASE", os.getenv("DATABASE")),
+        "host": env.get("HOST") or env.get("CLICKHOUSE_HOST") or os.getenv("HOST") or os.getenv("CLICKHOUSE_HOST"),
+        "port": env.get("PORT") or env.get("CLICKHOUSE_PORT") or os.getenv("PORT") or os.getenv("CLICKHOUSE_PORT"),
+        "username": env.get("USER") or env.get("CLICKHOUSE_USER") or os.getenv("USER") or os.getenv("CLICKHOUSE_USER"),
+        "password": env.get("PASSWORD") or env.get("CLICKHOUSE_PASSWORD") or os.getenv("PASSWORD") or os.getenv("CLICKHOUSE_PASSWORD"),
+        "database": env.get("DATABASE") or env.get("CLICKHOUSE_DATABASE") or os.getenv("DATABASE") or os.getenv("CLICKHOUSE_DATABASE"),
+        "secure": env.get("SECURE") or env.get("CLICKHOUSE_SECURE") or os.getenv("SECURE") or os.getenv("CLICKHOUSE_SECURE"),
+        "verify": env.get("VERIFY") or env.get("CLICKHOUSE_VERIFY") or os.getenv("VERIFY") or os.getenv("CLICKHOUSE_VERIFY"),
     }
 
-    missing = [key for key, value in settings.items() if not value]
+    missing = [key for key in ["host", "port", "username", "password", "database"] if not settings.get(key)]
     if missing:
         raise ValueError(
             "Missing ClickHouse connection settings: "
@@ -126,6 +128,8 @@ def create_client(env_path: str | Path):
         username=settings["username"],
         password=settings["password"],
         database=settings["database"],
+        secure=str(settings.get("secure", "true")).strip().lower() in {"1", "true", "yes", "on"},
+        verify=str(settings.get("verify", "false")).strip().lower() in {"1", "true", "yes", "on"},
     )
 
 
