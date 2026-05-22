@@ -1,0 +1,12 @@
+{
+  "built_rows": 92639,
+  "built_pairs": 690,
+  "built_segments": {
+    "bakery_driven": 433,
+    "stable": 257
+  },
+  "constructor_counts": {
+    "stable_release_weekday": 90811,
+    "bakery_total_x_sku_share": 1828
+  }
+}

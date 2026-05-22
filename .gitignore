@@ -15,6 +15,9 @@ data/.weather_cache.sqlite
 .weather_cache.sqlite
 data/raw/sales_hrs_all.csv
 data/raw/sales_hrs_all_clickhouse.csv
+data/raw/dim_kkt_clickhouse.csv
+data/raw/moves_clickhouse.csv
+data/raw/production_release_clickhouse.csv
 sales_hrs/
 
 # Models (binary artifacts)
@@ -68,6 +71,15 @@ src/experiments_v2/**/artifact_manifest.json
 src/experiments_v2/**/best_model.joblib
 src/experiments_v2/full_benchmark/
 src/experiments_v2/Full_benchmark_mounth_results/
+src/experiments_v2/75_normative_demand_map/predictability_and_structure_map.csv
+src/experiments_v2/75_normative_demand_map/segment_examples.csv
+src/experiments_v2/75_normative_demand_map/segment_summary.csv
+src/experiments_v2/76_normative_v1_v2/normative_daily_candidates.csv
+src/experiments_v2/76_normative_v1_v2/normative_pair_summary.csv
+src/experiments_v2/76_normative_v1_v2/normative_segment_summary.csv
+src/experiments_v2/77_segmented_normative_constructors/segmented_normative_daily.csv
+src/experiments_v2/77_segmented_normative_constructors/segmented_normative_pair_summary.csv
+src/experiments_v2/77_segmented_normative_constructors/segmented_normative_segment_summary.csv
 
 # Local scratch artifacts
 test.png

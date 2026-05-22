@@ -1,0 +1,28 @@
+{
+  "rows": 14509911,
+  "pairs": 58363,
+  "segments": {
+    "noisy": 30197,
+    "intermittent": 13180,
+    "amplitude_unstable": 12005,
+    "trend_dominated": 2280,
+    "bakery_driven": 433,
+    "stable": 257,
+    "high_censoring": 11
+  },
+  "candidate_name_counts": {
+    "normative_v2": 10459766,
+    "normative_sparse_fallback": 3956847,
+    "normative_v1": 90811,
+    "normative_censoring_guard": 2487
+  },
+  "observed_mean": 5.414759,
+  "normative_v1_mean": 5.182159,
+  "normative_v2_mean": 5.181912,
+  "normative_candidate_mean": 5.1759,
+  "observed_cv_mean": 1.217292,
+  "normative_v1_cv_mean": 0.884087,
+  "normative_v2_cv_mean": 0.835937,
+  "candidate_wmape_vs_observed_mean": 0.731069,
+  "candidate_r2_vs_observed_mean": -24.898673
+}

@@ -1,0 +1,20 @@
+{
+  "pairs": 58363,
+  "bakeries": 212,
+  "sku": 1313,
+  "categories": 40,
+  "mean_predictability_score": 0.404823,
+  "median_predictability_score": 0.389073,
+  "segment_counts": {
+    "noisy": 30197,
+    "intermittent": 13180,
+    "amplitude_unstable": 12005,
+    "trend_dominated": 2280,
+    "bakery_driven": 433,
+    "stable": 257,
+    "high_censoring": 11
+  },
+  "stable_share": 0.004403,
+  "intermittent_share": 0.225828,
+  "high_censoring_share": 0.000188
+}
