@@ -55,7 +55,22 @@ def test_build_kazan_temporal_normative_sku_day_outputs_temporal_series() -> Non
 
         assert len(temporal) == 14
         assert "temporal_normative_qty" in temporal.columns
+        assert "temporal_normative_legacy_qty" in temporal.columns
+        assert "temporal_normative_weekly_cv_qty" in temporal.columns
+        assert "temporal_normative_flat_deviation_qty" in temporal.columns
+        assert "temporal_normative_reference_profile_qty" in temporal.columns
+        assert "weekly_cv_amplitude_multiplier" in temporal.columns
+        assert "flat_deviation_amplitude_multiplier" in temporal.columns
+        assert "reference_profile_amplitude_multiplier" in temporal.columns
         assert temporal["temporal_normative_qty"].notna().all()
+        assert temporal["temporal_normative_qty"].equals(temporal["temporal_normative_reference_profile_qty"])
         assert summary["rows"] == 14
+        assert summary["selected_variant"] == "reference_profile"
+        assert set(summary["variant_gap_summary"]) == {
+            "legacy",
+            "weekly_cv",
+            "flat_deviation",
+            "reference_profile",
+        }
     finally:
         shutil.rmtree(tmp_path, ignore_errors=True)
