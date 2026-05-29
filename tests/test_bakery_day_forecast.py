@@ -109,6 +109,58 @@ def test_build_model_frame_adds_event_cluster_features():
     assert int(row_event["is_near_event_window"]) == 1
 
 
+def test_build_model_frame_adds_enriched_event_features():
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-03-19", "2026-03-20", "2026-03-21"]),
+            "bakery_id": ["B1", "B1", "B1"],
+            "bakery_name": ["B1", "B1", "B1"],
+            "city": ["Kazan", "Kazan", "Kazan"],
+            "bakery_sales": [10.0, 12.0, 11.0],
+            "avg_price": [100.0, 100.0, 100.0],
+            "dow": [3, 4, 5],
+            "day": [19, 20, 21],
+            "month": [3, 3, 3],
+            "iso_week": [12, 12, 12],
+            "is_weekend": [0, 0, 1],
+            "is_month_start": [0, 0, 0],
+            "is_month_end": [0, 0, 0],
+            "is_payday_week": [1, 1, 1],
+            "bakery_sales_lag1": [0.0, 10.0, 12.0],
+            "bakery_sales_lag2": [0.0, 0.0, 10.0],
+            "bakery_sales_lag3": [0.0, 0.0, 0.0],
+            "bakery_sales_lag7": [0.0, 0.0, 0.0],
+            "bakery_sales_lag14": [0.0, 0.0, 0.0],
+            "bakery_sales_lag30": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean3": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean7": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean14": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_mean30": [0.0, 0.0, 0.0],
+            "bakery_sales_roll_std7": [0.0, 0.0, 0.0],
+        }
+    )
+
+    frame = build_model_frame(df)
+    row_before = frame[frame["date"] == pd.Timestamp("2026-03-19")].iloc[0]
+    row_event = frame[frame["date"] == pd.Timestamp("2026-03-20")].iloc[0]
+    row_after = frame[frame["date"] == pd.Timestamp("2026-03-21")].iloc[0]
+
+    assert row_before["event_window_type"] == "pre_event_1_3"
+    assert row_event["event_window_type"] == "event_day"
+    assert row_after["event_window_type"] == "post_event_1_3"
+    assert row_event["holiday_name_feature"] == "uraza_bayram"
+    assert row_before["nearest_event_city"] == "cluster_1|Kazan"
+
+
+def test_build_future_feature_rows_adds_enriched_event_features():
+    history = _history()
+    future = build_future_feature_rows(history, pd.Timestamp("2026-01-05"))
+
+    assert "payday_window_type" in future.columns
+    assert "event_window_type" in future.columns
+    assert set(future["payday_window_type"]) == {"payday"}
+
+
 def test_recursive_forecast_returns_horizon_for_each_bakery():
     history = _history()
     feature_cols = [
@@ -146,7 +198,12 @@ def test_recursive_forecast_returns_horizon_for_each_bakery():
         "bakery_sales_trend",
         "bakery_sales_cv_7d",
     ]
-    forecast = recursive_forecast(history, _ConstantModel(), feature_cols, horizon_days=3)
+    forecast = recursive_forecast(
+        history,
+        _ConstantModel(),
+        feature_cols,
+        horizon_days=3,
+    )
 
     assert len(forecast) == 6
     assert forecast["date"].nunique() == 3

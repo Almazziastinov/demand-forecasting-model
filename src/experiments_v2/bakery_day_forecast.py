@@ -8,6 +8,8 @@ Modes:
 
 from __future__ import annotations
 
+# ruff: noqa: E402,E501
+
 import argparse
 import json
 import sys
@@ -79,7 +81,53 @@ BASE_FEATURES = [
     "bakery_sales_cv_7d",
 ]
 
-CATEGORICAL_COLS = [BAKERY_ID_COL, CITY_COL, "month", "current_event_cluster", "prev_event_cluster", "next_event_cluster"]
+ENRICHED_EVENT_FEATURES = [
+    "holiday_name_feature",
+    "event_window_type",
+    "event_distance_bin",
+    "current_event_city",
+    "nearest_event_city",
+    "event_dow_interaction",
+    "is_pre_event_1d",
+    "is_pre_event_2d",
+    "is_pre_event_3d",
+    "is_post_event_1d",
+    "is_post_event_2d",
+    "is_post_event_3d",
+    "is_event_window_7d",
+    "days_to_payday",
+    "days_since_payday",
+    "payday_distance",
+    "is_payday",
+    "is_pre_payday_1d",
+    "is_pre_payday_2d",
+    "is_post_payday_1d",
+    "is_post_payday_2d",
+    "payday_window_type",
+    "payday_dow_interaction",
+]
+
+BASE_FEATURES = [*BASE_FEATURES, *ENRICHED_EVENT_FEATURES]
+
+CATEGORICAL_COLS = [
+    BAKERY_ID_COL,
+    CITY_COL,
+    "month",
+    "current_event_cluster",
+    "prev_event_cluster",
+    "next_event_cluster",
+    "holiday_name_feature",
+    "event_window_type",
+    "event_distance_bin",
+    "current_event_city",
+    "nearest_event_city",
+    "event_dow_interaction",
+    "payday_window_type",
+    "payday_dow_interaction",
+]
+
+PAYDAY_DAYS = (5, 20)
+EVENT_WINDOW_DAYS = 7
 
 FIXED_HOLIDAY_LABELS = {
     (1, 1): "new_year_day",
@@ -296,6 +344,138 @@ def add_event_cluster_features(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
+def _string_feature(df: pd.DataFrame, col: str, default: str) -> pd.Series:
+    if col not in df.columns:
+        return pd.Series(default, index=df.index, dtype="object")
+    return df[col].fillna(default).astype(str)
+
+
+def add_enriched_event_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add explicit event/payday features for bakery-level top-down LGBM."""
+    work = df.copy()
+    days_to_next = pd.to_numeric(
+        work.get("days_to_next_event", 999),
+        errors="coerce",
+    ).fillna(999)
+    days_since_prev = pd.to_numeric(
+        work.get("days_since_prev_event", 999),
+        errors="coerce",
+    ).fillna(999)
+    is_holiday = pd.to_numeric(
+        work.get("is_holiday", 0),
+        errors="coerce",
+    ).fillna(0).astype(int)
+
+    work["holiday_name_feature"] = _string_feature(work, "holiday_name", "")
+    work.loc[work["holiday_name_feature"].eq(""), "holiday_name_feature"] = (
+        "no_holiday"
+    )
+
+    work["is_pre_event_1d"] = (days_to_next == 1).astype(int)
+    work["is_pre_event_2d"] = (days_to_next == 2).astype(int)
+    work["is_pre_event_3d"] = (days_to_next == 3).astype(int)
+    work["is_post_event_1d"] = (days_since_prev == 1).astype(int)
+    work["is_post_event_2d"] = (days_since_prev == 2).astype(int)
+    work["is_post_event_3d"] = (days_since_prev == 3).astype(int)
+    nearest_event_distance = np.minimum(days_to_next, days_since_prev)
+    work["is_event_window_7d"] = (
+        (nearest_event_distance <= EVENT_WINDOW_DAYS) | (is_holiday == 1)
+    ).astype(int)
+
+    work["event_window_type"] = "regular"
+    work.loc[is_holiday == 1, "event_window_type"] = "event_day"
+    work.loc[(is_holiday == 0) & (days_to_next <= 3), "event_window_type"] = (
+        "pre_event_1_3"
+    )
+    work.loc[
+        (is_holiday == 0) & (days_to_next > 3) & (days_to_next <= 7),
+        "event_window_type",
+    ] = "pre_event_4_7"
+    work.loc[(is_holiday == 0) & (days_since_prev <= 3), "event_window_type"] = (
+        "post_event_1_3"
+    )
+    work.loc[
+        (is_holiday == 0) & (days_since_prev > 3) & (days_since_prev <= 7),
+        "event_window_type",
+    ] = "post_event_4_7"
+
+    work["event_distance_bin"] = pd.cut(
+        nearest_event_distance.clip(upper=999),
+        bins=[-1, 0, 1, 3, 7, 14, 999],
+        labels=["0", "1", "2_3", "4_7", "8_14", "far"],
+    ).astype(str)
+
+    current_cluster = _string_feature(work, "current_event_cluster", "cluster_none")
+    next_cluster = _string_feature(work, "next_event_cluster", "cluster_none")
+    prev_cluster = _string_feature(work, "prev_event_cluster", "cluster_none")
+    nearest_cluster = np.where(
+        days_to_next <= days_since_prev,
+        next_cluster,
+        prev_cluster,
+    )
+    nearest_cluster = pd.Series(nearest_cluster, index=work.index).fillna(
+        "cluster_none"
+    )
+
+    work["current_event_city"] = current_cluster + "|" + work[CITY_COL].astype(str)
+    work["nearest_event_city"] = nearest_cluster + "|" + work[CITY_COL].astype(str)
+    work["event_dow_interaction"] = (
+        nearest_cluster + "|dow_" + work["dow"].astype(str)
+    )
+    return add_payday_distance_features(work)
+
+
+def add_payday_distance_features(df: pd.DataFrame) -> pd.DataFrame:
+    work = df.copy()
+    dates = pd.to_datetime(work[DATE_COL], errors="coerce")
+    days_to = []
+    days_since = []
+    for date_value in dates:
+        if pd.isna(date_value):
+            days_to.append(999)
+            days_since.append(999)
+            continue
+        candidates = []
+        for month_offset in [-1, 0, 1]:
+            shifted = date_value + pd.DateOffset(months=month_offset)
+            for day in PAYDAY_DAYS:
+                try:
+                    candidates.append(pd.Timestamp(shifted.year, shifted.month, day))
+                except ValueError:
+                    continue
+        future = [(c - date_value).days for c in candidates if c >= date_value]
+        past = [(date_value - c).days for c in candidates if c <= date_value]
+        days_to.append(min(future) if future else 999)
+        days_since.append(min(past) if past else 999)
+
+    work["days_to_payday"] = pd.Series(days_to, index=work.index).astype(int)
+    work["days_since_payday"] = pd.Series(days_since, index=work.index).astype(int)
+    work["payday_distance"] = np.minimum(
+        work["days_to_payday"],
+        work["days_since_payday"],
+    )
+    work["is_payday"] = (work["payday_distance"] == 0).astype(int)
+    work["is_pre_payday_1d"] = (work["days_to_payday"] == 1).astype(int)
+    work["is_pre_payday_2d"] = (work["days_to_payday"] == 2).astype(int)
+    work["is_post_payday_1d"] = (work["days_since_payday"] == 1).astype(int)
+    work["is_post_payday_2d"] = (work["days_since_payday"] == 2).astype(int)
+
+    work["payday_window_type"] = "regular"
+    work.loc[work["is_payday"] == 1, "payday_window_type"] = "payday"
+    work.loc[work["is_pre_payday_1d"] == 1, "payday_window_type"] = "pre_payday_1"
+    work.loc[work["is_pre_payday_2d"] == 1, "payday_window_type"] = "pre_payday_2"
+    work.loc[work["is_post_payday_1d"] == 1, "payday_window_type"] = (
+        "post_payday_1"
+    )
+    work.loc[work["is_post_payday_2d"] == 1, "payday_window_type"] = (
+        "post_payday_2"
+    )
+    work["payday_dow_interaction"] = (
+        work["payday_window_type"].astype(str) + "|dow_" + work["dow"].astype(str)
+    )
+    return work
+
+
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     work = df.sort_values([BAKERY_ID_COL, DATE_COL]).copy()
     grp = work.groupby(BAKERY_ID_COL, sort=False)
@@ -338,6 +518,7 @@ def build_model_frame(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
     work = add_holiday_features(work)
     work = add_event_cluster_features(work)
+    work = add_enriched_event_features(work)
     work = add_derived_features(work)
     return work.sort_values([BAKERY_ID_COL, DATE_COL]).reset_index(drop=True)
 
@@ -500,6 +681,7 @@ def build_future_feature_rows(history_df: pd.DataFrame, forecast_date: pd.Timest
     future = pd.DataFrame(rows)
     future = add_holiday_features(future)
     future = add_event_cluster_features(future)
+    future = add_enriched_event_features(future)
     future["bakery_sales_trend"] = future["bakery_sales_roll_mean7"] / (future["bakery_sales_roll_mean30"] + 1e-8)
     future["bakery_sales_cv_7d"] = future["bakery_sales_roll_std7"] / (future["bakery_sales_roll_mean7"] + 1.0)
     return future

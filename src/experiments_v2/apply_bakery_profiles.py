@@ -14,6 +14,8 @@ Outputs:
 
 from __future__ import annotations
 
+# ruff: noqa: E501
+
 import argparse
 import json
 from pathlib import Path
@@ -45,6 +47,13 @@ DEFAULT_BAKERY_FORECAST_PATH = ROOT / "data" / "processed" / "bakery_daily_sales
 DEFAULT_BAKERY_HOUR_PROFILE_PATH = ROOT / "data" / "processed" / "bakery_hour_profile.csv"
 DEFAULT_SKU_PROFILE_PATH = ROOT / "data" / "processed" / "sku_hour_share_profile.csv"
 SKU_PROFILE_CHUNK_SIZE = 100_000
+
+# Tier-1 (bakery x sku x dow x hour) profile rows are trusted only when backed
+# by at least this many same-dow observations. Below the gate the consumer
+# routes to tier-2 (bakery x sku x hour) with a "thin" source tag so audits
+# can tell "no tier-1 data" apart from "tier-1 data too thin".
+MIN_TIER1_N_DAYS = 8
+N_DAYS_COL = "n_days"
 
 HOURLY_OUTPUT_NAME = "sku_hour_forecast.csv"
 DAILY_OUTPUT_NAME = "sku_day_forecast.csv"
@@ -133,14 +142,15 @@ def build_bakery_hour_profile_fallback(profile: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_sku_hour_profile(path: str | Path) -> pd.DataFrame:
-    usecols = [
+    wanted = {
         BAKERY_ID_COL,
         PRODUCT_ID_COL,
         DOW_COL,
         HOUR_COL,
         SKU_SHARE_COL,
-    ]
-    df = pd.read_csv(path, encoding="utf-8-sig", usecols=usecols)
+        N_DAYS_COL,
+    }
+    df = pd.read_csv(path, encoding="utf-8-sig", usecols=lambda c: c in wanted)
     return load_sku_hour_profile_frame(df)
 
 
@@ -159,6 +169,44 @@ def build_sku_hour_profile_fallback(profile: pd.DataFrame) -> pd.DataFrame:
         0.0,
     )
     return work.drop(columns=["profile_sum"])
+
+
+def build_tier1_share_sums(profile: pd.DataFrame) -> pd.DataFrame:
+    tier1 = profile[profile[N_DAYS_COL] >= MIN_TIER1_N_DAYS].copy()
+    if tier1.empty:
+        return pd.DataFrame(
+            columns=[BAKERY_ID_COL, DOW_COL, HOUR_COL, "tier1_share_sum"]
+        )
+    return (
+        tier1.groupby([BAKERY_ID_COL, DOW_COL, HOUR_COL], as_index=False)[
+            SKU_SHARE_COL
+        ]
+        .sum()
+        .rename(columns={SKU_SHARE_COL: "tier1_share_sum"})
+    )
+
+
+def normalize_tier1_sku_shares(
+    sku_chunk: pd.DataFrame,
+    tier1_share_sums: pd.DataFrame,
+) -> pd.DataFrame:
+    if sku_chunk.empty:
+        return sku_chunk.copy()
+    work = sku_chunk.merge(
+        tier1_share_sums,
+        on=[BAKERY_ID_COL, DOW_COL, HOUR_COL],
+        how="left",
+        validate="many_to_one",
+    )
+    denominator = pd.to_numeric(
+        work["tier1_share_sum"],
+        errors="coerce",
+    ).replace(0, np.nan)
+    work[SKU_SHARE_COL] = (
+        pd.to_numeric(work[SKU_SHARE_COL], errors="coerce").fillna(0.0)
+        / denominator
+    ).fillna(0.0)
+    return work.drop(columns=["tier1_share_sum"])
 
 
 def allocate_bakery_to_hour(bakery_forecast: pd.DataFrame, bakery_hour_profile: pd.DataFrame) -> pd.DataFrame:
@@ -232,19 +280,41 @@ def _stream_allocate_hour_to_sku(
     daily_parts: list[pd.DataFrame] = []
     sku_hour_rows = 0
     products_seen: set[str] = set()
+    source_stats: dict[str, dict[str, float | int]] = {}
 
     full_profile = load_sku_hour_profile(sku_hour_profile_path)
+    # Tier-2 fallback is built from the FULL profile (we still want the
+    # bakery-hour-level average to include the thin same-dow observations).
     sku_fallback = build_sku_hour_profile_fallback(full_profile)
-    exact_keys = full_profile[[BAKERY_ID_COL, DOW_COL, HOUR_COL]].drop_duplicates().assign(has_exact=1)
+    # Tier-1 is the gated subset; only this set defines "covered" triples.
+    tier1_profile = full_profile[full_profile[N_DAYS_COL] >= MIN_TIER1_N_DAYS]
+    tier1_share_sums = build_tier1_share_sums(full_profile)
+    exact_keys = (
+        tier1_profile[[BAKERY_ID_COL, DOW_COL, HOUR_COL]]
+        .drop_duplicates()
+        .assign(has_exact=1)
+    )
+    # Raw triples that DID exist in the profile but failed the gate, so we can
+    # tag those tier-2 hits as "thin" vs genuinely missing tier-1 data.
+    thin_triples = (
+        full_profile[full_profile[N_DAYS_COL] < MIN_TIER1_N_DAYS][
+            [BAKERY_ID_COL, DOW_COL, HOUR_COL]
+        ]
+        .drop_duplicates()
+        .assign(is_thin=1)
+    )
 
     reader = pd.read_csv(
         sku_hour_profile_path,
         encoding="utf-8-sig",
-        usecols=[BAKERY_ID_COL, DOW_COL, HOUR_COL, PRODUCT_ID_COL, SKU_SHARE_COL],
+        usecols=lambda c: c
+        in {BAKERY_ID_COL, DOW_COL, HOUR_COL, PRODUCT_ID_COL, SKU_SHARE_COL, N_DAYS_COL},
         chunksize=chunk_size,
     )
     for i, chunk in enumerate(reader, start=1):
         sku_chunk = load_sku_hour_profile_frame(chunk)
+        sku_chunk = sku_chunk[sku_chunk[N_DAYS_COL] >= MIN_TIER1_N_DAYS]
+        sku_chunk = normalize_tier1_sku_shares(sku_chunk, tier1_share_sums)
         merged = hourly_lookup.merge(
             sku_chunk,
             on=[BAKERY_ID_COL, DOW_COL, HOUR_COL],
@@ -258,6 +328,7 @@ def _stream_allocate_hour_to_sku(
 
         _write_hourly_chunk(merged, hourly_output_path, header=(i == 1))
         sku_hour_rows += len(merged)
+        _update_source_stats(source_stats, merged)
         products_seen.update(merged[PRODUCT_ID_COL].dropna().astype(str).unique().tolist())
 
         daily_part = (
@@ -276,6 +347,11 @@ def _stream_allocate_hour_to_sku(
     )
     unmatched = unmatched[unmatched["has_exact"].isna()].drop(columns=["has_exact"])
     if len(unmatched):
+        unmatched = unmatched.merge(
+            thin_triples,
+            on=[BAKERY_ID_COL, DOW_COL, HOUR_COL],
+            how="left",
+        )
         fallback_merged = unmatched.merge(
             sku_fallback,
             on=[BAKERY_ID_COL, HOUR_COL],
@@ -284,12 +360,17 @@ def _stream_allocate_hour_to_sku(
             sort=False,
         )
         fallback_merged[SKU_HOUR_FORECAST_COL] = fallback_merged[BAKERY_HOUR_FORECAST_COL] * fallback_merged[SKU_SHARE_COL]
-        fallback_merged["source"] = "bakery_hour_fallback"
+        fallback_merged["source"] = np.where(
+            fallback_merged["is_thin"].fillna(0).astype(int) == 1,
+            "bakery_hour_fallback_thin",
+            "bakery_hour_fallback",
+        )
         fallback_merged = fallback_merged[[*HOURLY_OUTPUT_COLS, "_row_id", "source"]].sort_values(
             [BAKERY_ID_COL, PRODUCT_ID_COL, DATE_COL, HOUR_COL]
         ).reset_index(drop=True)
         _write_hourly_chunk(fallback_merged, hourly_output_path, header=False)
         sku_hour_rows += len(fallback_merged)
+        _update_source_stats(source_stats, fallback_merged)
         products_seen.update(fallback_merged[PRODUCT_ID_COL].dropna().astype(str).unique().tolist())
         daily_parts.append(
             fallback_merged.groupby([DATE_COL, DOW_COL, BAKERY_ID_COL, PRODUCT_ID_COL], as_index=False, sort=False)
@@ -308,7 +389,7 @@ def _stream_allocate_hour_to_sku(
         sku_daily = pd.DataFrame(columns=[DATE_COL, DOW_COL, BAKERY_ID_COL, PRODUCT_ID_COL, SKU_DAY_FORECAST_COL])
 
     hourly_final = pd.read_csv(hourly_output_path, encoding="utf-8-sig")
-    drop_cols = [col for col in ["_row_id", "source"] if col in hourly_final.columns]
+    drop_cols = [col for col in ["_row_id"] if col in hourly_final.columns]
     if drop_cols:
         hourly_final.drop(columns=drop_cols, inplace=True)
     hourly_final.to_csv(hourly_output_path, index=False, encoding="utf-8-sig")
@@ -316,8 +397,50 @@ def _stream_allocate_hour_to_sku(
     stats = {
         "sku_hour_rows": sku_hour_rows,
         "products": len(products_seen),
+        "source_stats": _finalize_source_stats(source_stats),
     }
     return sku_daily, stats
+
+
+def _update_source_stats(stats: dict[str, dict[str, float | int]], df: pd.DataFrame) -> None:
+    if df.empty or "source" not in df.columns:
+        return
+    grouped = (
+        df.groupby("source", as_index=False)
+        .agg(
+            rows=(SKU_HOUR_FORECAST_COL, "size"),
+            forecast_sum=(SKU_HOUR_FORECAST_COL, "sum"),
+        )
+    )
+    for row in grouped.to_dict("records"):
+        source = str(row["source"])
+        if source not in stats:
+            stats[source] = {"rows": 0, "forecast_sum": 0.0}
+        stats[source]["rows"] = int(stats[source]["rows"]) + int(row["rows"])
+        stats[source]["forecast_sum"] = float(stats[source]["forecast_sum"]) + float(
+            row["forecast_sum"]
+        )
+
+
+def _finalize_source_stats(stats: dict[str, dict[str, float | int]]) -> list[dict]:
+    total_rows = sum(int(v["rows"]) for v in stats.values())
+    total_forecast = sum(float(v["forecast_sum"]) for v in stats.values())
+    result = []
+    for source, values in sorted(stats.items()):
+        rows = int(values["rows"])
+        forecast_sum = float(values["forecast_sum"])
+        result.append(
+            {
+                "source": source,
+                "rows": rows,
+                "row_share": round(rows / total_rows, 6) if total_rows else 0.0,
+                "forecast_sum": round(forecast_sum, 6),
+                "forecast_share": round(forecast_sum / total_forecast, 6)
+                if total_forecast
+                else 0.0,
+            }
+        )
+    return result
 
 
 def load_sku_hour_profile_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -333,8 +456,16 @@ def load_sku_hour_profile_frame(df: pd.DataFrame) -> pd.DataFrame:
         raise KeyError(f"Missing columns in SKU hour-share profile: {missing}")
 
     keep_cols = [BAKERY_ID_COL, DOW_COL, HOUR_COL, PRODUCT_ID_COL, SKU_SHARE_COL]
+    if N_DAYS_COL in df.columns:
+        keep_cols.append(N_DAYS_COL)
     work = df[keep_cols].copy()
     work[SKU_SHARE_COL] = pd.to_numeric(work[SKU_SHARE_COL], errors="coerce").fillna(0.0)
+    if N_DAYS_COL in work.columns:
+        work[N_DAYS_COL] = (
+            pd.to_numeric(work[N_DAYS_COL], errors="coerce").fillna(0).astype(int)
+        )
+    else:
+        work[N_DAYS_COL] = 0
     work.rename(columns={SKU_SHARE_COL: "mean_sku_share_in_hour_norm"}, inplace=True)
     return work
 
@@ -374,10 +505,11 @@ def build_summary_from_daily(
     *,
     sku_hour_rows: int,
     products: int,
+    source_stats: list[dict] | None = None,
 ) -> dict:
     bakery_total = float(bakery_forecast[BAKERY_FORECAST_COL].sum()) if len(bakery_forecast) else 0.0
     sku_total = float(sku_daily[SKU_DAY_FORECAST_COL].sum()) if len(sku_daily) else 0.0
-    return {
+    summary = {
         "bakery_day_rows": int(len(bakery_forecast)),
         "bakery_hour_rows": int(len(hourly_forecast)),
         "sku_hour_rows": int(sku_hour_rows),
@@ -391,6 +523,8 @@ def build_summary_from_daily(
         "date_min": None if bakery_forecast.empty else str(bakery_forecast[DATE_COL].min().date()),
         "date_max": None if bakery_forecast.empty else str(bakery_forecast[DATE_COL].max().date()),
     }
+    summary["source_summary"] = source_stats or []
+    return summary
 
 
 def save_outputs(
@@ -454,6 +588,7 @@ def apply_profiles(
         sku_daily,
         sku_hour_rows=stats["sku_hour_rows"],
         products=stats["products"],
+        source_stats=stats.get("source_stats", []),
     )
     return save_outputs(
         out_dir,

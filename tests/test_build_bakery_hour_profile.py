@@ -16,10 +16,38 @@ from src.experiments_v2.build_bakery_hour_profile import build_hour_profile  # n
 def _hourly() -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"date": pd.Timestamp("2026-01-05"), "dow": 0, "bakery_id": "B1", "bakery_name": "Bakery 1", "hour": 8, "bakery_hour_sales": 2.0},
-            {"date": pd.Timestamp("2026-01-05"), "dow": 0, "bakery_id": "B1", "bakery_name": "Bakery 1", "hour": 9, "bakery_hour_sales": 6.0},
-            {"date": pd.Timestamp("2026-01-12"), "dow": 0, "bakery_id": "B1", "bakery_name": "Bakery 1", "hour": 8, "bakery_hour_sales": 1.0},
-            {"date": pd.Timestamp("2026-01-12"), "dow": 0, "bakery_id": "B1", "bakery_name": "Bakery 1", "hour": 9, "bakery_hour_sales": 3.0},
+            {
+                "date": pd.Timestamp("2026-01-05"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 8,
+                "bakery_hour_sales": 2.0,
+            },
+            {
+                "date": pd.Timestamp("2026-01-05"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 9,
+                "bakery_hour_sales": 6.0,
+            },
+            {
+                "date": pd.Timestamp("2026-01-12"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 8,
+                "bakery_hour_sales": 1.0,
+            },
+            {
+                "date": pd.Timestamp("2026-01-12"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 9,
+                "bakery_hour_sales": 3.0,
+            },
         ]
     )
 
@@ -32,6 +60,67 @@ def test_build_hour_profile_normalizes_mean_share():
     hour9 = profile[profile["hour"] == 9].iloc[0]
     assert round(float(hour8["mean_hour_share_norm"]), 4) == 0.25
     assert round(float(hour9["mean_hour_share_norm"]), 4) == 0.75
+
+
+def test_build_hour_profile_uses_daily_profile_weights():
+    hourly = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2026-01-05"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 8,
+                "bakery_hour_sales": 9.0,
+            },
+            {
+                "date": pd.Timestamp("2026-01-05"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 9,
+                "bakery_hour_sales": 1.0,
+            },
+            {
+                "date": pd.Timestamp("2026-01-12"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 8,
+                "bakery_hour_sales": 1.0,
+            },
+            {
+                "date": pd.Timestamp("2026-01-12"),
+                "dow": 0,
+                "bakery_id": "B1",
+                "bakery_name": "Bakery 1",
+                "hour": 9,
+                "bakery_hour_sales": 9.0,
+            },
+        ]
+    )
+    weights = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2026-01-05"),
+                "_bakery_id_norm": "B1",
+                "profile_weight": 1.0,
+            },
+            {
+                "date": pd.Timestamp("2026-01-12"),
+                "_bakery_id_norm": "B1",
+                "profile_weight": 0.1,
+            },
+        ]
+    )
+
+    profile, applied = build_hour_profile(hourly, daily_weights=weights)
+
+    hour8 = profile[profile["hour"] == 8].iloc[0]
+    hour9 = profile[profile["hour"] == 9].iloc[0]
+    assert round(float(hour8["mean_hour_share_norm"]), 4) == 0.8273
+    assert round(float(hour9["mean_hour_share_norm"]), 4) == 0.1727
+    assert round(float(applied["profile_weight"].mean()), 2) == 0.55
 
 
 def test_aggregate_hourly_chunk_supports_legacy_russian_snapshot_columns():

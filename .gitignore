@@ -7,6 +7,7 @@ __pycache__/
 .pytest_cache/
 .pytest_tmp/
 .pytest_tmp_local/
+tmp_pytest_codex/
 .env
 
 # Data (processed files are reproducible)
@@ -17,6 +18,7 @@ data/raw/sales_hrs_all.csv
 data/raw/sales_hrs_all_clickhouse.csv
 data/raw/dim_kkt_clickhouse.csv
 data/raw/moves_clickhouse.csv
+data/raw/moves_clickhouse_*.csv
 data/raw/production_release_clickhouse.csv
 sales_hrs/
 
@@ -60,7 +62,14 @@ reports/*.jsonl
 src/experiments_v2/**/__pycache__/
 src/experiments_v2/**/predictions*.csv
 src/experiments_v2/**/*predictions*.csv
+src/experiments_v2/**/metrics.json
 src/experiments_v2/**/metrics_*.csv
+src/experiments_v2/**/bakery_metrics.csv
+src/experiments_v2/**/bakery_summary.csv
+src/experiments_v2/**/city_summary.csv
+src/experiments_v2/**/dow_summary.csv
+src/experiments_v2/**/event_summary.csv
+src/experiments_v2/**/structural_profile.csv
 src/experiments_v2/**/summary_*.csv
 src/experiments_v2/**/training_log.csv
 src/experiments_v2/**/best_by_sku*.csv
@@ -87,3 +96,4 @@ notebooks/test.png
 notebooks/stockout_estimation_details.csv
 notebooks/work_stockout_estimation_details.csv
 notebooks/strict_stockout_exports/
+tests/_tmp_apply_profiles/
