@@ -68,3 +68,14 @@ create table if not exists sku_hour_share_profile_smoothed_embedded (
 )
 engine = MergeTree
 order by (bakery_id, dow, hour, product_id);
+
+create table if not exists sku_hour_uplift_multiplier_embedded (
+  bakery_id Int64,
+  dow Int16,
+  hour Int16,
+  sku_uplift_multiplier Float64,
+  profile_version String,
+  generated_at DateTime64(3)
+)
+engine = MergeTree
+order by (profile_version, bakery_id, dow, hour);

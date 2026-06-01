@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+# ruff: noqa: E402,E501
+
 import argparse
 from pathlib import Path
 import sys
 
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,6 +20,7 @@ from pipelines.forecast_publish.load_forecast_run import load_schema
 DEFAULT_SCHEMA_PATH = ROOT / "apps" / "forecast_embedded" / "sql" / "schema.sql"
 DEFAULT_EXPORT_PATH = ROOT / "data" / "processed" / "sku_hour_share_profile_smoothed.clickhouse.csv"
 PROFILE_TABLE = "sku_hour_share_profile_smoothed_embedded"
+UPLIFT_MULTIPLIER_TABLE = "sku_hour_uplift_multiplier_embedded"
 CSV_CHUNK_SIZE = 200_000
 
 PROFILE_COLUMNS = [
@@ -34,6 +38,19 @@ PROFILE_COLUMNS = [
     "std_sku_share_in_hour",
     "mean_sku_share_in_hour_norm",
 ]
+
+UPLIFT_MULTIPLIER_COLUMNS = [
+    "bakery_id",
+    "dow",
+    "hour",
+    "sku_uplift_multiplier",
+    "profile_version",
+    "generated_at",
+]
+
+APPLIED_UPLIFT_SHARE_COL = "sku_share_in_hour_adj"
+APPLIED_UPLIFT_SHARE_NORM_COL = "sku_share_in_hour_adj_norm"
+APPLIED_BAKERY_HOUR_SALES_COL = "bakery_hour_sales"
 
 
 def normalize_profile_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
@@ -67,6 +84,10 @@ def truncate_profile_table(client, table: str = PROFILE_TABLE) -> None:
     client.command(f"truncate table {table}")
 
 
+def truncate_table(client, table: str) -> None:
+    client.command(f"truncate table {table}")
+
+
 def load_profile_to_clickhouse(
     *,
     profile_path: str | Path,
@@ -89,6 +110,144 @@ def load_profile_to_clickhouse(
         rows_loaded += len(prepared)
 
     return {"rows_loaded": rows_loaded}
+
+
+def build_uplift_multiplier_frame(
+    applied_path: str | Path,
+    *,
+    profile_version: str,
+    chunk_size: int = 1_000_000,
+) -> pd.DataFrame:
+    usecols = {
+        "date",
+        "bakery_id",
+        "dow",
+        "hour",
+        APPLIED_BAKERY_HOUR_SALES_COL,
+        APPLIED_UPLIFT_SHARE_COL,
+        APPLIED_UPLIFT_SHARE_NORM_COL,
+    }
+    parts: list[pd.DataFrame] = []
+    reader = pd.read_csv(
+        applied_path,
+        encoding="utf-8-sig",
+        usecols=lambda c: c in usecols,
+        chunksize=chunk_size,
+    )
+    for chunk in reader:
+        for col in [
+            APPLIED_BAKERY_HOUR_SALES_COL,
+            APPLIED_UPLIFT_SHARE_COL,
+            APPLIED_UPLIFT_SHARE_NORM_COL,
+        ]:
+            chunk[col] = pd.to_numeric(chunk[col], errors="coerce").fillna(0.0)
+        hourly = (
+            chunk.groupby(["date", "bakery_id", "dow", "hour"], as_index=False)
+            .agg(
+                bakery_hour_sales=(APPLIED_BAKERY_HOUR_SALES_COL, "max"),
+                raw_share_sum=(APPLIED_UPLIFT_SHARE_COL, "sum"),
+                norm_share_sum=(APPLIED_UPLIFT_SHARE_NORM_COL, "sum"),
+            )
+        )
+        hourly["sku_uplift_multiplier"] = (
+            hourly["raw_share_sum"] / hourly["norm_share_sum"].replace(0.0, np.nan)
+        ).fillna(1.0).clip(lower=1.0)
+        hourly["weighted_multiplier"] = (
+            hourly["sku_uplift_multiplier"] * hourly["bakery_hour_sales"]
+        )
+        parts.append(
+            hourly[
+                [
+                    "bakery_id",
+                    "dow",
+                    "hour",
+                    "bakery_hour_sales",
+                    "weighted_multiplier",
+                ]
+            ]
+        )
+
+    if not parts:
+        return pd.DataFrame(columns=UPLIFT_MULTIPLIER_COLUMNS)
+
+    combined = pd.concat(parts, ignore_index=True)
+    result = (
+        combined.groupby(["bakery_id", "dow", "hour"], as_index=False)
+        .agg(
+            bakery_hour_sales=("bakery_hour_sales", "sum"),
+            weighted_multiplier=("weighted_multiplier", "sum"),
+        )
+    )
+    result["sku_uplift_multiplier"] = (
+        result["weighted_multiplier"] / result["bakery_hour_sales"].replace(0.0, np.nan)
+    ).fillna(1.0).clip(lower=1.0)
+    result["profile_version"] = profile_version
+    result["generated_at"] = pd.Timestamp.utcnow().tz_localize(None)
+
+    fallback = (
+        combined.groupby(["bakery_id", "hour"], as_index=False)
+        .agg(
+            bakery_hour_sales=("bakery_hour_sales", "sum"),
+            weighted_multiplier=("weighted_multiplier", "sum"),
+        )
+    )
+    fallback["sku_uplift_multiplier"] = (
+        fallback["weighted_multiplier"]
+        / fallback["bakery_hour_sales"].replace(0.0, np.nan)
+    ).fillna(1.0).clip(lower=1.0)
+    fallback["dow"] = -1
+    fallback["profile_version"] = profile_version
+    fallback["generated_at"] = result["generated_at"].iloc[0]
+    result = pd.concat(
+        [
+            result,
+            fallback[
+                [
+                    "bakery_id",
+                    "dow",
+                    "hour",
+                    "sku_uplift_multiplier",
+                    "profile_version",
+                    "generated_at",
+                ]
+            ],
+        ],
+        ignore_index=True,
+    )
+
+    int_cols = ["bakery_id", "dow", "hour"]
+    for col in int_cols:
+        result[col] = pd.to_numeric(result[col], errors="coerce").fillna(0).astype("int64")
+    result["sku_uplift_multiplier"] = pd.to_numeric(
+        result["sku_uplift_multiplier"],
+        errors="coerce",
+    ).fillna(1.0).astype("float64")
+    return result[UPLIFT_MULTIPLIER_COLUMNS]
+
+
+def load_uplift_multipliers_to_clickhouse(
+    *,
+    applied_path: str | Path,
+    env_file: str | Path = DEFAULT_ENV_PATH,
+    schema_path: str | Path = DEFAULT_SCHEMA_PATH,
+    table: str = UPLIFT_MULTIPLIER_TABLE,
+    profile_version: str = "default",
+    chunk_size: int = CSV_CHUNK_SIZE,
+    truncate: bool = False,
+) -> dict[str, int]:
+    client = create_client(env_file)
+    load_schema(client, Path(schema_path))
+    if truncate:
+        truncate_table(client, table)
+
+    multipliers = build_uplift_multiplier_frame(
+        applied_path,
+        profile_version=profile_version,
+        chunk_size=chunk_size,
+    )
+    if len(multipliers):
+        client.insert_df(table, multipliers)
+    return {"rows_loaded": int(len(multipliers))}
 
 
 def export_profile_from_clickhouse(
@@ -128,12 +287,19 @@ def export_profile_from_clickhouse(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Load/export the smoothed SKU hour profile in ClickHouse")
-    parser.add_argument("--mode", choices=["load", "export"], required=True)
+    parser.add_argument(
+        "--mode",
+        choices=["load", "export", "load-uplift-multipliers"],
+        required=True,
+    )
     parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH))
     parser.add_argument("--schema-path", default=str(DEFAULT_SCHEMA_PATH))
     parser.add_argument("--profile-path", default=str(DEFAULT_PROFILE_PATH))
     parser.add_argument("--output-path", default=str(DEFAULT_EXPORT_PATH))
     parser.add_argument("--table", default=PROFILE_TABLE)
+    parser.add_argument("--uplift-table", default=UPLIFT_MULTIPLIER_TABLE)
+    parser.add_argument("--applied-path", default="")
+    parser.add_argument("--profile-version", default="default")
     parser.add_argument("--chunk-size", type=int, default=CSV_CHUNK_SIZE)
     parser.add_argument("--truncate", action="store_true")
     return parser
@@ -157,7 +323,7 @@ def main() -> None:
         print("=" * 72)
         print(f"table: {args.table}")
         print(f"rows_loaded: {result['rows_loaded']}")
-    else:
+    elif args.mode == "export":
         result = export_profile_from_clickhouse(
             output_path=args.output_path,
             env_file=args.env_file,
@@ -169,6 +335,22 @@ def main() -> None:
         print(f"table: {args.table}")
         print(f"rows_written: {result['rows_written']}")
         print(f"output: {args.output_path}")
+    else:
+        result = load_uplift_multipliers_to_clickhouse(
+            applied_path=args.applied_path,
+            env_file=args.env_file,
+            schema_path=args.schema_path,
+            table=args.uplift_table,
+            profile_version=args.profile_version,
+            chunk_size=args.chunk_size,
+            truncate=args.truncate,
+        )
+        print("=" * 72)
+        print("SKU UPLIFT MULTIPLIERS LOADED")
+        print("=" * 72)
+        print(f"table: {args.uplift_table}")
+        print(f"profile_version: {args.profile_version}")
+        print(f"rows_loaded: {result['rows_loaded']}")
 
 
 if __name__ == "__main__":
