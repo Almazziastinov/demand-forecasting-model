@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import time
 from uuid import uuid4
 
 import clickhouse_connect
@@ -82,6 +83,55 @@ def infer_run_dates(bakery_df: pd.DataFrame) -> tuple[str, str]:
 
 def build_run_id(prefix: str | None) -> str:
     return prefix or f"run_{uuid4().hex[:12]}"
+
+
+def _quote_clickhouse_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "''")
+
+
+def count_run_rows(client, run_id: str) -> dict[str, int]:
+    tables = [
+        "forecast_runs_embedded",
+        "bakery_forecast_day_embedded",
+        "sku_forecast_day_embedded",
+        "sku_forecast_hour_embedded",
+    ]
+    counts: dict[str, int] = {}
+    for table in tables:
+        df = client.query_df(
+            f"select count() as rows from {table} where run_id = %(run_id)s",
+            parameters={"run_id": run_id},
+        )
+        counts[table] = int(df["rows"].iloc[0])
+    return counts
+
+
+def delete_forecast_run(client, run_id: str) -> None:
+    safe_run_id = _quote_clickhouse_string(run_id)
+    for table in [
+        "forecast_runs_embedded",
+        "bakery_forecast_day_embedded",
+        "sku_forecast_day_embedded",
+        "sku_forecast_hour_embedded",
+    ]:
+        client.command(f"alter table {table} delete where run_id = '{safe_run_id}'")
+
+
+def wait_for_run_deleted(
+    client,
+    run_id: str,
+    *,
+    timeout_seconds: int = 120,
+    poll_seconds: float = 2.0,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        counts = count_run_rows(client, run_id)
+        if all(rows == 0 for rows in counts.values()):
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Timed out waiting for run cleanup: {run_id} counts={counts}")
+        time.sleep(poll_seconds)
 
 
 def load_product_lookup(profile_path: Path) -> pd.DataFrame:
@@ -204,11 +254,16 @@ def load_forecast_run(
     model_version: str = "bakery_day_lgbm_v1",
     profile_version: str = "smoothed_bias_adj_v1",
     notes: str | None = None,
+    replace_existing: bool = False,
 ) -> dict[str, int | str]:
     client = create_client(env_file)
     load_schema(client, Path(schema_path))
 
     final_run_id = build_run_id(run_id)
+    if replace_existing:
+        delete_forecast_run(client, final_run_id)
+        wait_for_run_deleted(client, final_run_id)
+
     bakery_raw = pd.read_csv(bakery_path, encoding="utf-8-sig")
     sku_day_raw = pd.read_csv(sku_day_path, encoding="utf-8-sig")
     sku_hour_raw = pd.read_csv(sku_hour_path, encoding="utf-8-sig")
@@ -262,6 +317,7 @@ def main() -> None:
     parser.add_argument("--model-version", default="bakery_day_lgbm_v1")
     parser.add_argument("--profile-version", default="smoothed_bias_adj_v1")
     parser.add_argument("--notes", default=None)
+    parser.add_argument("--replace-existing", action="store_true")
     args = parser.parse_args()
 
     result = load_forecast_run(
@@ -277,6 +333,7 @@ def main() -> None:
         model_version=args.model_version,
         profile_version=args.profile_version,
         notes=args.notes,
+        replace_existing=args.replace_existing,
     )
 
     print("=" * 72)

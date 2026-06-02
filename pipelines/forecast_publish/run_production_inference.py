@@ -138,6 +138,7 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         model_version=scenario["model_version"],
         profile_version=scenario["profile_version"],
         notes=args.notes or scenario["description"],
+        replace_existing=not args.no_replace_existing,
     )
 
     if args.activate_run == scenario_name:
@@ -184,6 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--activate-run", choices=["none", *SCENARIOS.keys()], default="none")
     parser.add_argument("--notes", default=None)
     parser.add_argument("--no-bias-correction", action="store_true")
+    parser.add_argument("--no-replace-existing", action="store_true")
     parser.add_argument("--bias-clip-pct", type=float, default=0.15)
     parser.add_argument("--chunk-size", type=int, default=200_000)
     return parser
