@@ -72,3 +72,29 @@ Enable daily scheduled publishing only after the manual run is clean:
 sudo systemctl enable --now forecast-production.timer
 systemctl list-timers forecast-production.timer
 ```
+
+## Embedded API
+
+Install/update runtime dependencies after pulling app changes:
+
+```bash
+cd /opt/demand-forecasting-model
+sudo -u forecast .venv/bin/python -m pip install -r requirements-prod.txt
+```
+
+Start the read-only API/UI:
+
+```bash
+sudo cp deploy/vm/forecast-embedded-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now forecast-embedded-api.service
+sudo journalctl -u forecast-embedded-api.service -n 100 --no-pager
+```
+
+Smoke endpoints:
+
+```bash
+curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:3000/api/v1/runs/active
+curl http://127.0.0.1:3000/api/v1/runs
+```

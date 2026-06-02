@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -33,11 +35,12 @@ def get_client():
     env = load_env_file()
 
     # Prefer runtime env vars for deploys; fall back to repository .env for local work.
-    host = settings.clickhouse_host or env.get("HOST")
-    port = settings.clickhouse_port or (int(env["PORT"]) if env.get("PORT") else None)
-    username = settings.clickhouse_user or env.get("USER")
-    password = settings.clickhouse_password or env.get("PASSWORD")
-    database = settings.clickhouse_database or env.get("DATABASE")
+    host = settings.clickhouse_host or env.get("CLICKHOUSE_HOST") or env.get("HOST")
+    port_value = env.get("CLICKHOUSE_PORT") or env.get("PORT")
+    port = settings.clickhouse_port or (int(port_value) if port_value else None)
+    username = settings.clickhouse_user or env.get("CLICKHOUSE_USER") or env.get("USER")
+    password = settings.clickhouse_password or env.get("CLICKHOUSE_PASSWORD") or env.get("PASSWORD")
+    database = settings.clickhouse_database or env.get("CLICKHOUSE_DATABASE") or env.get("DATABASE")
 
     missing = [
         key

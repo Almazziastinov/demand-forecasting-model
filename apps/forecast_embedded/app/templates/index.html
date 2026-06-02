@@ -2,7 +2,14 @@
 {% block content %}
 <section class="panel">
   <form method="get" action="/">
-    <label for="date">Дата</label>
+    <label for="run_id">Run</label>
+    <select id="run_id" name="run_id" onchange="this.form.submit()">
+      {% for run in runs %}
+      <option value="{{ run.run_id }}" {% if run.run_id == active_run.run_id %}selected{% endif %}>{{ run.run_id }}{% if run.is_active %} (active){% endif %}</option>
+      {% endfor %}
+    </select>
+
+    <label for="date">Date</label>
     <select id="date" name="date" onchange="this.form.submit()">
       {% for value in dates %}
       <option value="{{ value }}" {% if value == selected_date %}selected{% endif %}>{{ value }}</option>
@@ -12,19 +19,19 @@
 </section>
 
 <section class="panel">
-  <h2>Пекарни</h2>
+  <h2>Bakeries</h2>
   <table>
     <thead>
       <tr>
-        <th>Пекарня</th>
-        <th>Город</th>
-        <th>Прогноз</th>
+        <th>Bakery</th>
+        <th>City</th>
+        <th>Forecast</th>
       </tr>
     </thead>
     <tbody>
       {% for bakery in bakeries %}
       <tr>
-        <td><a href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}">{{ bakery.bakery_name }}</a></td>
+        <td><a href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&run_id={{ active_run.run_id }}">{{ bakery.bakery_name }}</a></td>
         <td>{{ bakery.city }}</td>
         <td>{{ "%.2f"|format(bakery.forecast_final) }}</td>
       </tr>

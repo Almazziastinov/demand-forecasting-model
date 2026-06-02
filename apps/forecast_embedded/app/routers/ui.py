@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -13,10 +15,14 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 @router.get("/", response_class=HTMLResponse)
-def index(request: Request, date: str | None = Query(default=None)) -> HTMLResponse:
-    active_run = run_service.get_active_run()
+def index(
+    request: Request,
+    date: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+) -> HTMLResponse:
+    active_run = run_service.resolve_run(run_id)
     if not active_run:
-        raise HTTPException(status_code=404, detail="No active forecast run found")
+        raise HTTPException(status_code=404, detail="Forecast run not found")
 
     dates = run_service.get_run_dates(active_run["run_id"])
     selected_date = date or (dates[0] if dates else None)
@@ -30,6 +36,7 @@ def index(request: Request, date: str | None = Query(default=None)) -> HTMLRespo
         "index.html",
         {
             "active_run": active_run,
+            "runs": run_service.list_runs(),
             "dates": dates,
             "selected_date": selected_date,
             "bakeries": bakeries,
@@ -42,10 +49,11 @@ def bakery_detail(
     request: Request,
     bakery_id: int,
     date: str = Query(...),
+    run_id: str | None = Query(default=None),
 ) -> HTMLResponse:
-    active_run = run_service.get_active_run()
+    active_run = run_service.resolve_run(run_id)
     if not active_run:
-        raise HTTPException(status_code=404, detail="No active forecast run found")
+        raise HTTPException(status_code=404, detail="Forecast run not found")
 
     bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id)
     if not bakery_day:
@@ -56,6 +64,7 @@ def bakery_detail(
         "bakery.html",
         {
             "active_run": active_run,
+            "runs": run_service.list_runs(),
             "selected_date": date,
             "bakery": bakery_day,
             "hourly_total": bakery_service.get_hourly_total(active_run["run_id"], date, bakery_id),

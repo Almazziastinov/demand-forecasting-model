@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
@@ -14,10 +16,11 @@ router = APIRouter(prefix="/api/v1", tags=["exports"])
 def export_bakery_csv(
     bakery_id: int = Query(...),
     date: str = Query(...),
+    run_id: str | None = None,
 ) -> Response:
-    active_run = run_service.get_active_run()
+    active_run = run_service.resolve_run(run_id)
     if not active_run:
-        raise HTTPException(status_code=404, detail="No active forecast run found")
+        raise HTTPException(status_code=404, detail="Forecast run not found")
 
     csv_text = export_service.export_bakery_top_sku_csv(active_run["run_id"], date, bakery_id)
     filename = f"bakery_{bakery_id}_{date}.csv"

@@ -17,11 +17,16 @@ def get_active_run() -> dict:
     return active_run
 
 
+@router.get("/runs")
+def list_runs(limit: int = 50) -> dict:
+    return {"items": run_service.list_runs(limit=limit)}
+
+
 @router.get("/dates")
-def get_dates() -> dict:
-    active_run = run_service.get_active_run()
+def get_dates(run_id: str | None = None) -> dict:
+    active_run = run_service.resolve_run(run_id)
     if not active_run:
-        raise HTTPException(status_code=404, detail="No active forecast run found")
+        raise HTTPException(status_code=404, detail="Forecast run not found")
     return {
         "run_id": active_run["run_id"],
         "dates": run_service.get_run_dates(active_run["run_id"]),

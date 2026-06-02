@@ -1,6 +1,15 @@
 {% extends "layout.html" %}
 {% block content %}
 <section class="panel">
+  <form method="get" action="/bakery/{{ bakery.bakery_id }}">
+    <input type="hidden" name="date" value="{{ selected_date }}">
+    <label for="run_id">Run</label>
+    <select id="run_id" name="run_id" onchange="this.form.submit()">
+      {% for run in runs %}
+      <option value="{{ run.run_id }}" {% if run.run_id == active_run.run_id %}selected{% endif %}>{{ run.run_id }}{% if run.is_active %} (active){% endif %}</option>
+      {% endfor %}
+    </select>
+  </form>
   <h2>{{ bakery.bakery_name }}</h2>
   <p class="muted">{{ bakery.city }} | {{ selected_date }}</p>
   <div class="metrics">
@@ -16,12 +25,12 @@
 </section>
 
 <section class="panel">
-  <h3>Почасовой total</h3>
+  <h3>Hourly total</h3>
   <table>
     <thead>
       <tr>
-        <th>Час</th>
-        <th>Прогноз</th>
+        <th>Hour</th>
+        <th>Forecast</th>
       </tr>
     </thead>
     <tbody>
@@ -41,8 +50,8 @@
     <thead>
       <tr>
         <th>SKU</th>
-        <th>Категория</th>
-        <th>Прогноз</th>
+        <th>Category</th>
+        <th>Forecast</th>
       </tr>
     </thead>
     <tbody>
@@ -56,7 +65,7 @@
     </tbody>
   </table>
   <p>
-    <a href="/api/v1/export/bakery?bakery_id={{ bakery.bakery_id }}&date={{ selected_date }}">Скачать CSV</a>
+    <a href="/api/v1/export/bakery?bakery_id={{ bakery.bakery_id }}&date={{ selected_date }}&run_id={{ active_run.run_id }}">Download CSV</a>
   </p>
 </section>
 {% endblock %}
