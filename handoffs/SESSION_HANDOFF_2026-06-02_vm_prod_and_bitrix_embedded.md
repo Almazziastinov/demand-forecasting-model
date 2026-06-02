@@ -373,25 +373,115 @@ VibeCode Blackhole App
    through VibeCode/Bitrix24.
 5. Keep ClickHouse and VibeCode API keys out of git and handoffs.
 
-## Next Steps
+## Product Direction Agreed On 2026-06-02
 
-1. Bind the VibeCode app URL into Bitrix24 as an application/placement.
-2. Decide where the app should appear:
-   - left menu / app page;
-   - CRM detail tab;
-   - another Bitrix24 placement.
-3. If user-specific permissions are needed, add support for
-   `X-Vibe-Authorization` from Blackhole gateway and call VibeCode
-   `/v1/users/me`.
-4. Improve frontend UX beyond the current minimal table UI:
-   - model/run switcher;
-   - date selector;
-   - bakery search;
-   - daily total chart;
-   - hourly chart;
-   - SKU table with export.
-5. Optionally disable or keep VM `forecast-embedded-api.service`; it is not
-   required for Bitrix24 once VibeCode app is serving UI/API.
+The next product iteration should follow the visual direction from the user's
+reference screen: a weekly/day-card forecast view for each bakery with weather,
+events, forecast, actual sales, historical sales, and drill-down links for
+hours and SKUs.
+
+The user also wants day-level forecast explanations, for example:
+
+```text
+Weather: -6%
+Friday: +9%
+Yesterday sales: -4%
+```
+
+Important constraint: the current production bakery-level model does **not**
+use weather features. Weather exists in older/general experiment pipelines
+(`src/config.py`, `src/experiments_v2/common.py`, and
+`src/features/fetch_weather.py`), but the VM production model uses
+`src/experiments_v2/bakery_day_forecast.py`, whose `BASE_FEATURES` currently
+include calendar, events, payday, price, lags, rolling statistics, and trend,
+but no weather columns.
+
+Therefore the UI may show weather as context today, but it must not claim that
+weather influenced the forecast until weather features are added to the
+production model and explanations are computed from that model.
+
+## Next Implementation Plan
+
+1. Access control first.
+   - Add FastAPI auth context from VibeCode/Bitrix transparent auth headers:
+     `X-Vibe-User-Id`, `X-Vibe-Portal-Id`, `X-Vibe-User-Role`,
+     `X-Vibe-Authorization`, `X-Vibe-User-Name`,
+     `X-Vibe-User-Name-Encoded`.
+   - Treat portal admins as all-bakery users.
+   - Treat partner/member users as restricted users.
+   - Enforce restrictions in backend queries, not only in the UI.
+
+2. Add bakery access mapping.
+   - Create/use a ClickHouse access table such as
+     `bitrix_user_bakery_access_embedded`.
+   - Suggested fields:
+     `bitrix_user_id`, `bitrix_email`, `bitrix_user_name`, `bakery_id`,
+     `access_role`, `source`, `updated_at`.
+   - Use `dim_management` as the source for bakery/partner ownership context,
+     but avoid relying only on free-form names. Prefer an explicit Bitrix user
+     to bakery mapping.
+   - All endpoints that return bakery, day, SKU, hour, export, or explanation
+     data must filter by allowed `bakery_id`.
+
+3. Bind the app into Bitrix24 left menu.
+   - Use VibeCode placement `LEFT_MENU`.
+   - The app should open from the portal's left menu with transparent
+     authentication.
+   - The current Blackhole/VibeCode app runtime can remain the hosting target.
+
+4. Add weather to the production bakery model.
+   - Adapt `src/features/fetch_weather.py` for the current English
+     bakery-level dataset.
+   - Enrich `data/processed/bakery_daily_sales.csv` and
+     `data/processed/bakery_daily_sales_uplifted.csv` by `date + city`.
+   - Add forecast-weather loading for the future horizon in
+     `src/experiments_v2/bakery_day_forecast.py`.
+   - Extend production `BASE_FEATURES` with weather columns:
+     `temp_mean`, `temp_range`, `precipitation`, `rain`, `snowfall`,
+     `windspeed_max`, `is_rainy`, `is_snowy`, `is_cold`, `is_warm`,
+     `is_windy`, `is_bad_weather`, `weather_cat_code`.
+   - Use safe defaults if a city/date has no weather row so production jobs do
+     not fail.
+
+5. Retrain and validate both bakery models.
+   - Retrain `bakery_day_model.joblib` and `bakery_day_model_uplifted.joblib`.
+   - Update `bakery_day_meta.joblib` and `bakery_day_meta_uplifted.joblib`.
+   - Compare old vs new using MAE, WMAPE, bias, by-city metrics, by-bakery
+     metrics, and separate bad-weather-day metrics.
+   - Do not activate weather-enabled production runs unless quality is at
+     least neutral and explanation quality is credible.
+
+6. Add day-level forecast explanations.
+   - Compute LightGBM per-row contributions (`pred_contrib`) during production
+     inference.
+   - Group raw features into user-facing factors:
+     `weather`, `calendar`, `events`, `payday`, `recent_sales`, `price`,
+     `trend`.
+   - Store grouped explanations in ClickHouse, for example in
+     `forecast_explanations_embedded`, keyed by `run_id`, `bakery_id`,
+     `forecast_date`, and `factor`.
+   - Store direction and relative contribution, not just raw absolute
+     contribution values.
+
+7. Add actual and historical sales context.
+   - Add a ClickHouse-backed context layer for actual sales and history:
+     actual sales, yesterday, previous seven days, same weekday previous week,
+     7-day average, and 30-day average.
+   - Add API fields/endpoints so the UI can show forecast vs actual and recent
+     history on the same day card.
+
+8. Rework the embedded UI.
+   - Use a day-card weekly layout similar to the reference image.
+   - Each card should show forecast, actual if available, weather, recent
+     history, top forecast drivers, and links for hourly and SKU drill-downs.
+   - Continue to support run/date/bakery selection, but with partner-specific
+     bakery lists after access control is enabled.
+
+9. Keep VM production inference as the source of truth.
+   - VM timer continues to publish forecast runs to ClickHouse.
+   - VibeCode/Bitrix app remains a read-only embedded UI/API over ClickHouse.
+   - No nginx is needed for the Bitrix path while VibeCode Blackhole hosts the
+     app.
 
 ## Commands Useful For Resuming
 
@@ -432,4 +522,3 @@ VibeCode server id:
 ```text
 82bb03a8-c356-4225-97a4-a1540cdc29e6
 ```
-
