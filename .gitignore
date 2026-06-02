@@ -97,3 +97,4 @@ notebooks/stockout_estimation_details.csv
 notebooks/work_stockout_estimation_details.csv
 notebooks/strict_stockout_exports/
 tests/_tmp_apply_profiles/
+tests/_tmp_forecast_publish/

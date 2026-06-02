@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
+
 import argparse
 from pathlib import Path
 from uuid import uuid4
@@ -15,6 +17,7 @@ DEFAULT_SKU_DAY_PATH = ROOT / "data" / "processed" / "sku_day_forecast_future_sm
 DEFAULT_SKU_HOUR_PATH = ROOT / "data" / "processed" / "sku_hour_forecast_future_smoothed_bias_adj.csv"
 DEFAULT_PROFILE_PATH = ROOT / "data" / "processed" / "sku_hour_share_profile_smoothed.csv"
 DEFAULT_ENV_PATH = ROOT / ".env"
+DEFAULT_PROFILE_TABLE = "sku_hour_share_profile_smoothed_embedded"
 
 
 def _as_bool(value: str | None, default: bool = False) -> bool:
@@ -85,6 +88,20 @@ def load_product_lookup(profile_path: Path) -> pd.DataFrame:
     usecols = ["bakery_id", "product_id", "product_name", "category_name"]
     df = pd.read_csv(profile_path, encoding="utf-8-sig", usecols=usecols)
     return df.drop_duplicates(["bakery_id", "product_id"]).reset_index(drop=True)
+
+
+def load_product_lookup_from_clickhouse(client, profile_table: str = DEFAULT_PROFILE_TABLE) -> pd.DataFrame:
+    return client.query_df(
+        f"""
+        select
+            bakery_id,
+            product_id,
+            any(product_name) as product_name,
+            any(category_name) as category_name
+        from {profile_table}
+        group by bakery_id, product_id
+        """
+    ).drop_duplicates(["bakery_id", "product_id"]).reset_index(drop=True)
 
 
 def prepare_bakery_day(df: pd.DataFrame, run_id: str) -> pd.DataFrame:
@@ -173,6 +190,64 @@ def insert_run_metadata(
     client.insert_df("forecast_runs_embedded", run_df)
 
 
+def load_forecast_run(
+    *,
+    env_file: str | Path = DEFAULT_ENV_PATH,
+    schema_path: str | Path = DEFAULT_SCHEMA_PATH,
+    bakery_path: str | Path = DEFAULT_BAKERY_PATH,
+    sku_day_path: str | Path = DEFAULT_SKU_DAY_PATH,
+    sku_hour_path: str | Path = DEFAULT_SKU_HOUR_PATH,
+    profile_path: str | Path | None = DEFAULT_PROFILE_PATH,
+    profile_table: str = DEFAULT_PROFILE_TABLE,
+    lookup_source: str = "csv",
+    run_id: str | None = None,
+    model_version: str = "bakery_day_lgbm_v1",
+    profile_version: str = "smoothed_bias_adj_v1",
+    notes: str | None = None,
+) -> dict[str, int | str]:
+    client = create_client(env_file)
+    load_schema(client, Path(schema_path))
+
+    final_run_id = build_run_id(run_id)
+    bakery_raw = pd.read_csv(bakery_path, encoding="utf-8-sig")
+    sku_day_raw = pd.read_csv(sku_day_path, encoding="utf-8-sig")
+    sku_hour_raw = pd.read_csv(sku_hour_path, encoding="utf-8-sig")
+    if lookup_source == "clickhouse":
+        lookup = load_product_lookup_from_clickhouse(client, profile_table)
+    elif lookup_source == "csv":
+        if not profile_path:
+            raise ValueError("profile_path is required when lookup_source='csv'")
+        lookup = load_product_lookup(Path(profile_path))
+    else:
+        raise ValueError(f"Unsupported lookup_source: {lookup_source}")
+
+    horizon_start, horizon_end = infer_run_dates(bakery_raw)
+    insert_run_metadata(
+        client,
+        run_id=final_run_id,
+        model_version=model_version,
+        profile_version=profile_version,
+        horizon_start=horizon_start,
+        horizon_end=horizon_end,
+        notes=notes,
+    )
+
+    bakery_day = prepare_bakery_day(bakery_raw, final_run_id)
+    sku_day = prepare_sku_day(sku_day_raw, lookup, final_run_id)
+    sku_hour = prepare_sku_hour(sku_hour_raw, final_run_id)
+
+    client.insert_df("bakery_forecast_day_embedded", bakery_day)
+    client.insert_df("sku_forecast_day_embedded", sku_day)
+    client.insert_df("sku_forecast_hour_embedded", sku_hour)
+
+    return {
+        "run_id": final_run_id,
+        "bakery_rows": len(bakery_day),
+        "sku_day_rows": len(sku_day),
+        "sku_hour_rows": len(sku_hour),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Load a forecast run into embedded app ClickHouse storage")
     parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH))
@@ -181,47 +256,36 @@ def main() -> None:
     parser.add_argument("--sku-day-path", default=str(DEFAULT_SKU_DAY_PATH))
     parser.add_argument("--sku-hour-path", default=str(DEFAULT_SKU_HOUR_PATH))
     parser.add_argument("--profile-path", default=str(DEFAULT_PROFILE_PATH))
+    parser.add_argument("--profile-table", default=DEFAULT_PROFILE_TABLE)
+    parser.add_argument("--lookup-source", choices=["csv", "clickhouse"], default="csv")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--model-version", default="bakery_day_lgbm_v1")
     parser.add_argument("--profile-version", default="smoothed_bias_adj_v1")
     parser.add_argument("--notes", default=None)
     args = parser.parse_args()
 
-    client = create_client(args.env_file)
-    load_schema(client, Path(args.schema_path))
-
-    run_id = build_run_id(args.run_id)
-    bakery_raw = pd.read_csv(args.bakery_path, encoding="utf-8-sig")
-    sku_day_raw = pd.read_csv(args.sku_day_path, encoding="utf-8-sig")
-    sku_hour_raw = pd.read_csv(args.sku_hour_path, encoding="utf-8-sig")
-    lookup = load_product_lookup(Path(args.profile_path))
-
-    horizon_start, horizon_end = infer_run_dates(bakery_raw)
-    insert_run_metadata(
-        client,
-        run_id=run_id,
+    result = load_forecast_run(
+        env_file=args.env_file,
+        schema_path=args.schema_path,
+        bakery_path=args.bakery_path,
+        sku_day_path=args.sku_day_path,
+        sku_hour_path=args.sku_hour_path,
+        profile_path=args.profile_path,
+        profile_table=args.profile_table,
+        lookup_source=args.lookup_source,
+        run_id=args.run_id,
         model_version=args.model_version,
         profile_version=args.profile_version,
-        horizon_start=horizon_start,
-        horizon_end=horizon_end,
         notes=args.notes,
     )
-
-    bakery_day = prepare_bakery_day(bakery_raw, run_id)
-    sku_day = prepare_sku_day(sku_day_raw, lookup, run_id)
-    sku_hour = prepare_sku_hour(sku_hour_raw, run_id)
-
-    client.insert_df("bakery_forecast_day_embedded", bakery_day)
-    client.insert_df("sku_forecast_day_embedded", sku_day)
-    client.insert_df("sku_forecast_hour_embedded", sku_hour)
 
     print("=" * 72)
     print("FORECAST RUN LOADED")
     print("=" * 72)
-    print(f"run_id: {run_id}")
-    print(f"bakery rows: {len(bakery_day)}")
-    print(f"sku day rows: {len(sku_day)}")
-    print(f"sku hour rows: {len(sku_hour)}")
+    print(f"run_id: {result['run_id']}")
+    print(f"bakery rows: {result['bakery_rows']}")
+    print(f"sku day rows: {result['sku_day_rows']}")
+    print(f"sku hour rows: {result['sku_hour_rows']}")
 
 
 if __name__ == "__main__":

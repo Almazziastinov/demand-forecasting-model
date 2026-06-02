@@ -1,0 +1,16 @@
+[Unit]
+Description=Demand forecast production inference publish job
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=forecast
+Group=forecast
+WorkingDirectory=/opt/demand-forecasting-model
+EnvironmentFile=/opt/demand-forecasting-model/.env
+ExecStart=/opt/demand-forecasting-model/.venv/bin/python -m pipelines.forecast_publish.run_production_inference --env-file /opt/demand-forecasting-model/.env --scenario ${FORECAST_SCENARIO} --horizon-days ${FORECAST_HORIZON_DAYS} --uplift-profile-version ${FORECAST_UPLIFT_PROFILE_VERSION} --activate-run ${FORECAST_ACTIVATE_RUN}
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

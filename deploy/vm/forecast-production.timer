@@ -1,0 +1,10 @@
+[Unit]
+Description=Run demand forecast production inference daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=forecast-production.service
+
+[Install]
+WantedBy=timers.target
