@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
+
 import argparse
 from pathlib import Path
 
@@ -91,6 +93,7 @@ def archive_current_active_runs(client) -> None:
     archived = active.copy()
     archived["status"] = "archived"
     client.insert_df(RUNS_TABLE, archived)
+    client.command(f"alter table {RUNS_TABLE} delete where status = 'active'")
 
 
 def activate_run(client, run_id: str) -> None:
