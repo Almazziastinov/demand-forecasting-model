@@ -79,13 +79,13 @@ def list_runs(limit: int = 50) -> list[dict]:
             argMax(source_kind, generated_at) as source_kind,
             argMax(horizon_start, generated_at) as horizon_start,
             argMax(horizon_end, generated_at) as horizon_end,
-            max(generated_at) as generated_at,
+            max(generated_at) as latest_generated_at,
             groupUniqArray(status) as statuses,
             max(status = 'active') as is_active,
             argMax(is_bias_adjusted, generated_at) as is_bias_adjusted
         from {table}
         group by run_id
-        order by is_active desc, generated_at desc
+        order by is_active desc, latest_generated_at desc
         limit %(limit)s
         """.format(table=RUNS_TABLE)
     df = client.query_df(query, parameters={"limit": limit})
@@ -95,6 +95,7 @@ def list_runs(limit: int = 50) -> list[dict]:
     rows = []
     for record in df.to_dict("records"):
         normalized = _normalize_record_dates(record)
+        normalized["generated_at"] = normalized.pop("latest_generated_at", None)
         normalized["is_active"] = bool(normalized.get("is_active"))
         rows.append(normalized)
     return rows
