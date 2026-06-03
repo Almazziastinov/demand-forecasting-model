@@ -25,6 +25,7 @@
       <tr>
         <th>Bakery</th>
         <th>City</th>
+        <th>Context</th>
         <th>Forecast</th>
       </tr>
     </thead>
@@ -33,6 +34,31 @@
       <tr>
         <td><a href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&run_id={{ active_run.run_id }}">{{ bakery.bakery_name }}</a></td>
         <td>{{ bakery.city }}</td>
+        <td>
+          <div class="badges">
+            {% if bakery.temp_mean is not none %}
+            <span class="badge">{{ "%.0f"|format(bakery.temp_mean) }}°C</span>
+            {% endif %}
+            {% if bakery.precipitation and bakery.precipitation > 0 %}
+            <span class="badge">precip {{ "%.1f"|format(bakery.precipitation) }}</span>
+            {% endif %}
+            {% if bakery.snowfall and bakery.snowfall > 0 %}
+            <span class="badge">snow {{ "%.1f"|format(bakery.snowfall) }}</span>
+            {% endif %}
+            {% if bakery.is_bad_weather %}
+            <span class="badge attention">bad weather</span>
+            {% endif %}
+            {% if bakery.holiday_name %}
+            <span class="badge attention">{{ bakery.holiday_name }}</span>
+            {% elif bakery.is_pre_holiday %}
+            <span class="badge">pre-holiday</span>
+            {% elif bakery.is_post_holiday %}
+            <span class="badge">post-holiday</span>
+            {% elif bakery.event_window_type and bakery.event_window_type != "regular" %}
+            <span class="badge">{{ bakery.event_window_type }}</span>
+            {% endif %}
+          </div>
+        </td>
         <td>{{ "%.2f"|format(bakery.forecast_final) }}</td>
       </tr>
       {% endfor %}

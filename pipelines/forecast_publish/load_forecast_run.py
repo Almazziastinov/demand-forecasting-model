@@ -10,6 +10,10 @@ from uuid import uuid4
 import clickhouse_connect
 import pandas as pd
 
+from pipelines.forecast_publish.forecast_context import CONTEXT_TABLE
+from pipelines.forecast_publish.forecast_context import prepare_forecast_context
+from src.experiments_v2.bakery_day_forecast import DEFAULT_WEATHER_PATH
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCHEMA_PATH = ROOT / "apps" / "forecast_embedded" / "sql" / "schema.sql"
@@ -93,6 +97,7 @@ def count_run_rows(client, run_id: str) -> dict[str, int]:
     tables = [
         "forecast_runs_embedded",
         "bakery_forecast_day_embedded",
+        CONTEXT_TABLE,
         "sku_forecast_day_embedded",
         "sku_forecast_hour_embedded",
     ]
@@ -111,6 +116,7 @@ def delete_forecast_run(client, run_id: str) -> None:
     for table in [
         "forecast_runs_embedded",
         "bakery_forecast_day_embedded",
+        CONTEXT_TABLE,
         "sku_forecast_day_embedded",
         "sku_forecast_hour_embedded",
     ]:
@@ -255,6 +261,7 @@ def load_forecast_run(
     profile_version: str = "smoothed_bias_adj_v1",
     notes: str | None = None,
     replace_existing: bool = False,
+    weather_path: str | Path | None = DEFAULT_WEATHER_PATH,
 ) -> dict[str, int | str]:
     client = create_client(env_file)
     load_schema(client, Path(schema_path))
@@ -288,16 +295,23 @@ def load_forecast_run(
     )
 
     bakery_day = prepare_bakery_day(bakery_raw, final_run_id)
+    context_day = prepare_forecast_context(
+        bakery_raw,
+        final_run_id,
+        weather_path=weather_path,
+    )
     sku_day = prepare_sku_day(sku_day_raw, lookup, final_run_id)
     sku_hour = prepare_sku_hour(sku_hour_raw, final_run_id)
 
     client.insert_df("bakery_forecast_day_embedded", bakery_day)
+    client.insert_df(CONTEXT_TABLE, context_day)
     client.insert_df("sku_forecast_day_embedded", sku_day)
     client.insert_df("sku_forecast_hour_embedded", sku_hour)
 
     return {
         "run_id": final_run_id,
         "bakery_rows": len(bakery_day),
+        "context_rows": len(context_day),
         "sku_day_rows": len(sku_day),
         "sku_hour_rows": len(sku_hour),
     }
@@ -318,6 +332,7 @@ def main() -> None:
     parser.add_argument("--profile-version", default="smoothed_bias_adj_v1")
     parser.add_argument("--notes", default=None)
     parser.add_argument("--replace-existing", action="store_true")
+    parser.add_argument("--weather-path", default=str(DEFAULT_WEATHER_PATH))
     args = parser.parse_args()
 
     result = load_forecast_run(
@@ -334,6 +349,7 @@ def main() -> None:
         profile_version=args.profile_version,
         notes=args.notes,
         replace_existing=args.replace_existing,
+        weather_path=args.weather_path,
     )
 
     print("=" * 72)
@@ -341,6 +357,7 @@ def main() -> None:
     print("=" * 72)
     print(f"run_id: {result['run_id']}")
     print(f"bakery rows: {result['bakery_rows']}")
+    print(f"context rows: {result['context_rows']}")
     print(f"sku day rows: {result['sku_day_rows']}")
     print(f"sku hour rows: {result['sku_hour_rows']}")
 

@@ -20,7 +20,7 @@ class _FakeClient:
     def command(self, statement: str) -> None:
         self.commands.append(statement)
 
-    def query_df(self, query: str):
+    def query_df(self, query: str, parameters: dict | None = None):
         return self.lookup.copy()
 
     def insert_df(self, table: str, df: pd.DataFrame) -> None:
@@ -102,18 +102,24 @@ def test_load_forecast_run_can_use_clickhouse_lookup(monkeypatch):
         profile_path=None,
         lookup_source="clickhouse",
         run_id="run_test",
+        weather_path=None,
     )
 
     assert result["run_id"] == "run_test"
     assert result["bakery_rows"] == 1
+    assert result["context_rows"] == 1
     assert result["sku_day_rows"] == 1
     assert result["sku_hour_rows"] == 1
     assert [table for table, _ in fake.inserts] == [
         "forecast_runs_embedded",
         "bakery_forecast_day_embedded",
+        "forecast_day_context_embedded",
         "sku_forecast_day_embedded",
         "sku_forecast_hour_embedded",
     ]
-    sku_day_insert = fake.inserts[2][1].iloc[0]
+    context_insert = fake.inserts[2][1].iloc[0]
+    assert context_insert["city"] == "Kazan"
+    assert context_insert["event_window_type"] == "post_event_4_7"
+    sku_day_insert = fake.inserts[3][1].iloc[0]
     assert sku_day_insert["product_name"] == "Product"
     assert sku_day_insert["category_name"] == "Category"

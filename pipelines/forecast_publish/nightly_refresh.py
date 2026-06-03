@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E402,E501
+
 import argparse
 import json
 from dataclasses import dataclass
@@ -14,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pipelines.forecast_publish.activate_run import activate_run
+from pipelines.forecast_publish.forecast_context import CONTEXT_TABLE
+from pipelines.forecast_publish.forecast_context import prepare_forecast_context
 from pipelines.forecast_publish.load_forecast_run import create_client as create_publish_client
 from pipelines.forecast_publish.load_forecast_run import DEFAULT_ENV_PATH
 from pipelines.forecast_publish.load_forecast_run import insert_run_metadata
@@ -33,6 +37,7 @@ from src.experiments_v2.bakery_day_forecast import DEFAULT_BIAS_PATH
 from src.experiments_v2.bakery_day_forecast import DEFAULT_FORECAST_PATH
 from src.experiments_v2.bakery_day_forecast import DEFAULT_META_PATH
 from src.experiments_v2.bakery_day_forecast import DEFAULT_MODEL_PATH
+from src.experiments_v2.bakery_day_forecast import DEFAULT_WEATHER_PATH
 from src.experiments_v2.bakery_day_forecast import run_train_mode
 from src.experiments_v2.bakery_day_forecast import run_forecast_mode
 from src.experiments_v2.build_bakery_hour_profile import build_bakery_hour_profile
@@ -41,6 +46,8 @@ from src.experiments_v2.build_bakery_hour_profile import save_outputs as save_ho
 from src.experiments_v2.build_bakery_daily_dataset import build_bakery_daily_dataset
 from src.experiments_v2.build_bakery_daily_dataset import build_summary as build_daily_summary
 from src.experiments_v2.build_bakery_daily_dataset import save_outputs as save_daily_outputs
+from src.experiments_v2.build_bakery_weather_features import fetch_weather_features
+from src.experiments_v2.build_bakery_weather_features import infer_weather_request
 
 
 DEFAULT_SCHEMA_PATH = ROOT / "apps" / "forecast_embedded" / "sql" / "schema.sql"
@@ -91,6 +98,7 @@ def publish_run(
     profile_version: str,
     notes: str | None,
     activate: bool,
+    weather_path: Path,
 ) -> dict[str, str]:
     client = create_publish_client(env_file)
     load_schema(client, schema_path)
@@ -115,10 +123,16 @@ def publish_run(
     )
 
     bakery_day = prepare_bakery_day(bakery_raw, run_id)
+    context_day = prepare_forecast_context(
+        bakery_raw,
+        run_id,
+        weather_path=weather_path,
+    )
     sku_day = prepare_sku_day(sku_day_raw, lookup, run_id)
     sku_hour = prepare_sku_hour(sku_hour_raw, run_id)
 
     client.insert_df("bakery_forecast_day_embedded", bakery_day)
+    client.insert_df(CONTEXT_TABLE, context_day)
     client.insert_df("sku_forecast_day_embedded", sku_day)
     client.insert_df("sku_forecast_hour_embedded", sku_hour)
 
@@ -130,6 +144,7 @@ def publish_run(
         "horizon_start": horizon_start,
         "horizon_end": horizon_end,
         "bakery_rows": str(len(bakery_day)),
+        "context_rows": str(len(context_day)),
         "sku_day_rows": str(len(sku_day)),
         "sku_hour_rows": str(len(sku_hour)),
         "activated": str(bool(activate)).lower(),
@@ -154,6 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--meta-path", default=str(DEFAULT_META_PATH))
     parser.add_argument("--bias-path", default=str(DEFAULT_BIAS_PATH))
     parser.add_argument("--bakery-forecast-path", default=str(DEFAULT_FORECAST_PATH))
+    parser.add_argument("--weather-path", default=str(DEFAULT_WEATHER_PATH))
     parser.add_argument("--bakery-hour-profile-path", default=str(DEFAULT_BAKERY_HOUR_PROFILE_PATH))
     parser.add_argument("--sku-hour-profile-path", default=str(DEFAULT_SKU_HOUR_PROFILE_PATH))
     parser.add_argument("--sku-hour-profile-cache-path", default=str(DEFAULT_SKU_HOUR_PROFILE_CACHE_PATH))
@@ -170,6 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train-model", action="store_true")
     parser.add_argument("--rebuild-bakery-hour-profile", action="store_true")
     parser.add_argument("--skip-export", action="store_true")
+    parser.add_argument("--skip-weather-refresh", action="store_true")
     parser.add_argument("--skip-publish", action="store_true")
     parser.add_argument("--skip-activate", action="store_true")
     return parser
@@ -209,6 +226,20 @@ def main() -> None:
     daily_summary = build_daily_summary(daily_df)
     save_daily_outputs(processed_dir, daily_df, daily_summary)
 
+    weather_path = Path(args.weather_path)
+    if not args.skip_weather_refresh or not weather_path.exists():
+        weather_cities, weather_start, weather_end = infer_weather_request(
+            [processed_dir / "bakery_daily_sales.csv"],
+            horizon_days=int(args.horizon_days),
+        )
+        weather_df = fetch_weather_features(
+            weather_cities,
+            start_date=weather_start,
+            end_date=weather_end,
+        )
+        weather_path.parent.mkdir(parents=True, exist_ok=True)
+        weather_df.to_csv(weather_path, index=False, encoding="utf-8-sig")
+
     bakery_hour_profile_path = Path(args.bakery_hour_profile_path)
     if args.rebuild_bakery_hour_profile or not bakery_hour_profile_path.exists():
         bakery_hour_profile, bakery_hour_applied = build_bakery_hour_profile(raw_output)
@@ -228,6 +259,7 @@ def main() -> None:
             summary_path=str(ROOT / "reports" / "bakery_day_model_summary.json"),
             predictions_path=str(ROOT / "reports" / "bakery_day_model_holdout_predictions.csv"),
             bias_path=str(bias_path),
+            weather_path=str(weather_path),
             test_days=int(args.test_days),
         )
         run_train_mode(train_args)
@@ -242,6 +274,7 @@ def main() -> None:
         apply_bias_correction=True,
         bias_clip_pct=0.15,
         output_path=str(Path(args.bakery_forecast_path)),
+        weather_path=str(weather_path),
     )
     run_forecast_mode(forecast_args)
 
@@ -275,6 +308,7 @@ def main() -> None:
         "horizon_days": int(args.horizon_days),
         "raw_output": str(raw_output),
         "bakery_forecast_path": str(Path(args.bakery_forecast_path)),
+        "weather_path": str(weather_path),
         "bakery_hour_profile_path": str(bakery_hour_profile_path),
         "profile_source": args.profile_source,
         "profile_path": str(profile_path),
@@ -298,6 +332,7 @@ def main() -> None:
             profile_version=args.profile_version,
             notes=args.notes,
             activate=not args.skip_activate,
+            weather_path=weather_path,
         )
         manifest["publish"] = publish_info
 

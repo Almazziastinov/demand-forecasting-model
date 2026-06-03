@@ -26,6 +26,32 @@ engine = MergeTree
 partition by toYYYYMM(forecast_date)
 order by (run_id, forecast_date, bakery_id);
 
+create table if not exists forecast_day_context_embedded (
+  run_id String,
+  forecast_date Date,
+  city Nullable(String),
+  temp_mean Nullable(Float64),
+  precipitation Nullable(Float64),
+  rain Nullable(Float64),
+  snowfall Nullable(Float64),
+  windspeed_max Nullable(Float64),
+  is_bad_weather Bool,
+  weather_cat_code Int16,
+  holiday_name Nullable(String),
+  is_holiday Bool,
+  is_pre_holiday Bool,
+  is_post_holiday Bool,
+  event_window_type LowCardinality(String),
+  current_event_cluster LowCardinality(String),
+  prev_event_cluster LowCardinality(String),
+  next_event_cluster LowCardinality(String),
+  days_since_prev_event Int16,
+  days_to_next_event Int16
+)
+engine = MergeTree
+partition by toYYYYMM(forecast_date)
+order by (run_id, forecast_date, city);
+
 create table if not exists sku_forecast_day_embedded (
   run_id String,
   forecast_date Date,
@@ -79,3 +105,20 @@ create table if not exists sku_hour_uplift_multiplier_embedded (
 )
 engine = MergeTree
 order by (profile_version, bakery_id, dow, hour);
+
+create table if not exists bitrix_user_bakery_access_embedded (
+  bitrix_portal_id String,
+  bitrix_user_id String,
+  bitrix_email Nullable(String),
+  bitrix_user_name Nullable(String),
+  bitrix_work_position Nullable(String),
+  partner_name Nullable(String),
+  bakery_id Int64,
+  bakery_name Nullable(String),
+  access_role LowCardinality(String),
+  match_method LowCardinality(String),
+  source LowCardinality(String),
+  updated_at DateTime64(3)
+)
+engine = ReplacingMergeTree(updated_at)
+order by (bitrix_portal_id, bitrix_user_id, bakery_id, source);

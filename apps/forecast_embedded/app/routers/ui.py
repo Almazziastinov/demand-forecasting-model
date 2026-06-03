@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.auth import get_auth_context
 from app.services import bakery as bakery_service
 from app.services import runs as run_service
 
@@ -26,8 +27,9 @@ def index(
 
     dates = run_service.get_run_dates(active_run["run_id"])
     selected_date = date or (dates[0] if dates else None)
+    auth = get_auth_context(request)
     bakeries = (
-        bakery_service.get_bakery_list(active_run["run_id"], selected_date)
+        bakery_service.get_bakery_list(active_run["run_id"], selected_date, auth)
         if selected_date
         else []
     )
@@ -55,7 +57,8 @@ def bakery_detail(
     if not active_run:
         raise HTTPException(status_code=404, detail="Forecast run not found")
 
-    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id)
+    auth = get_auth_context(request)
+    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id, auth)
     if not bakery_day:
         raise HTTPException(status_code=404, detail="Bakery forecast not found")
 
@@ -67,7 +70,8 @@ def bakery_detail(
             "runs": run_service.list_runs(),
             "selected_date": date,
             "bakery": bakery_day,
-            "hourly_total": bakery_service.get_hourly_total(active_run["run_id"], date, bakery_id),
-            "top_sku": bakery_service.get_top_sku(active_run["run_id"], date, bakery_id),
+            "context": bakery_service.get_day_context(active_run["run_id"], date, bakery_day["city"]),
+            "hourly_total": bakery_service.get_hourly_total(active_run["run_id"], date, bakery_id, auth),
+            "top_sku": bakery_service.get_top_sku(active_run["run_id"], date, bakery_id, auth),
         },
     )

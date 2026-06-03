@@ -34,6 +34,7 @@ DEFAULT_BASE_BIAS_PATH = ROOT / "models" / "bakery_day_bias.json"
 DEFAULT_UPLIFTED_BIAS_PATH = ROOT / "models" / "bakery_day_bias_uplifted.json"
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "processed"
 DEFAULT_SUMMARY_PATH = ROOT / "reports" / "production_inference_summary.json"
+DEFAULT_WEATHER_PATH = ROOT / "data" / "processed" / "bakery_weather_features.csv"
 
 
 SCENARIOS = {
@@ -99,6 +100,7 @@ def run_bakery_forecast(args: argparse.Namespace, scenario: dict) -> Path:
             output_path=str(output_path),
             horizon_days=args.horizon_days,
             start_date=args.start_date,
+            weather_path=args.weather_path,
             apply_bias_correction=not args.no_bias_correction,
             bias_path=str(bias_path),
             bias_clip_pct=args.bias_clip_pct,
@@ -139,6 +141,7 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         profile_version=scenario["profile_version"],
         notes=args.notes or scenario["description"],
         replace_existing=not args.no_replace_existing,
+        weather_path=args.weather_path,
     )
 
     if args.activate_run == scenario_name:
@@ -178,6 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--uplift-profile-version", default=None)
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--summary-path", default=str(DEFAULT_SUMMARY_PATH))
+    parser.add_argument("--weather-path", default=str(DEFAULT_WEATHER_PATH))
     parser.add_argument("--horizon-days", type=int, default=DEFAULT_HORIZON_DAYS)
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--run-prefix", default="prod")

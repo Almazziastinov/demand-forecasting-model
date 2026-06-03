@@ -41,6 +41,7 @@ DEFAULT_TRAIN_SUMMARY_PATH = ROOT / "reports" / "bakery_day_model_summary.json"
 DEFAULT_PREDICTIONS_PATH = ROOT / "reports" / "bakery_day_model_holdout_predictions.csv"
 DEFAULT_BIAS_PATH = ROOT / "reports" / "bakery_day_model_bias_by_bakery.csv"
 DEFAULT_FORECAST_PATH = ROOT / "data" / "processed" / "bakery_day_forecast.csv"
+DEFAULT_WEATHER_PATH = ROOT / "data" / "processed" / "bakery_weather_features.csv"
 
 DEFAULT_TEST_DAYS = 30
 DEFAULT_HORIZON_DAYS = 14
@@ -108,6 +109,40 @@ ENRICHED_EVENT_FEATURES = [
 ]
 
 BASE_FEATURES = [*BASE_FEATURES, *ENRICHED_EVENT_FEATURES]
+
+WEATHER_FEATURES = [
+    "temp_mean",
+    "temp_range",
+    "precipitation",
+    "rain",
+    "snowfall",
+    "windspeed_max",
+    "is_rainy",
+    "is_snowy",
+    "is_cold",
+    "is_warm",
+    "is_windy",
+    "is_bad_weather",
+    "weather_cat_code",
+]
+
+BASE_FEATURES = [*BASE_FEATURES, *WEATHER_FEATURES]
+
+WEATHER_DEFAULTS = {
+    "temp_mean": 10.0,
+    "temp_range": 0.0,
+    "precipitation": 0.0,
+    "rain": 0.0,
+    "snowfall": 0.0,
+    "windspeed_max": 0.0,
+    "is_rainy": 0,
+    "is_snowy": 0,
+    "is_cold": 0,
+    "is_warm": 0,
+    "is_windy": 0,
+    "is_bad_weather": 0,
+    "weather_cat_code": 0,
+}
 
 CATEGORICAL_COLS = [
     BAKERY_ID_COL,
@@ -246,6 +281,89 @@ def load_dataset(path: str | Path) -> pd.DataFrame:
     if BAKERY_NAME_COL not in df.columns:
         df[BAKERY_NAME_COL] = df[BAKERY_ID_COL].astype(str)
     return df.sort_values([BAKERY_ID_COL, DATE_COL]).reset_index(drop=True)
+
+
+def _first_existing(columns: pd.Index, candidates: list[str]) -> str | None:
+    for candidate in candidates:
+        if candidate in columns:
+            return candidate
+    return None
+
+
+def normalize_weather_frame(weather_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize weather rows to the production `date + city` feature contract."""
+    if weather_df.empty:
+        return pd.DataFrame(columns=[DATE_COL, CITY_COL, *WEATHER_FEATURES])
+
+    work = weather_df.copy()
+    date_col = _first_existing(work.columns, [DATE_COL, "Дата", "Р”Р°С‚Р°"])
+    city_col = _first_existing(work.columns, [CITY_COL, "Город", "Р“РѕСЂРѕРґ"])
+    if date_col is None or city_col is None:
+        raise KeyError("Weather data must contain date/city columns")
+
+    work = work.rename(columns={date_col: DATE_COL, city_col: CITY_COL})
+    work[DATE_COL] = pd.to_datetime(work[DATE_COL], errors="coerce").dt.normalize()
+    work[CITY_COL] = work[CITY_COL].fillna("unknown").astype(str)
+
+    if "temp_range" not in work.columns and {"temp_max", "temp_min"}.issubset(work.columns):
+        work["temp_range"] = pd.to_numeric(work["temp_max"], errors="coerce") - pd.to_numeric(
+            work["temp_min"],
+            errors="coerce",
+        )
+
+    if "weather_cat_code" not in work.columns and "weather_category" in work.columns:
+        work["weather_cat_code"] = (
+            work["weather_category"]
+            .map({"clear": 0, "cloudy": 1, "fog": 2, "rain": 3, "snow": 4, "storm": 5})
+            .fillna(0)
+        )
+
+    for col, default in WEATHER_DEFAULTS.items():
+        if col not in work.columns:
+            work[col] = default
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(default)
+
+    work = work.dropna(subset=[DATE_COL])
+    return (
+        work[[DATE_COL, CITY_COL, *WEATHER_FEATURES]]
+        .sort_values([CITY_COL, DATE_COL])
+        .drop_duplicates(subset=[CITY_COL, DATE_COL], keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def load_weather_features(path: str | Path | None) -> pd.DataFrame | None:
+    if path is None:
+        return None
+    weather_path = Path(path)
+    if not weather_path.exists():
+        raise FileNotFoundError(f"Weather features not found: {weather_path}")
+    return normalize_weather_frame(pd.read_csv(weather_path, encoding="utf-8-sig"))
+
+
+def attach_weather_features(df: pd.DataFrame, weather_df: pd.DataFrame | None) -> pd.DataFrame:
+    has_weather_cols = any(col in df.columns for col in WEATHER_FEATURES)
+    if weather_df is None and not has_weather_cols:
+        return df
+
+    work = df.copy()
+    if weather_df is not None:
+        weather = normalize_weather_frame(weather_df)
+        work[DATE_COL] = pd.to_datetime(work[DATE_COL], errors="coerce").dt.normalize()
+        work[CITY_COL] = work[CITY_COL].fillna("unknown").astype(str)
+        work = work.merge(weather, on=[DATE_COL, CITY_COL], how="left", suffixes=("", "_weather"))
+        for col in WEATHER_FEATURES:
+            weather_col = f"{col}_weather"
+            if weather_col in work.columns:
+                work[col] = pd.to_numeric(work[weather_col], errors="coerce").combine_first(
+                    pd.to_numeric(work.get(col), errors="coerce")
+                )
+                work = work.drop(columns=[weather_col])
+
+    for col, default in WEATHER_DEFAULTS.items():
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce").fillna(default)
+    return work
 
 
 def build_event_calendar(start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
@@ -514,8 +632,9 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
-def build_model_frame(df: pd.DataFrame) -> pd.DataFrame:
+def build_model_frame(df: pd.DataFrame, weather_df: pd.DataFrame | None = None) -> pd.DataFrame:
     work = df.copy()
+    work = attach_weather_features(work, weather_df)
     work = add_holiday_features(work)
     work = add_event_cluster_features(work)
     work = add_enriched_event_features(work)
@@ -538,8 +657,13 @@ def make_train_test_split(df: pd.DataFrame, test_days: int) -> tuple[pd.DataFram
     return train_df, test_df, test_start
 
 
-def train_bakery_model(df: pd.DataFrame, *, test_days: int = DEFAULT_TEST_DAYS) -> tuple[object, dict, pd.DataFrame, pd.DataFrame]:
-    frame = build_model_frame(df)
+def train_bakery_model(
+    df: pd.DataFrame,
+    *,
+    test_days: int = DEFAULT_TEST_DAYS,
+    weather_df: pd.DataFrame | None = None,
+) -> tuple[object, dict, pd.DataFrame, pd.DataFrame]:
+    frame = build_model_frame(df, weather_df=weather_df)
     train_df, test_df, test_start = make_train_test_split(frame, test_days)
     feature_cols = [col for col in BASE_FEATURES if col in frame.columns]
 
@@ -635,7 +759,11 @@ def _safe_rolling_std(series: pd.Series, window: int, min_periods: int = 2) -> f
     return float(numeric.iloc[-count:].std(ddof=1) or 0.0)
 
 
-def build_future_feature_rows(history_df: pd.DataFrame, forecast_date: pd.Timestamp) -> pd.DataFrame:
+def build_future_feature_rows(
+    history_df: pd.DataFrame,
+    forecast_date: pd.Timestamp,
+    weather_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     rows: list[dict] = []
     dow = int(forecast_date.dayofweek)
     day = int(forecast_date.day)
@@ -679,6 +807,7 @@ def build_future_feature_rows(history_df: pd.DataFrame, forecast_date: pd.Timest
         )
 
     future = pd.DataFrame(rows)
+    future = attach_weather_features(future, weather_df)
     future = add_holiday_features(future)
     future = add_event_cluster_features(future)
     future = add_enriched_event_features(future)
@@ -694,8 +823,9 @@ def recursive_forecast(
     *,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     start_date: str | pd.Timestamp | None = None,
+    weather_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    history = build_model_frame(history_df).copy()
+    history = build_model_frame(history_df, weather_df=weather_df).copy()
     history = history.sort_values([BAKERY_ID_COL, DATE_COL]).reset_index(drop=True)
 
     next_date = pd.Timestamp(start_date) if start_date is not None else history[DATE_COL].max() + pd.Timedelta(days=1)
@@ -703,7 +833,9 @@ def recursive_forecast(
 
     for step in range(horizon_days):
         forecast_date = next_date + pd.Timedelta(days=step)
-        future_rows = build_future_feature_rows(history, forecast_date)
+        future_rows = build_future_feature_rows(history, forecast_date, weather_df=weather_df)
+        for col in [c for c in WEATHER_FEATURES if c in feature_cols and c not in future_rows.columns]:
+            future_rows[col] = WEATHER_DEFAULTS[col]
         predict_x = future_rows[feature_cols].copy()
         for col in [c for c in CATEGORICAL_COLS if c in feature_cols]:
             predict_x[col] = predict_x[col].astype("category")
@@ -753,7 +885,13 @@ def apply_bias_correction(
 
 def run_train_mode(args: argparse.Namespace) -> dict[str, Path]:
     df = load_dataset(args.dataset_path)
-    model, summary, holdout, bias_by_bakery = train_bakery_model(df, test_days=args.test_days)
+    weather_path = getattr(args, "weather_path", None) or str(DEFAULT_WEATHER_PATH)
+    weather_df = load_weather_features(weather_path)
+    model, summary, holdout, bias_by_bakery = train_bakery_model(
+        df,
+        test_days=args.test_days,
+        weather_df=weather_df,
+    )
     return save_training_artifacts(
         model,
         summary,
@@ -769,6 +907,8 @@ def run_train_mode(args: argparse.Namespace) -> dict[str, Path]:
 
 def run_forecast_mode(args: argparse.Namespace) -> Path:
     df = load_dataset(args.dataset_path)
+    weather_path = getattr(args, "weather_path", None) or str(DEFAULT_WEATHER_PATH)
+    weather_df = load_weather_features(weather_path)
     model = joblib.load(args.model_path)
     meta = joblib.load(args.meta_path)
     feature_cols = meta["feature_cols"]
@@ -778,6 +918,7 @@ def run_forecast_mode(args: argparse.Namespace) -> Path:
         feature_cols,
         horizon_days=args.horizon_days,
         start_date=args.start_date,
+        weather_df=weather_df,
     )
     if args.apply_bias_correction:
         bias_table = load_bias_table(args.bias_path)
@@ -799,6 +940,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--predictions-path", default=str(DEFAULT_PREDICTIONS_PATH))
     parser.add_argument("--bias-path", default=str(DEFAULT_BIAS_PATH))
     parser.add_argument("--output-path", default=str(DEFAULT_FORECAST_PATH))
+    parser.add_argument("--weather-path", default=str(DEFAULT_WEATHER_PATH), help="Weather feature CSV used by default")
     parser.add_argument("--test-days", type=int, default=DEFAULT_TEST_DAYS)
     parser.add_argument("--horizon-days", type=int, default=DEFAULT_HORIZON_DAYS)
     parser.add_argument("--start-date", default=None, help="Optional forecast start date YYYY-MM-DD")

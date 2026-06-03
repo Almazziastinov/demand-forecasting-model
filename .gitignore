@@ -16,6 +16,8 @@ data/.weather_cache.sqlite
 .weather_cache.sqlite
 data/raw/sales_hrs_all.csv
 data/raw/sales_hrs_all_clickhouse.csv
+data/raw/sales_hrs_all_clickhouse_*.csv
+data/raw/sales_hrs_increment_*.csv
 data/raw/dim_kkt_clickhouse.csv
 data/raw/moves_clickhouse.csv
 data/raw/moves_clickhouse_*.csv
@@ -98,3 +100,4 @@ notebooks/work_stockout_estimation_details.csv
 notebooks/strict_stockout_exports/
 tests/_tmp_apply_profiles/
 tests/_tmp_forecast_publish/
+tests/_tmp_smooth_profiles/

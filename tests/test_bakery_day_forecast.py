@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.experiments_v2.bakery_day_forecast import build_model_frame  # noqa: E402
 from src.experiments_v2.bakery_day_forecast import build_future_feature_rows  # noqa: E402
+from src.experiments_v2.bakery_day_forecast import normalize_weather_frame  # noqa: E402
 from src.experiments_v2.bakery_day_forecast import recursive_forecast  # noqa: E402
 
 
@@ -161,6 +162,82 @@ def test_build_future_feature_rows_adds_enriched_event_features():
     assert set(future["payday_window_type"]) == {"payday"}
 
 
+def test_build_model_frame_attaches_weather_features_by_city_and_date():
+    df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-01-01", "2026-01-01"]),
+            "bakery_id": ["B1", "B2"],
+            "bakery_name": ["B1", "B2"],
+            "city": ["Kazan", "Moscow"],
+            "bakery_sales": [10.0, 20.0],
+            "avg_price": [100.0, 110.0],
+            "dow": [3, 3],
+            "day": [1, 1],
+            "month": [1, 1],
+            "iso_week": [1, 1],
+            "is_weekend": [0, 0],
+            "is_month_start": [1, 1],
+            "is_month_end": [0, 0],
+            "is_payday_week": [0, 0],
+            "bakery_sales_lag1": [0.0, 0.0],
+            "bakery_sales_lag2": [0.0, 0.0],
+            "bakery_sales_lag3": [0.0, 0.0],
+            "bakery_sales_lag7": [0.0, 0.0],
+            "bakery_sales_lag14": [0.0, 0.0],
+            "bakery_sales_lag30": [0.0, 0.0],
+            "bakery_sales_roll_mean3": [0.0, 0.0],
+            "bakery_sales_roll_mean7": [0.0, 0.0],
+            "bakery_sales_roll_mean14": [0.0, 0.0],
+            "bakery_sales_roll_mean30": [0.0, 0.0],
+            "bakery_sales_roll_std7": [0.0, 0.0],
+        }
+    )
+    weather = pd.DataFrame(
+        {
+            "date": ["2026-01-01"],
+            "city": ["Kazan"],
+            "temp_mean": [-5.0],
+            "temp_range": [8.0],
+            "precipitation": [3.2],
+            "rain": [0.0],
+            "snowfall": [2.1],
+            "windspeed_max": [12.0],
+            "is_snowy": [1],
+            "is_bad_weather": [1],
+            "weather_cat_code": [4],
+        }
+    )
+
+    frame = build_model_frame(df, weather_df=weather)
+    kazan = frame[frame["city"] == "Kazan"].iloc[0]
+    moscow = frame[frame["city"] == "Moscow"].iloc[0]
+
+    assert float(kazan["temp_mean"]) == -5.0
+    assert int(kazan["is_snowy"]) == 1
+    assert float(moscow["temp_mean"]) == 10.0
+    assert int(moscow["is_bad_weather"]) == 0
+
+
+def test_normalize_weather_frame_accepts_russian_column_names():
+    weather = pd.DataFrame(
+        {
+            "Дата": ["2026-01-01"],
+            "Город": ["Kazan"],
+            "temp_max": [2.0],
+            "temp_min": [-4.0],
+            "temp_mean": [-1.0],
+            "weather_category": ["snow"],
+        }
+    )
+
+    normalized = normalize_weather_frame(weather)
+
+    assert normalized.loc[0, "date"] == pd.Timestamp("2026-01-01")
+    assert normalized.loc[0, "city"] == "Kazan"
+    assert float(normalized.loc[0, "temp_range"]) == 6.0
+    assert int(normalized.loc[0, "weather_cat_code"]) == 4
+
+
 def test_recursive_forecast_returns_horizon_for_each_bakery():
     history = _history()
     feature_cols = [
@@ -209,3 +286,34 @@ def test_recursive_forecast_returns_horizon_for_each_bakery():
     assert forecast["date"].nunique() == 3
     assert set(forecast["bakery_id"]) == {"B1", "B2"}
     assert float(forecast["bakery_day_forecast"].min()) == 10.0
+
+
+def test_recursive_forecast_uses_future_weather_features():
+    history = _history()
+    feature_cols = ["bakery_id", "city", "dow", "temp_mean", "is_bad_weather"]
+    weather = pd.DataFrame(
+        {
+            "date": ["2026-01-09", "2026-01-09"],
+            "city": ["Kazan", "Moscow"],
+            "temp_mean": [-12.0, -2.0],
+            "is_bad_weather": [1, 0],
+        }
+    )
+
+    future = build_future_feature_rows(
+        history,
+        pd.Timestamp("2026-01-09"),
+        weather_df=weather,
+    )
+    kazan = future[future["city"] == "Kazan"].iloc[0]
+    assert float(kazan["temp_mean"]) == -12.0
+    assert int(kazan["is_bad_weather"]) == 1
+
+    forecast = recursive_forecast(
+        history,
+        _ConstantModel(),
+        feature_cols,
+        horizon_days=1,
+        weather_df=weather,
+    )
+    assert len(forecast) == 2

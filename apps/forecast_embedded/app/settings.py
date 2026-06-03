@@ -27,6 +27,7 @@ class Settings:
     clickhouse_database: str | None
     clickhouse_secure: bool
     clickhouse_verify: bool
+    access_control_enabled: bool
 
 
 @lru_cache(maxsize=1)
@@ -44,4 +45,8 @@ def get_settings() -> Settings:
         clickhouse_database=os.getenv("CLICKHOUSE_DATABASE") or None,
         clickhouse_secure=_as_bool(os.getenv("CLICKHOUSE_SECURE"), default=True),
         clickhouse_verify=_as_bool(os.getenv("CLICKHOUSE_VERIFY"), default=False),
+        access_control_enabled=_as_bool(
+            os.getenv("ACCESS_CONTROL_ENABLED"),
+            default=_as_bool(os.getenv("BITRIX_EMBED_MODE"), default=False),
+        ),
     )
