@@ -29,7 +29,7 @@ order by (run_id, forecast_date, bakery_id);
 create table if not exists forecast_day_context_embedded (
   run_id String,
   forecast_date Date,
-  city Nullable(String),
+  city String,
   temp_mean Nullable(Float64),
   precipitation Nullable(Float64),
   rain Nullable(Float64),
