@@ -3,26 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ active_run.run_id if active_run else "Forecast" }}</title>
+  <title>ИИ прогноз плана</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <header class="page-header">
+  <header class="topbar">
     <div>
-      <h1>Bakery Forecast Embedded</h1>
-      {% if active_run %}
-      <p class="muted">
-        run: {{ active_run.run_id }} |
-        model: {{ active_run.model_version }} |
-        profile: {{ active_run.profile_version }}
-      </p>
-      {% endif %}
+      <a class="brand" href="/">ИИ прогноз плана</a>
+      <p class="topbar-subtitle">Прогноз спроса и почасовой профиль продаж</p>
     </div>
-    <nav>
-      <a href="/">Главная</a>
-    </nav>
+    {% if auth %}
+    <div class="user-pill">
+      <span>{{ auth.user_name or auth.email or "Пользователь" }}</span>
+      {% if is_admin %}<strong>админ</strong>{% endif %}
+    </div>
+    {% endif %}
   </header>
-  <main class="page-body">
+  <main class="page">
     {% block content %}{% endblock %}
   </main>
 </body>

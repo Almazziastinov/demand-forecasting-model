@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+{% block content %}
+<aside class="sidebar">
+  <div class="sidebar-head">
+    <span class="eyebrow">Навигация</span>
+    <a class="small-link" href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if selected_category %}&category={{ selected_category|urlencode }}{% endif %}{{ run_query }}">День</a>
+  </div>
+  <nav class="bakery-menu">
+    {% for item in bakeries %}
+    <a class="bakery-link {% if item.bakery_id == selected_bakery_id %}active{% endif %}" href="/?week_start={{ week_start }}&bakery_id={{ item.bakery_id }}{{ run_query }}">
+      <span>{{ item.bakery_name }}</span>
+      <small>{{ item.city or "Город не указан" }}</small>
+    </a>
+    {% endfor %}
+  </nav>
+</aside>
+
+<section class="workspace">
+  <div class="workspace-header">
+    <div>
+      <span class="eyebrow">{{ selected_weekday_label }}, {{ selected_date_label }}</span>
+      <h1>{{ sku.product_name or "SKU без названия" }}</h1>
+      <p>{{ bakery.bakery_name }} · {{ sku.category_name or "Без группы" }}</p>
+    </div>
+    <a class="button-link" href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if selected_category %}&category={{ selected_category|urlencode }}{% endif %}{{ run_query }}">К списку SKU</a>
+  </div>
+
+  <section class="summary-strip">
+    <div>
+      <span>Факт</span>
+      <strong>{% if sku.actual_qty is not none %}{{ "%.0f"|format(sku.actual_qty) }} шт.{% else %}-{% endif %}</strong>
+    </div>
+    <div>
+      <span>Прогноз</span>
+      <strong>{{ "%.0f"|format(sku.forecast_qty) }} шт.</strong>
+    </div>
+    <div>
+      <span>Выручка</span>
+      <strong>{% if sku.actual_revenue is not none %}{{ "%.0f"|format(sku.actual_revenue) }} ₽{% else %}-{% endif %}</strong>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <span class="eyebrow">Почасовой профиль</span>
+        <h2>SKU по часам</h2>
+      </div>
+      <div class="legend-row compact">
+        <span><i class="legend-dot actual"></i>факт</span>
+        <span><i class="legend-dot forecast"></i>прогноз</span>
+      </div>
+    </div>
+    <svg class="line-chart" viewBox="0 0 {{ hour_chart.width }} {{ hour_chart.height }}" role="img" aria-label="Почасовой профиль SKU">
+      <line class="axis" x1="{{ hour_chart.left }}" y1="{{ hour_chart.bottom_y }}" x2="902" y2="{{ hour_chart.bottom_y }}"></line>
+      {% for point in hour_chart.points if point.hour in [0, 6, 12, 18, 23] %}
+      <text class="tick-label" x="{{ point.x }}" y="252">{{ point.hour }}:00</text>
+      {% endfor %}
+      <polyline class="chart-line actual" points="{{ hour_chart.actual_polyline }}"></polyline>
+      <polyline class="chart-line forecast" points="{{ hour_chart.forecast_polyline }}"></polyline>
+      {% for point in hour_chart.points if point.actual > 0 %}
+      <circle class="chart-point actual" cx="{{ point.x }}" cy="{{ point.actual_y }}" r="3"></circle>
+      {% if point.hour in [6, 9, 12, 15, 18, 21] %}<text class="value-label actual" x="{{ point.x }}" y="{{ point.actual_label_y }}">{{ "%.0f"|format(point.actual) }}</text>{% endif %}
+      {% endfor %}
+      {% for point in hour_chart.points if point.forecast > 0 %}
+      <circle class="chart-point forecast" cx="{{ point.x }}" cy="{{ point.forecast_y }}" r="3"></circle>
+      {% if point.hour in [6, 9, 12, 15, 18, 21] %}<text class="value-label forecast" x="{{ point.x }}" y="{{ point.forecast_label_y }}">{{ "%.0f"|format(point.forecast) }}</text>{% endif %}
+      {% endfor %}
+    </svg>
+    <div class="hour-values">
+      {% for point in hour_chart.points %}
+      <div>
+        <strong>{{ "%02d"|format(point.hour) }}</strong>
+        <span class="actual">Ф {{ "%.0f"|format(point.actual) }}</span>
+        <span class="forecast">П {{ "%.0f"|format(point.forecast) }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

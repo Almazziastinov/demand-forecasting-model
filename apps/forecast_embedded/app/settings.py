@@ -28,6 +28,7 @@ class Settings:
     clickhouse_secure: bool
     clickhouse_verify: bool
     access_control_enabled: bool
+    admin_user_ids: frozenset[str]
 
 
 @lru_cache(maxsize=1)
@@ -48,5 +49,10 @@ def get_settings() -> Settings:
         access_control_enabled=_as_bool(
             os.getenv("ACCESS_CONTROL_ENABLED"),
             default=_as_bool(os.getenv("BITRIX_EMBED_MODE"), default=False),
+        ),
+        admin_user_ids=frozenset(
+            user_id.strip()
+            for user_id in os.getenv("ADMIN_USER_IDS", "27979").split(",")
+            if user_id.strip()
         ),
     )

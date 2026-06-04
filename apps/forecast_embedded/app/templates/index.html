@@ -1,68 +1,113 @@
 {% extends "layout.html" %}
 {% block content %}
-<section class="panel">
-  <form method="get" action="/">
-    <label for="run_id">Run</label>
-    <select id="run_id" name="run_id" onchange="this.form.submit()">
-      {% for run in runs %}
-      <option value="{{ run.run_id }}" {% if run.run_id == active_run.run_id %}selected{% endif %}>{{ run.run_id }}{% if run.is_active %} (active){% endif %}</option>
-      {% endfor %}
-    </select>
+<aside class="sidebar">
+  <div class="sidebar-head">
+    <span class="eyebrow">Пекарни</span>
+    <strong>{{ bakeries|length }}</strong>
+  </div>
+  <nav class="bakery-menu">
+    {% for bakery in bakeries %}
+    <a class="bakery-link {% if bakery.bakery_id == selected_bakery_id %}active{% endif %}" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}">
+      <span>{{ bakery.bakery_name }}</span>
+      <small>{{ bakery.city or "Город не указан" }}</small>
+    </a>
+    {% else %}
+    <div class="empty-note">
+      Для вашей учетной записи нет доступных пекарен. Обратитесь к администратору приложения.
+    </div>
+    {% endfor %}
+  </nav>
+</aside>
 
-    <label for="date">Date</label>
-    <select id="date" name="date" onchange="this.form.submit()">
-      {% for value in dates %}
-      <option value="{{ value }}" {% if value == selected_date %}selected{% endif %}>{{ value }}</option>
-      {% endfor %}
-    </select>
-  </form>
-</section>
+<section class="workspace">
+  <div class="workspace-header">
+    <div>
+      <span class="eyebrow">Недельный прогноз</span>
+      <h1>{{ selected_bakery.bakery_name if selected_bakery else "Пекарня не выбрана" }}</h1>
+      {% if selected_bakery %}<p>{{ selected_bakery.city or "Город не указан" }}</p>{% endif %}
+    </div>
+    <form class="controls" method="get" action="/">
+      {% if selected_bakery_id %}<input type="hidden" name="bakery_id" value="{{ selected_bakery_id }}">{% endif %}
+      <label>
+        Начало недели
+        <input type="date" name="week_start" value="{{ week_start }}" onchange="this.form.submit()">
+      </label>
+      {% if is_admin %}
+      <label>
+        Модель
+        <select name="run_id" onchange="this.form.submit()">
+          {% for run in runs %}
+          <option value="{{ run.run_id }}" {% if run.run_id == active_run.run_id %}selected{% endif %}>
+            {{ run.run_id }}{% if run.is_active %} - активная{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </form>
+  </div>
 
-<section class="panel">
-  <h2>Bakeries</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Bakery</th>
-        <th>City</th>
-        <th>Context</th>
-        <th>Forecast</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for bakery in bakeries %}
-      <tr>
-        <td><a href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&run_id={{ active_run.run_id }}">{{ bakery.bakery_name }}</a></td>
-        <td>{{ bakery.city }}</td>
-        <td>
-          <div class="badges">
-            {% if bakery.temp_mean is not none %}
-            <span class="badge">{{ "%.0f"|format(bakery.temp_mean) }}°C</span>
-            {% endif %}
-            {% if bakery.precipitation and bakery.precipitation > 0 %}
-            <span class="badge">precip {{ "%.1f"|format(bakery.precipitation) }}</span>
-            {% endif %}
-            {% if bakery.snowfall and bakery.snowfall > 0 %}
-            <span class="badge">snow {{ "%.1f"|format(bakery.snowfall) }}</span>
-            {% endif %}
-            {% if bakery.is_bad_weather %}
-            <span class="badge attention">bad weather</span>
-            {% endif %}
-            {% if bakery.holiday_name %}
-            <span class="badge attention">{{ bakery.holiday_name }}</span>
-            {% elif bakery.is_pre_holiday %}
-            <span class="badge">pre-holiday</span>
-            {% elif bakery.is_post_holiday %}
-            <span class="badge">post-holiday</span>
-            {% elif bakery.event_window_type and bakery.event_window_type != "regular" %}
-            <span class="badge">{{ bakery.event_window_type }}</span>
-            {% endif %}
-          </div>
-        </td>
-        <td>{{ "%.2f"|format(bakery.forecast_final) }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if selected_bakery %}
+  <div class="legend-row">
+    <span><i class="legend-dot actual"></i>Фактические продажи, шт.</span>
+    <span><i class="legend-dot forecast"></i>Прогноз, шт.</span>
+  </div>
+  <div class="week-grid">
+    {% for day in week_rows %}
+    <a class="day-card {% if day.is_weekend %}weekend{% endif %} {% if not day.has_forecast %}disabled{% endif %}" {% if day.has_forecast %}href="/bakery/{{ selected_bakery_id }}?date={{ day.forecast_date }}&week_start={{ week_start }}{{ run_query }}"{% endif %}>
+      <div class="day-card-head">
+        <div>
+          <strong>{{ day.weekday_label }}</strong>
+          <span>{{ day.date_label }}</span>
+        </div>
+        {% if day.is_weekend %}<em>выходной</em>{% endif %}
+      </div>
+
+      <div class="mini-bars" aria-label="Факт и прогноз">
+        <div class="bar-wrap">
+          <div class="bar actual" style="height: {{ day.actual_height }}%;"></div>
+          <span class="bar-value">{% if day.has_actual %}{{ "%.0f"|format(day.actual_qty) }}{% else %}-{% endif %}</span>
+        </div>
+        <div class="bar-wrap">
+          <div class="bar forecast" style="height: {{ day.forecast_height }}%;"></div>
+          <span class="bar-value">{% if day.has_forecast %}{{ "%.0f"|format(day.forecast_final) }}{% else %}-{% endif %}</span>
+        </div>
+      </div>
+
+      <dl class="day-stats">
+        <div>
+          <dt>Факт</dt>
+          <dd>{% if day.has_actual %}{{ "%.0f"|format(day.actual_qty) }} шт.{% else %}-{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Прогноз</dt>
+          <dd>{% if day.has_forecast %}{{ "%.0f"|format(day.forecast_final) }} шт.{% else %}-{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Выручка</dt>
+          <dd>{% if day.actual_revenue is not none %}{{ "%.0f"|format(day.actual_revenue) }} ₽{% else %}-{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Температура</dt>
+          <dd>{% if day.temp_mean is not none %}{{ "%.0f"|format(day.temp_mean) }} °C{% else %}-{% endif %}</dd>
+        </div>
+      </dl>
+
+      <div class="badges">
+        <span class="badge">{% if day.temp_mean is not none %}{{ "%.0f"|format(day.temp_mean) }} °C{% else %}температура: -{% endif %}</span>
+        <span class="badge">осадки {% if day.precipitation is not none %}{{ "%.1f"|format(day.precipitation) }}{% else %}-{% endif %}</span>
+        <span class="badge">{{ day.event_label }}</span>
+        {% if day.snowfall and day.snowfall > 0 %}<span class="badge">снег {{ "%.1f"|format(day.snowfall) }}</span>{% endif %}
+        {% if day.is_bad_weather %}<span class="badge attention">сложная погода</span>{% endif %}
+        {% if day.holiday_name %}<span class="badge attention">{{ day.holiday_name }}</span>
+        {% elif day.is_pre_holiday %}<span class="badge">перед праздником</span>
+        {% elif day.is_post_holiday %}<span class="badge">после праздника</span>
+        {% endif %}
+      </div>
+      <span class="card-action">{% if day.has_forecast %}Открыть день{% else %}Нет прогноза{% endif %}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
 </section>
 {% endblock %}

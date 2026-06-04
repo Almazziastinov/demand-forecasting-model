@@ -1,102 +1,144 @@
 {% extends "layout.html" %}
 {% block content %}
-<section class="panel">
-  <form method="get" action="/bakery/{{ bakery.bakery_id }}">
-    <input type="hidden" name="date" value="{{ selected_date }}">
-    <label for="run_id">Run</label>
-    <select id="run_id" name="run_id" onchange="this.form.submit()">
-      {% for run in runs %}
-      <option value="{{ run.run_id }}" {% if run.run_id == active_run.run_id %}selected{% endif %}>{{ run.run_id }}{% if run.is_active %} (active){% endif %}</option>
-      {% endfor %}
-    </select>
-  </form>
-  <h2>{{ bakery.bakery_name }}</h2>
-  <p class="muted">{{ bakery.city }} | {{ selected_date }}</p>
+<aside class="sidebar">
+  <div class="sidebar-head">
+    <span class="eyebrow">Пекарни</span>
+    <a class="small-link" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}">Неделя</a>
+  </div>
+  <nav class="bakery-menu">
+    {% for item in bakeries %}
+    <a class="bakery-link {% if item.bakery_id == selected_bakery_id %}active{% endif %}" href="/?week_start={{ week_start }}&bakery_id={{ item.bakery_id }}{{ run_query }}">
+      <span>{{ item.bakery_name }}</span>
+      <small>{{ item.city or "Город не указан" }}</small>
+    </a>
+    {% endfor %}
+  </nav>
+</aside>
+
+<section class="workspace">
+  <div class="workspace-header">
+    <div>
+      <span class="eyebrow">{{ selected_weekday_label }}, {{ selected_date_label }}</span>
+      <h1>{{ bakery.bakery_name }}</h1>
+      <p>{{ bakery.city or "Город не указан" }}</p>
+    </div>
+    <form class="controls" method="get" action="/bakery/{{ bakery.bakery_id }}">
+      <input type="hidden" name="week_start" value="{{ week_start }}">
+      <label>
+        День
+        <input type="date" name="date" value="{{ selected_date }}" onchange="this.form.submit()">
+      </label>
+      {% if is_admin %}<input type="hidden" name="run_id" value="{{ active_run.run_id }}">{% endif %}
+    </form>
+  </div>
+
+  <section class="summary-strip">
+    <div>
+      <span>Факт</span>
+      <strong>{% if bakery.actual_qty is not none %}{{ "%.0f"|format(bakery.actual_qty) }} шт.{% else %}-{% endif %}</strong>
+    </div>
+    <div>
+      <span>Прогноз</span>
+      <strong>{{ "%.0f"|format(bakery.forecast_final) }} шт.</strong>
+    </div>
+    <div>
+      <span>Базовый прогноз</span>
+      <strong>{{ "%.0f"|format(bakery.forecast_base or 0) }} шт.</strong>
+    </div>
+    <div>
+      <span>Выручка</span>
+      <strong>{% if bakery.actual_revenue is not none %}{{ "%.0f"|format(bakery.actual_revenue) }} ₽{% else %}-{% endif %}</strong>
+    </div>
+  </section>
+
   {% if context %}
   <div class="badges context-row">
-    {% if context.temp_mean is not none %}
-    <span class="badge">{{ "%.0f"|format(context.temp_mean) }}°C</span>
-    {% endif %}
-    {% if context.precipitation and context.precipitation > 0 %}
-    <span class="badge">precip {{ "%.1f"|format(context.precipitation) }}</span>
-    {% endif %}
-    {% if context.rain and context.rain > 0 %}
-    <span class="badge">rain {{ "%.1f"|format(context.rain) }}</span>
-    {% endif %}
-    {% if context.snowfall and context.snowfall > 0 %}
-    <span class="badge">snow {{ "%.1f"|format(context.snowfall) }}</span>
-    {% endif %}
-    {% if context.windspeed_max is not none %}
-    <span class="badge">wind {{ "%.0f"|format(context.windspeed_max) }}</span>
-    {% endif %}
-    {% if context.is_bad_weather %}
-    <span class="badge attention">bad weather</span>
-    {% endif %}
-    {% if context.holiday_name %}
-    <span class="badge attention">{{ context.holiday_name }}</span>
-    {% elif context.is_pre_holiday %}
-    <span class="badge">pre-holiday</span>
-    {% elif context.is_post_holiday %}
-    <span class="badge">post-holiday</span>
-    {% elif context.event_window_type and context.event_window_type != "regular" %}
-    <span class="badge">{{ context.event_window_type }}</span>
-    {% endif %}
+    {% if context.temp_mean is not none %}<span class="badge">{{ "%.0f"|format(context.temp_mean) }} °C</span>{% endif %}
+    {% if context.precipitation and context.precipitation > 0 %}<span class="badge">осадки {{ "%.1f"|format(context.precipitation) }}</span>{% endif %}
+    {% if context.rain and context.rain > 0 %}<span class="badge">дождь {{ "%.1f"|format(context.rain) }}</span>{% endif %}
+    {% if context.snowfall and context.snowfall > 0 %}<span class="badge">снег {{ "%.1f"|format(context.snowfall) }}</span>{% endif %}
+    {% if context.windspeed_max is not none %}<span class="badge">ветер {{ "%.0f"|format(context.windspeed_max) }}</span>{% endif %}
+    {% if context.is_bad_weather %}<span class="badge attention">сложная погода</span>{% endif %}
+    {% if context.holiday_name %}<span class="badge attention">{{ context.holiday_name }}</span>
+    {% elif context.is_pre_holiday %}<span class="badge">перед праздником</span>
+    {% elif context.is_post_holiday %}<span class="badge">после праздника</span>
+    {% elif context.event_window_type and context.event_window_type != "regular" %}<span class="badge">{{ context.event_window_type }}</span>{% endif %}
   </div>
   {% endif %}
-  <div class="metrics">
-    <div class="metric-card">
-      <span>Base</span>
-      <strong>{{ "%.2f"|format(bakery.forecast_base or 0) }}</strong>
-    </div>
-    <div class="metric-card">
-      <span>Final</span>
-      <strong>{{ "%.2f"|format(bakery.forecast_final) }}</strong>
-    </div>
-  </div>
-</section>
 
-<section class="panel">
-  <h3>Hourly total</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>Hour</th>
-        <th>Forecast</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in hourly_total %}
-      <tr>
-        <td>{{ row.hour }}:00</td>
-        <td>{{ "%.2f"|format(row.forecast_qty) }}</td>
-      </tr>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <span class="eyebrow">Почасовой профиль</span>
+        <h2>Пекарня, все SKU</h2>
+      </div>
+      <div class="legend-row compact">
+        <span><i class="legend-dot actual"></i>факт</span>
+        <span><i class="legend-dot forecast"></i>прогноз</span>
+      </div>
+    </div>
+    <svg class="line-chart" viewBox="0 0 {{ hour_chart.width }} {{ hour_chart.height }}" role="img" aria-label="Почасовой профиль пекарни">
+      <line class="axis" x1="{{ hour_chart.left }}" y1="{{ hour_chart.bottom_y }}" x2="902" y2="{{ hour_chart.bottom_y }}"></line>
+      {% for point in hour_chart.points if point.hour in [0, 6, 12, 18, 23] %}
+      <text class="tick-label" x="{{ point.x }}" y="252">{{ point.hour }}:00</text>
       {% endfor %}
-    </tbody>
-  </table>
-</section>
+      <polyline class="chart-line actual" points="{{ hour_chart.actual_polyline }}"></polyline>
+      <polyline class="chart-line forecast" points="{{ hour_chart.forecast_polyline }}"></polyline>
+      {% for point in hour_chart.points if point.actual > 0 %}
+      <circle class="chart-point actual" cx="{{ point.x }}" cy="{{ point.actual_y }}" r="3"></circle>
+      {% if point.hour in [6, 9, 12, 15, 18, 21] %}<text class="value-label actual" x="{{ point.x }}" y="{{ point.actual_label_y }}">{{ "%.0f"|format(point.actual) }}</text>{% endif %}
+      {% endfor %}
+      {% for point in hour_chart.points if point.forecast > 0 %}
+      <circle class="chart-point forecast" cx="{{ point.x }}" cy="{{ point.forecast_y }}" r="3"></circle>
+      {% if point.hour in [6, 9, 12, 15, 18, 21] %}<text class="value-label forecast" x="{{ point.x }}" y="{{ point.forecast_label_y }}">{{ "%.0f"|format(point.forecast) }}</text>{% endif %}
+      {% endfor %}
+    </svg>
+    <div class="hour-values">
+      {% for point in hour_chart.points %}
+      <div>
+        <strong>{{ "%02d"|format(point.hour) }}</strong>
+        <span class="actual">Ф {{ "%.0f"|format(point.actual) }}</span>
+        <span class="forecast">П {{ "%.0f"|format(point.forecast) }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
 
-<section class="panel">
-  <h3>Top SKU</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>SKU</th>
-        <th>Category</th>
-        <th>Forecast</th>
-      </tr>
-    </thead>
-    <tbody>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <span class="eyebrow">SKU</span>
+        <h2>Позиции на выбранный день</h2>
+      </div>
+      <form class="controls slim" method="get" action="/bakery/{{ bakery.bakery_id }}">
+        <input type="hidden" name="date" value="{{ selected_date }}">
+        <input type="hidden" name="week_start" value="{{ week_start }}">
+        {% if is_admin %}<input type="hidden" name="run_id" value="{{ active_run.run_id }}">{% endif %}
+        <label>
+          Группа
+          <select name="category" onchange="this.form.submit()">
+            <option value="">Все группы</option>
+            {% for category in categories %}
+            <option value="{{ category }}" {% if category == selected_category %}selected{% endif %}>{{ category }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+    </div>
+    <div class="sku-list">
       {% for row in top_sku %}
-      <tr>
-        <td>{{ row.product_name }}</td>
-        <td>{{ row.category_name }}</td>
-        <td>{{ "%.2f"|format(row.forecast_qty) }}</td>
-      </tr>
+      <a class="sku-row" href="/bakery/{{ bakery.bakery_id }}/sku/{{ row.product_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if selected_category %}&category={{ selected_category|urlencode }}{% endif %}{{ run_query }}">
+        <span>
+          <strong>{{ row.product_name or "SKU без названия" }}</strong>
+          <small>{{ row.category_name or "Без группы" }}</small>
+        </span>
+        <span>{% if row.actual_qty is not none %}{{ "%.0f"|format(row.actual_qty) }} шт.{% else %}-{% endif %}</span>
+        <span>{{ "%.0f"|format(row.forecast_qty) }} шт.</span>
+      </a>
+      {% else %}
+      <div class="empty-note">Нет SKU для выбранной группы.</div>
       {% endfor %}
-    </tbody>
-  </table>
-  <p>
-    <a href="/api/v1/export/bakery?bakery_id={{ bakery.bakery_id }}&date={{ selected_date }}&run_id={{ active_run.run_id }}">Download CSV</a>
-  </p>
+    </div>
+  </section>
 </section>
 {% endblock %}

@@ -23,7 +23,12 @@ class AuthContext:
 
     @property
     def is_admin(self) -> bool:
-        return self.unrestricted or self.role.lower() in ADMIN_ROLES
+        settings = get_settings()
+        return (
+            self.unrestricted
+            or self.role.lower() in ADMIN_ROLES
+            or (self.user_id is not None and self.user_id in settings.admin_user_ids)
+        )
 
 
 def get_auth_context(request: Request) -> AuthContext:

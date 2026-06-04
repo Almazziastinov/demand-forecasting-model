@@ -2,7 +2,6 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 
-from functools import lru_cache
 from pathlib import Path
 
 import clickhouse_connect
@@ -25,11 +24,10 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        env[key.strip()] = value.strip()
+        env[key.strip()] = value.strip().strip('"').strip("'")
     return env
 
 
-@lru_cache(maxsize=1)
 def get_client():
     settings = get_settings()
     env = load_env_file()
