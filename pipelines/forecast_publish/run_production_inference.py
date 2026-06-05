@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from argparse import Namespace
 from pathlib import Path
 
@@ -35,6 +36,9 @@ DEFAULT_UPLIFTED_BIAS_PATH = ROOT / "models" / "bakery_day_bias_uplifted.json"
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "processed"
 DEFAULT_SUMMARY_PATH = ROOT / "reports" / "production_inference_summary.json"
 DEFAULT_WEATHER_PATH = ROOT / "data" / "processed" / "bakery_weather_features.csv"
+DEFAULT_RECENT_CORRECTION_MODE = os.getenv("FORECAST_RECENT_CORRECTION_MODE", "none")
+DEFAULT_RECENT_CORRECTION_DAYS = int(os.getenv("FORECAST_RECENT_CORRECTION_DAYS", "30"))
+DEFAULT_RECENT_SALES_TABLE = os.getenv("FORECAST_RECENT_SALES_TABLE", "mart_sales_60d")
 
 
 SCENARIOS = {
@@ -124,6 +128,9 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         output_suffix=scenario["output_suffix"],
         use_raw_uplift_multiplier=bool(scenario["use_raw_uplift_multiplier"]),
         uplift_profile_version=args.uplift_profile_version,
+        recent_correction_mode=args.recent_correction_mode,
+        recent_correction_days=args.recent_correction_days,
+        recent_sales_table=args.recent_sales_table,
         chunk_size=args.chunk_size,
     )
 
@@ -179,6 +186,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile-table", default=PROFILE_TABLE)
     parser.add_argument("--uplift-table", default=UPLIFT_MULTIPLIER_TABLE)
     parser.add_argument("--uplift-profile-version", default=None)
+    parser.add_argument(
+        "--recent-correction-mode",
+        choices=["none", "dead_0d", "blend_recent_50", "core_recent_70"],
+        default=DEFAULT_RECENT_CORRECTION_MODE,
+    )
+    parser.add_argument("--recent-correction-days", type=int, default=DEFAULT_RECENT_CORRECTION_DAYS)
+    parser.add_argument("--recent-sales-table", default=DEFAULT_RECENT_SALES_TABLE)
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--summary-path", default=str(DEFAULT_SUMMARY_PATH))
     parser.add_argument("--weather-path", default=str(DEFAULT_WEATHER_PATH))
@@ -211,6 +225,9 @@ def main() -> None:
         "profile_table": args.profile_table,
         "uplift_table": args.uplift_table,
         "uplift_profile_version": args.uplift_profile_version,
+        "recent_correction_mode": args.recent_correction_mode,
+        "recent_correction_days": args.recent_correction_days,
+        "recent_sales_table": args.recent_sales_table,
         "scenarios": results,
     }
     summary_path = Path(args.summary_path)
