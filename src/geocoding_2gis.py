@@ -14,6 +14,19 @@ import pandas as pd
 
 GEOCODER_URL = "https://catalog.api.2gis.com/3.0/items/geocode"
 DEFAULT_TIMEOUT_S = 20
+BUILDING_FIELDS = ",".join(
+    [
+        "items.point",
+        "items.address",
+        "items.full_address_name",
+        "items.floors",
+        "items.structure_info",
+        "items.purpose_code",
+        "items.has_apartments_info",
+        "items.links.database_entrances",
+        "items.links.database_entrances.apartments_info",
+    ]
+)
 
 
 @dataclass
@@ -136,6 +149,180 @@ def geocode_query_2gis(
         status=status,
         raw_payload=payload,
     )
+
+
+def _get_nested(data: dict[str, Any], path: str) -> Any:
+    current: Any = data
+    for part in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _extract_building_row(
+    row: pd.Series,
+    candidate: GeocodeCandidate,
+) -> dict[str, Any]:
+    item = {}
+    items = candidate.raw_payload.get("result", {}).get("items", [])
+    if items:
+        item = items[0]
+
+    floors = item.get("floors") or {}
+    structure_info = item.get("structure_info") or {}
+    links = item.get("links") or {}
+    database_entrances = links.get("database_entrances") or {}
+
+    entrances_count = database_entrances.get("count")
+    if entrances_count is None and isinstance(database_entrances.get("items"), list):
+        entrances_count = len(database_entrances["items"])
+
+    return {
+        "bakery_id": row["bakery_id"],
+        "bakery_name": str(row.get("bakery_name", "")).strip(),
+        "city": str(row.get("city", "")).strip(),
+        "price_region": row.get("price_region"),
+        "address_raw": row.get("address_raw"),
+        "address_normalized": item.get("full_address_name")
+        or candidate.full_name
+        or row.get("address_normalized"),
+        "lat": candidate.lat,
+        "lon": candidate.lon,
+        "geo_source": "2gis",
+        "geo_confidence": candidate.confidence,
+        "geo_status": candidate.status,
+        "geocode_query": candidate.query,
+        "geocode_result_name": candidate.result_name,
+        "geocode_full_name": candidate.full_name,
+        "geocode_result_type": candidate.result_type,
+        "building_id": item.get("id"),
+        "building_name": item.get("building_name"),
+        "building_address_name": item.get("address_name"),
+        "building_full_address_name": item.get("full_address_name"),
+        "building_purpose_code": item.get("purpose_code"),
+        "building_has_apartments_info": item.get("has_apartments_info"),
+        "building_ground_floors": floors.get("ground_count"),
+        "building_min_ground_floors": floors.get("ground_min_count"),
+        "building_underground_floors": floors.get("underground_count"),
+        "building_year_of_construction": structure_info.get("year_of_construction"),
+        "building_project_type": structure_info.get("project_type"),
+        "building_apartments_count": structure_info.get("apartments_count"),
+        "building_porch_count": structure_info.get("porch_count"),
+        "building_entrances_count": entrances_count,
+        "building_elevators_count": structure_info.get("elevators_count"),
+        "building_gas_type": structure_info.get("gas_type"),
+        "building_chs_name": structure_info.get("chs_name"),
+        "building_chs_category": structure_info.get("chs_category"),
+        "building_is_in_emergency_state": structure_info.get("is_in_emergency_state"),
+        "building_material": structure_info.get("material"),
+        "building_floor_type": structure_info.get("floor_type"),
+        "error": None,
+    }
+
+
+def geocode_building_query_2gis(
+    query: str,
+    api_key: str,
+    city: str = "",
+    timeout_s: int = DEFAULT_TIMEOUT_S,
+) -> GeocodeCandidate:
+    """Geocode a building query using 2GIS with extended building fields."""
+    payload = _http_get_json(
+        GEOCODER_URL,
+        {
+            "q": query,
+            "type": "building",
+            "fields": BUILDING_FIELDS,
+            "locale": "ru_RU",
+            "key": api_key,
+        },
+        timeout_s=timeout_s,
+    )
+
+    items = payload.get("result", {}).get("items", [])
+    if not items:
+        return GeocodeCandidate(
+            query=query,
+            result_name=None,
+            address_name=None,
+            full_name=None,
+            lat=None,
+            lon=None,
+            result_type=None,
+            confidence=0.0,
+            status="failed",
+            raw_payload=payload,
+        )
+
+    item = items[0]
+    point = item.get("point") or {}
+    confidence, status = _score_item(item, query=query, city=city)
+    if _get_nested(item, "structure_info.year_of_construction") is not None:
+        confidence = min(confidence + 0.05, 1.0)
+    return GeocodeCandidate(
+        query=query,
+        result_name=item.get("name"),
+        address_name=item.get("address_name"),
+        full_name=item.get("full_name") or item.get("full_address_name"),
+        lat=point.get("lat"),
+        lon=point.get("lon"),
+        result_type=item.get("type"),
+        confidence=confidence,
+        status=status,
+        raw_payload=payload,
+    )
+
+
+def geocode_bakery_building_row(
+    row: pd.Series,
+    api_key: str,
+    timeout_s: int = DEFAULT_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Geocode one bakery row and extract available building characteristics."""
+    city = str(row.get("city", "")).strip()
+    variants = build_query_variants(row)
+
+    best: GeocodeCandidate | None = None
+    last_error: str | None = None
+
+    for query in variants:
+        try:
+            candidate = geocode_building_query_2gis(
+                query=query,
+                api_key=api_key,
+                city=city,
+                timeout_s=timeout_s,
+            )
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+
+        if best is None or candidate.confidence > best.confidence:
+            best = candidate
+        if candidate.status == "matched_exact":
+            break
+
+    if best is None:
+        result = _extract_building_row(
+            row,
+            GeocodeCandidate(
+                query="",
+                result_name=None,
+                address_name=None,
+                full_name=None,
+                lat=None,
+                lon=None,
+                result_type=None,
+                confidence=0.0,
+                status="failed",
+                raw_payload={},
+            ),
+        )
+        result["error"] = last_error
+        return result
+
+    return _extract_building_row(row, best)
 
 
 def geocode_bakery_row(
