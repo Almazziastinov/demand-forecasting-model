@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 import re
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEMPLATE_PATH = ROOT / "assets" / "baking_plan_template.xlsx"
@@ -22,6 +25,10 @@ REVENUE_BUCKETS = (
 WINDOW_COLUMNS = tuple(range(3, 13))
 FIRST_SALES_HOUR = 6
 LAST_SALES_HOUR = 23
+# Night-defrost columns are prep for tomorrow's morning batches; size them from
+# tomorrow's forecast over hours [FIRST_SALES_HOUR .. DEFROST_EARLY_CUTOFF - 1].
+DEFROST_EARLY_CUTOFF = 12
+DEFROST_MARKERS = ("дефр", "ночн")
 SKU_ALIAS_TO_CANONICAL = {
     "треугольник курица безд": "треугольник курица",
     "треугольник говядина безд": "треугольник говядина",
@@ -53,6 +60,25 @@ class BakingWindow:
     label: str
     start_hour: int
     end_hour: int
+
+
+@dataclass(frozen=True)
+class ScheduledColumn:
+    """A C:L cell that the template pre-filled for a SKU row.
+
+    ``is_defrost`` marks night-defrost prep (sized from tomorrow's early forecast,
+    excluded from today's coverage). ``note`` keeps the original cell text so the
+    defrost annotation (e.g. ``"20 (ночная дефр)"``) can be re-emitted.
+    """
+
+    window: BakingWindow
+    is_defrost: bool
+    note: str | None
+
+
+def is_defrost_cell(value: object) -> bool:
+    text = str(value or "").lower().replace("ё", "е")
+    return any(marker in text for marker in DEFROST_MARKERS)
 
 
 def normalize_sku_name(value: object) -> str:
@@ -118,7 +144,20 @@ def parse_window_label(value: object, column: int) -> BakingWindow | None:
     )
 
 
-def coverage_hours(windows: list[BakingWindow]) -> dict[int, list[int]]:
+def coverage_hours(
+    windows: list[BakingWindow],
+    *,
+    first_sales_hour: int = FIRST_SALES_HOUR,
+    last_sales_hour: int = LAST_SALES_HOUR,
+) -> dict[int, list[int]]:
+    """Map each bake window to the sales hours it covers.
+
+    A batch becomes available at its window's end hour and covers sales until the
+    next batch becomes available (the next window's end hour); the last window runs
+    through ``last_sales_hour``. The earliest window always starts its coverage at
+    ``first_sales_hour`` so a SKU baked only once (e.g. midday) still absorbs the
+    whole day's forecast instead of silently dropping the morning.
+    """
     if not windows:
         return {}
 
@@ -128,15 +167,15 @@ def coverage_hours(windows: list[BakingWindow]) -> dict[int, list[int]]:
     )
     result: dict[int, list[int]] = {}
     for index, window in enumerate(ordered):
-        if index == 0 and window.start_hour <= 4:
-            start_hour = FIRST_SALES_HOUR
+        if index == 0:
+            start_hour = first_sales_hour
         else:
-            start_hour = window.end_hour
+            start_hour = max(window.end_hour, first_sales_hour)
 
         if index + 1 < len(ordered):
-            end_hour = ordered[index + 1].start_hour
+            end_hour = ordered[index + 1].end_hour - 1
         else:
-            end_hour = LAST_SALES_HOUR
+            end_hour = last_sales_hour
 
         if end_hour >= start_hour:
             result[window.column] = list(range(start_hour, end_hour + 1))
@@ -173,32 +212,128 @@ def _resolve_hourly_forecast(
     return None
 
 
+def read_row_schedule(
+    sheet: Worksheet,
+    row_index: int,
+    sheet_windows: dict[int, BakingWindow],
+) -> list[ScheduledColumn]:
+    """Read which C:L columns the template pre-filled for this SKU row.
+
+    A non-empty cell marks a scheduled baking window. Cells whose text carries a
+    night-defrost marker (e.g. ``"20 (ночная дефр)"``) are classified as defrost
+    prep. Classification keys off the *cell value*, not the SKU name (many SKU
+    names contain "ночного брожжения" yet have plain integer bake cells).
+    """
+    schedule: list[ScheduledColumn] = []
+    for column, window in sheet_windows.items():
+        value = sheet.cell(row=row_index, column=column).value
+        if value is None or str(value).strip() == "":
+            continue
+        defrost = is_defrost_cell(value)
+        schedule.append(
+            ScheduledColumn(
+                window=window,
+                is_defrost=defrost,
+                note=str(value) if defrost else None,
+            )
+        )
+    return schedule
+
+
+def _round_up(qty: float, round_to: int) -> int:
+    return int(math.ceil(qty / round_to) * round_to)
+
+
+def _early_window_sum(
+    hourly: dict[int, float],
+    first_sales_hour: int = FIRST_SALES_HOUR,
+    cutoff: int = DEFROST_EARLY_CUTOFF,
+) -> float:
+    return sum(
+        qty for hour, qty in hourly.items() if first_sales_hour <= hour < cutoff
+    )
+
+
 def allocate_template_row(
     *,
     template_sku_name: object,
-    row_windows: list[BakingWindow],
+    schedule: list[ScheduledColumn],
     product_hour_lookup: dict[str, dict[int, float]],
+    next_day_hour_lookup: dict[str, dict[int, float]] | None = None,
     round_to: int = 1,
-) -> dict[int, int]:
+    first_sales_hour: int = FIRST_SALES_HOUR,
+    last_sales_hour: int = LAST_SALES_HOUR,
+) -> dict[int, int | str]:
+    """Allocate forecast quantities into a row's scheduled columns.
+
+    Bake windows get the summed forecast over their coverage hours. Defrost columns
+    get tomorrow's early-window volume (fallback: today's early-window volume) and
+    keep their original annotation text. Defrost columns never contribute to today's
+    coverage.
+    """
     hourly = _resolve_hourly_forecast(template_sku_name, product_hour_lookup)
     if not hourly:
         return {}
 
-    allocated: dict[int, int] = {}
-    for column, hours in coverage_hours(row_windows).items():
+    bake_windows = [item.window for item in schedule if not item.is_defrost]
+    allocated: dict[int, int | str] = {}
+
+    coverage = coverage_hours(
+        bake_windows,
+        first_sales_hour=first_sales_hour,
+        last_sales_hour=last_sales_hour,
+    )
+    for column, hours in coverage.items():
         qty = sum(hourly.get(hour, 0.0) for hour in hours)
         if qty <= 0:
             continue
-        allocated[column] = int(math.ceil(qty / round_to) * round_to)
+        allocated[column] = _round_up(qty, round_to)
+
+    defrost_columns = [item for item in schedule if item.is_defrost]
+    if defrost_columns:
+        next_hourly = None
+        if next_day_hour_lookup is not None:
+            next_hourly = _resolve_hourly_forecast(
+                template_sku_name, next_day_hour_lookup
+            )
+        source = next_hourly if next_hourly else hourly
+        defrost_qty = _round_up(
+            _early_window_sum(source, first_sales_hour=first_sales_hour), round_to
+        )
+        for item in defrost_columns:
+            # Strip the template's leading number, keep the annotation (e.g.
+            # "(ночная дефр)") and re-emit it with the forecast-sized quantity.
+            annotation = re.sub(r"^\s*\d+\s*", "", item.note or "").strip()
+            allocated[item.window.column] = (
+                f"{defrost_qty} {annotation}".strip() if annotation else defrost_qty
+            )
     return allocated
 
 
 def _select_sheet_name(bucket: str | None, sheet_names: list[str]) -> str:
     if bucket and bucket in sheet_names:
         return bucket
+    if bucket:
+        # Per-SKU schedules differ per sheet, so a wrong/unknown bucket silently
+        # picks the wrong baking schedule. Surface it instead of failing quietly.
+        logger.warning(
+            "baking_plan: revenue bucket %r does not match any sheet %r; "
+            "falling back to default",
+            bucket,
+            sheet_names,
+        )
     if DEFAULT_BUCKET in sheet_names:
         return DEFAULT_BUCKET
     return sheet_names[0]
+
+
+def _sales_hour_bounds(
+    product_hour_lookup: dict[str, dict[int, float]],
+) -> tuple[int, int]:
+    hours = [hour for hourly in product_hour_lookup.values() for hour in hourly]
+    if not hours:
+        return FIRST_SALES_HOUR, LAST_SALES_HOUR
+    return min(min(hours), FIRST_SALES_HOUR), max(max(hours), LAST_SALES_HOUR)
 
 
 def _sheet_windows(sheet: Worksheet) -> dict[int, BakingWindow]:
@@ -215,6 +350,7 @@ def build_baking_plan_workbook(
     bakery: dict[str, Any],
     forecast_date: str,
     sku_hour_rows: list[dict[str, Any]],
+    next_day_sku_hour_rows: list[dict[str, Any]] | None = None,
     bucket: str | None = None,
     template_path: Path = DEFAULT_TEMPLATE_PATH,
 ) -> bytes:
@@ -232,34 +368,43 @@ def build_baking_plan_workbook(
         f"на {forecast_date}. Шаблон: {selected_sheet_name}"
     )
     sheet["A2"] = (
-        "Количество рассчитано по SKU-hour прогнозу активного run; "
-        "округление вверх до целых штук."
+        "Количество по SKU-hour прогнозу активного run, разнесено по расписанию "
+        "выпекания шаблона; ночная дефростация — по утреннему прогнозу след. дня."
     )
 
     sheet_windows = _sheet_windows(sheet)
     product_hour_lookup = build_product_hour_lookup(sku_hour_rows)
+    next_day_hour_lookup = (
+        build_product_hour_lookup(next_day_sku_hour_rows)
+        if next_day_sku_hour_rows
+        else None
+    )
+    first_sales_hour, last_sales_hour = _sales_hour_bounds(product_hour_lookup)
 
     for row_index in range(6, sheet.max_row + 1):
         sku_name = sheet.cell(row=row_index, column=2).value
         if not sku_name:
             continue
 
-        row_windows = [
-            sheet_windows[column]
-            for column in WINDOW_COLUMNS
-            if column in sheet_windows
-        ]
-        if not row_windows:
+        # The pre-filled C:L cells ARE the per-SKU baking schedule. Rows without
+        # any scheduled cell are section headers / sub-items — skip, don't fill.
+        schedule = read_row_schedule(sheet, row_index, sheet_windows)
+        if not schedule:
             continue
 
         allocated = allocate_template_row(
             template_sku_name=sku_name,
-            row_windows=row_windows,
+            schedule=schedule,
             product_hour_lookup=product_hour_lookup,
+            next_day_hour_lookup=next_day_hour_lookup,
+            first_sales_hour=first_sales_hour,
+            last_sales_hour=last_sales_hour,
         )
-        for column in WINDOW_COLUMNS:
-            if column in sheet_windows:
-                sheet.cell(row=row_index, column=column).value = allocated.get(column)
+        # Only rewrite the columns this SKU is actually scheduled in; clear a
+        # scheduled cell that resolved to no forecast, leave all others untouched.
+        for item in schedule:
+            column = item.window.column
+            sheet.cell(row=row_index, column=column).value = allocated.get(column)
 
     output = BytesIO()
     workbook.save(output)

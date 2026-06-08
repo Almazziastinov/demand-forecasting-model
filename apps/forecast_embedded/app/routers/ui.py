@@ -336,12 +336,28 @@ def download_baking_plan(
         raise HTTPException(status_code=404, detail="Bakery forecast not found")
 
     sku_hour = bakery_service.get_sku_hour_forecast(active_run["run_id"], date, bakery_id, auth)
+
+    # Night-defrost batches are prep for the next morning; size them from the next
+    # day's forecast. A missing next day (horizon end) must not break the export.
+    next_day_sku_hour: list[dict] = []
+    selected_date = _parse_date(date)
+    if selected_date is not None:
+        next_date = (selected_date + timedelta(days=1)).isoformat()
+        try:
+            next_day_sku_hour = bakery_service.get_sku_hour_forecast(
+                active_run["run_id"], next_date, bakery_id, auth
+            )
+        except Exception:
+            logger.warning("baking_plan: next-day forecast fetch failed", exc_info=True)
+            next_day_sku_hour = []
+
     revenue_info = bakery_service.get_month_revenue_bucket(date, bakery_id)
     selected_bucket = bucket or (revenue_info or {}).get("revenue_bucket")
     content = baking_plan_service.build_baking_plan_workbook(
         bakery=bakery_day,
         forecast_date=date,
         sku_hour_rows=sku_hour,
+        next_day_sku_hour_rows=next_day_sku_hour,
         bucket=selected_bucket,
     )
     filename = f"baking_plan_{bakery_id}_{date}.xlsx"
