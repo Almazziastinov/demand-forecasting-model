@@ -122,3 +122,15 @@ create table if not exists bitrix_user_bakery_access_embedded (
 )
 engine = ReplacingMergeTree(updated_at)
 order by (bitrix_portal_id, bitrix_user_id, bakery_id, source);
+
+create table if not exists bakery_month_revenue_embedded (
+  month_start Date,
+  bakery_id Int64,
+  bakery_name Nullable(String),
+  revenue Float64,
+  revenue_bucket LowCardinality(String),
+  source LowCardinality(String),
+  generated_at DateTime64(3)
+)
+engine = ReplacingMergeTree(generated_at)
+order by (month_start, bakery_id, source);

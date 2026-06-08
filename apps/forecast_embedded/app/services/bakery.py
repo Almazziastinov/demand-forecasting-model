@@ -13,6 +13,7 @@ SKU_HOUR_TABLE = "sku_forecast_hour_embedded"
 SALES_LINE_TABLE = "mart_sales_60d"
 ACCESS_TABLE = "bitrix_user_bakery_access_embedded"
 MANAGEMENT_TABLE = "dim_management"
+MONTH_REVENUE_TABLE = "bakery_month_revenue_embedded"
 CLOSED_BAKERY_STATUS = "\u0417\u0430\u043a\u0440\u044b\u0442\u0430"
 
 
@@ -511,6 +512,53 @@ def get_sku_hour(
     return _records(df)
 
 
+def get_sku_hour_forecast(
+    run_id: str,
+    forecast_date: str,
+    bakery_id: int,
+    auth: AuthContext,
+) -> list[dict]:
+    client = get_client()
+    access_sql, access_params = _access_filter(auth, "h.bakery_id")
+    open_bakery_sql = _open_bakery_filter("h.bakery_id")
+    query = """
+        select
+            h.product_id as product_id,
+            d.product_name as product_name,
+            d.category_name as category_name,
+            h.hour as hour,
+            h.forecast_qty as forecast_qty
+        from {hour_table} h
+        left join {day_table} d
+          on d.run_id = h.run_id
+         and d.forecast_date = h.forecast_date
+         and d.bakery_id = h.bakery_id
+         and d.product_id = h.product_id
+        where h.run_id = %(run_id)s
+          and h.forecast_date = %(forecast_date)s
+          and h.bakery_id = %(bakery_id)s
+          {open_bakery_sql}
+          {access_sql}
+        order by d.product_name, h.product_id, h.hour
+        """.format(
+        hour_table=SKU_HOUR_TABLE,
+        day_table=SKU_DAY_TABLE,
+        open_bakery_sql=open_bakery_sql,
+        access_sql=access_sql,
+    )
+    df = client.query_df(
+        query,
+        parameters={
+            "run_id": run_id,
+            "forecast_date": forecast_date,
+            "bakery_id": bakery_id,
+            "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **access_params,
+        },
+    )
+    return _records(df)
+
+
 def get_sku_day(
     run_id: str,
     forecast_date: str,
@@ -565,6 +613,100 @@ def get_sku_day(
             **access_params,
         },
     )
+    if df.empty:
+        return None
+    return _records(df)[0]
+
+
+def get_month_revenue_bucket(forecast_date: str, bakery_id: int) -> dict | None:
+    client = get_client()
+    fallback_query = """
+        with target_month as (
+            select toStartOfMonth(addMonths(toDate(%(forecast_date)s), -1)) as month_start
+        )
+        select
+            (select month_start from target_month) as month_start,
+            toInt64OrNull(toString(bakery_id)) as bakery_id,
+            anyLast(bakery_name) as bakery_name,
+            sum(toFloat64(line_amount)) as revenue,
+            multiIf(
+                revenue < 1500000, 'до 1,5 млн',
+                revenue < 2500000, 'до 2,5 млн',
+                revenue < 3000000, 'от 2,5 млн',
+                'от 3млн'
+            ) as revenue_bucket,
+            'fallback_sales' as source
+        from {sales_line_table}
+        where check_date >= (select month_start from target_month)
+          and check_date < addMonths((select month_start from target_month), 1)
+          and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+        group by bakery_id
+        limit 1
+        """.format(sales_line_table=SALES_LINE_TABLE)
+    query = """
+        with target_month as (
+            select toStartOfMonth(addMonths(toDate(%(forecast_date)s), -1)) as month_start
+        ),
+        stored as (
+            select
+                month_start,
+                bakery_id,
+                bakery_name,
+                revenue,
+                revenue_bucket,
+                'stored' as source
+            from {month_revenue_table}
+            where month_start = (select month_start from target_month)
+              and bakery_id = %(bakery_id)s
+            limit 1
+        ),
+        fallback as (
+            select
+                (select month_start from target_month) as month_start,
+                toInt64OrNull(toString(bakery_id)) as bakery_id,
+                anyLast(bakery_name) as bakery_name,
+                sum(toFloat64(line_amount)) as revenue,
+                multiIf(
+                    revenue < 1500000, 'до 1,5 млн',
+                    revenue < 2500000, 'до 2,5 млн',
+                    revenue < 3000000, 'от 2,5 млн',
+                    'от 3млн'
+                ) as revenue_bucket,
+                'fallback_sales' as source
+            from {sales_line_table}
+            where check_date >= (select month_start from target_month)
+              and check_date < addMonths((select month_start from target_month), 1)
+              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+            group by bakery_id
+        )
+        select *
+        from stored
+        union all
+        select *
+        from ({fallback_query}) as fallback
+        where not exists (select 1 from stored)
+        limit 1
+        """.format(
+        month_revenue_table=MONTH_REVENUE_TABLE,
+        sales_line_table=SALES_LINE_TABLE,
+        fallback_query=fallback_query,
+    )
+    try:
+        df = client.query_df(
+            query,
+            parameters={
+                "forecast_date": forecast_date,
+                "bakery_id": bakery_id,
+            },
+        )
+    except Exception:
+        df = client.query_df(
+            fallback_query,
+            parameters={
+                "forecast_date": forecast_date,
+                "bakery_id": bakery_id,
+            },
+        )
     if df.empty:
         return None
     return _records(df)[0]

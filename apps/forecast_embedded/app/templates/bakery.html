@@ -30,6 +30,7 @@
       </label>
       {% if is_admin %}<input type="hidden" name="run_id" value="{{ active_run.run_id }}">{% endif %}
     </form>
+    <a class="button-link" href="/bakery/{{ bakery.bakery_id }}/baking-plan.xlsx?date={{ selected_date }}{{ run_query }}">Excel</a>
   </div>
 
   <section class="summary-strip">

@@ -5,13 +5,16 @@ from __future__ import annotations
 import logging
 from datetime import date as date_type
 from datetime import datetime, timedelta
+from io import BytesIO
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthContext, get_auth_context
+from app.services import baking_plan as baking_plan_service
 from app.services import bakery as bakery_service
 from app.services import runs as run_service
 
@@ -312,6 +315,40 @@ def bakery_detail(
             "categories": categories,
             "selected_category": selected_category,
         },
+    )
+
+
+@router.get("/bakery/{bakery_id}/baking-plan.xlsx")
+def download_baking_plan(
+    request: Request,
+    bakery_id: int,
+    date: str = Query(...),
+    run_id: str | None = Query(default=None),
+    bucket: str | None = Query(default=None),
+) -> StreamingResponse:
+    auth = get_auth_context(request)
+    active_run = _resolve_run(auth, run_id)
+    if not active_run:
+        raise HTTPException(status_code=404, detail="Forecast run not found")
+
+    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id, auth)
+    if not bakery_day:
+        raise HTTPException(status_code=404, detail="Bakery forecast not found")
+
+    sku_hour = bakery_service.get_sku_hour_forecast(active_run["run_id"], date, bakery_id, auth)
+    revenue_info = bakery_service.get_month_revenue_bucket(date, bakery_id)
+    selected_bucket = bucket or (revenue_info or {}).get("revenue_bucket")
+    content = baking_plan_service.build_baking_plan_workbook(
+        bakery=bakery_day,
+        forecast_date=date,
+        sku_hour_rows=sku_hour,
+        bucket=selected_bucket,
+    )
+    filename = f"baking_plan_{bakery_id}_{date}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
