@@ -6,7 +6,12 @@
     <a class="small-link" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}">Неделя</a>
   </div>
   <div class="sidebar-search">
-    <input type="search" class="bakery-search" data-bakery-search placeholder="Найти пекарню" aria-label="Поиск по пекарням">
+    <label class="bakery-search-box">
+      <span class="bakery-search-icon" aria-hidden="true"></span>
+      <input type="search" class="bakery-search" data-bakery-search placeholder="Название или город" aria-label="Поиск по пекарням">
+      <button class="bakery-search-clear" type="button" data-bakery-search-clear aria-label="Очистить поиск" hidden>×</button>
+    </label>
+    <div class="bakery-search-meta" data-bakery-search-meta>{{ bakeries|length }} пекарен</div>
   </div>
   <nav class="bakery-menu">
     {% for item in bakeries %}
@@ -15,6 +20,7 @@
       <small>{{ item.city or "Город не указан" }}</small>
     </a>
     {% endfor %}
+    <div class="bakery-search-empty" data-bakery-search-empty hidden>Пекарни не найдены</div>
   </nav>
 </aside>
 
