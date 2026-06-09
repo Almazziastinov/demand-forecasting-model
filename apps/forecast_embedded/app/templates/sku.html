@@ -5,6 +5,9 @@
     <span class="eyebrow">Навигация</span>
     <a class="small-link" href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if selected_category %}&category={{ selected_category|urlencode }}{% endif %}{{ run_query }}">День</a>
   </div>
+  <div class="sidebar-search">
+    <input type="search" class="bakery-search" data-bakery-search placeholder="Найти пекарню" aria-label="Поиск по пекарням">
+  </div>
   <nav class="bakery-menu">
     {% for item in bakeries %}
     <a class="bakery-link {% if item.bakery_id == selected_bakery_id %}active{% endif %}" href="/?week_start={{ week_start }}&bakery_id={{ item.bakery_id }}{{ run_query }}">
@@ -22,7 +25,9 @@
       <h1>{{ sku.product_name or "SKU без названия" }}</h1>
       <p>{{ bakery.bakery_name }} · {{ sku.category_name or "Без группы" }}</p>
     </div>
-    <a class="button-link" href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if selected_category %}&category={{ selected_category|urlencode }}{% endif %}{{ run_query }}">К списку SKU</a>
+    <div class="header-actions">
+      <a class="button-link secondary" href="/bakery/{{ bakery.bakery_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if selected_category %}&category={{ selected_category|urlencode }}{% endif %}{{ run_query }}">Назад к дню</a>
+    </div>
   </div>
 
   <section class="summary-strip">
@@ -53,18 +58,18 @@
     </div>
     <svg class="line-chart" viewBox="0 0 {{ hour_chart.width }} {{ hour_chart.height }}" role="img" aria-label="Почасовой профиль SKU">
       <line class="axis" x1="{{ hour_chart.left }}" y1="{{ hour_chart.bottom_y }}" x2="902" y2="{{ hour_chart.bottom_y }}"></line>
-      {% for point in hour_chart.points if point.hour in [0, 6, 12, 18, 23] %}
+      {% for point in hour_chart.points %}
       <text class="tick-label" x="{{ point.x }}" y="252">{{ point.hour }}:00</text>
       {% endfor %}
       <polyline class="chart-line actual" points="{{ hour_chart.actual_polyline }}"></polyline>
       <polyline class="chart-line forecast" points="{{ hour_chart.forecast_polyline }}"></polyline>
       {% for point in hour_chart.points if point.actual > 0 %}
       <circle class="chart-point actual" cx="{{ point.x }}" cy="{{ point.actual_y }}" r="3"></circle>
-      {% if point.hour in [6, 9, 12, 15, 18, 21] %}<text class="value-label actual" x="{{ point.x }}" y="{{ point.actual_label_y }}">{{ "%.0f"|format(point.actual) }}</text>{% endif %}
+      <text class="value-label actual" x="{{ point.x }}" y="{{ point.actual_label_y }}">{{ "%.0f"|format(point.actual) }}</text>
       {% endfor %}
       {% for point in hour_chart.points if point.forecast > 0 %}
       <circle class="chart-point forecast" cx="{{ point.x }}" cy="{{ point.forecast_y }}" r="3"></circle>
-      {% if point.hour in [6, 9, 12, 15, 18, 21] %}<text class="value-label forecast" x="{{ point.x }}" y="{{ point.forecast_label_y }}">{{ "%.0f"|format(point.forecast) }}</text>{% endif %}
+      <text class="value-label forecast" x="{{ point.x }}" y="{{ point.forecast_label_y }}">{{ "%.0f"|format(point.forecast) }}</text>
       {% endfor %}
     </svg>
     <div class="hour-values">

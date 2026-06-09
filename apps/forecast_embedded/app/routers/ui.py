@@ -3,9 +3,11 @@ from __future__ import annotations
 # ruff: noqa: E501
 
 import logging
+import re
 from datetime import date as date_type
 from datetime import datetime, timedelta
 from io import BytesIO
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -42,6 +44,8 @@ EVENT_LABELS_RU = {
     "post_event_4_7": "4-7 дней после события",
 }
 
+FILENAME_SAFE_RE = re.compile(r'[\\/:*?"<>|\r\n]+')
+
 
 def _parse_date(value: str | None) -> date_type | None:
     if not value:
@@ -55,6 +59,17 @@ def _format_date(value: date_type) -> str:
 
 def _format_short_date(value: date_type) -> str:
     return value.strftime("%d.%m")
+
+
+def _safe_filename_part(value: object) -> str:
+    cleaned = FILENAME_SAFE_RE.sub(" ", str(value or "")).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned or "пекарня"
+
+
+def _attachment_header(filename: str, fallback_filename: str) -> str:
+    quoted = quote(filename)
+    return f'attachment; filename="{fallback_filename}"; filename*=UTF-8\'\'{quoted}'
 
 
 def _event_label(value: str | None) -> str:
@@ -360,11 +375,13 @@ def download_baking_plan(
         next_day_sku_hour_rows=next_day_sku_hour,
         bucket=selected_bucket,
     )
-    filename = f"baking_plan_{bakery_id}_{date}.xlsx"
+    bakery_name = _safe_filename_part(bakery_day.get("bakery_name") or bakery_id)
+    filename = f"План выпекания - {bakery_name} - {date}.xlsx"
+    fallback_filename = f"baking_plan_{bakery_id}_{date}.xlsx"
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _attachment_header(filename, fallback_filename)},
     )
 
 

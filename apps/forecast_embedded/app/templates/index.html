@@ -5,6 +5,9 @@
     <span class="eyebrow">Пекарни</span>
     <strong>{{ bakeries|length }}</strong>
   </div>
+  <div class="sidebar-search">
+    <input type="search" class="bakery-search" data-bakery-search placeholder="Найти пекарню" aria-label="Поиск по пекарням">
+  </div>
   <nav class="bakery-menu">
     {% for bakery in bakeries %}
     <a class="bakery-link {% if bakery.bakery_id == selected_bakery_id %}active{% endif %}" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}">

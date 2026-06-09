@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ИИ прогноз плана</title>
   <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -14,7 +15,7 @@
     </div>
     {% if auth %}
     <div class="user-pill">
-      <span>{{ auth.user_name or auth.email or "Пользователь" }}</span>
+      <span>{{ auth.display_name or "Пользователь" }}</span>
       {% if is_admin %}<strong>админ</strong>{% endif %}
     </div>
     {% endif %}

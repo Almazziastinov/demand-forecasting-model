@@ -86,3 +86,27 @@ def test_access_control_requires_portal_id(monkeypatch):
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Missing X-Vibe-Portal-Id"
     get_settings.cache_clear()
+
+
+def test_auth_display_name_repairs_utf8_mojibake():
+    auth = AuthContext(
+        user_id="27979",
+        portal_id="portal",
+        role="admin",
+        user_name="Ð\x90Ð»Ð¼Ð°Ð· Ð\x91Ð¸Ð°Ñ\x81Ñ\x82Ð¸Ð½Ð¾Ð²",
+        email="almaz@example.com",
+    )
+
+    assert auth.display_name == "Алмаз Биастинов"
+
+
+def test_auth_display_name_decodes_encoded_header():
+    auth = AuthContext(
+        user_id="27979",
+        portal_id="portal",
+        role="admin",
+        user_name_encoded="0JDQu9C80LDQtyDQkdC40LDRgdGC0LjQvdC-0LI=",
+        email="almaz@example.com",
+    )
+
+    assert auth.display_name == "Алмаз Биастинов"
