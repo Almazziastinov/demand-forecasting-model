@@ -111,6 +111,49 @@ Conclusion: no backfill required. If the frontend still shows stale/empty past
 days, the cause is the Bitrix iframe cache or the week selector in the UI, not
 missing data. Fix = reopen the app from the Bitrix menu / pick the right week.
 
+## How the forecast horizon is chosen (and a known limitation)
+
+The service runs without `--start-date`, so the forecast window is derived from
+the dataset, NOT the calendar:
+
+```python
+# src/experiments_v2/bakery_day_forecast.py:831 (recursive_forecast)
+next_date = pd.Timestamp(start_date) if start_date is not None \
+            else history[DATE_COL].max() + pd.Timedelta(days=1)
+# then horizon_days (14) steps forward
+```
+
+- `run_id` is built from the min forecast date + horizon
+  (`_build_run_id`, run_production_inference.py:84).
+- Dataset on the VM (`data/processed/bakery_daily_sales_uplifted.csv`) currently
+  ends at **2026-05-31**, so forecast start = 2026-06-01, horizon
+  2026-06-01..06-14, run_id `...20260601_h14`.
+
+### What tomorrow's 06:30 MSK timer run will do
+
+Because the dataset is static (max date stays 2026-05-31):
+
+- same start (2026-06-01), same horizon (..06-14), same run_id `...20260601_h14`;
+- `replace_existing=True` -> data overwritten with the same city-prior numbers
+  (model + data unchanged);
+- stays activated. Nothing shifts, nothing breaks. Past days 1-9 Jun remain
+  visible.
+
+### KNOWN LIMITATION (not addressed this session)
+
+The dataset is NOT auto-refreshed with recent sales facts. Consequences:
+
+- the horizon is "frozen" at 2026-06-01..06-14;
+- days 1-9 Jun are "forecasts" of dates already in the past (actuals known);
+- only 11-14 Jun is real future, and it is predicted from data ~10 days stale.
+- IMPORTANT: once the dataset is ever updated past 9 Jun, the new run will start
+  its horizon later and the OLD past days will drop out of the active run (the
+  frontend shows only one active run_id).
+
+Future work: add a step that refreshes `bakery_daily_sales_uplifted.csv` from
+ClickHouse before the inference run, so the horizon is always "from today
+forward". No such step exists in the pipeline today.
+
 ## VM deploy invariant (do not forget)
 
 - Forecast pipeline lives ONLY on this SSH VM, NOT VibeCode.
