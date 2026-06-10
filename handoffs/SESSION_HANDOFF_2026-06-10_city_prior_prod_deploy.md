@@ -70,6 +70,47 @@ user:    forecast (run git as `sudo -u forecast`, root sees repo as dubious)
 - Active run horizon ends 2026-06-14 (~4 days left). A fresh-horizon run will be
   needed soon.
 
+## Deploy automation added (commit 2794678)
+
+To replace the manual SSH deploy flow:
+
+- `deploy/vm/deploy.sh` — idempotent wrapper: pull master (as forecast user),
+  conditional pip install, `.env` key/duplicate validation, run the production
+  service, fail on non-success, then verify. Modes: default / `--verify-only`
+  / `--no-run`.
+- `scripts/verify_prod_deploy.py` — cross-checks `.env` mode vs summary vs the
+  active ClickHouse run; flags duplicate `FORECAST_RECENT_CORRECTION_MODE`.
+- `.gitattributes` — forces LF on `*.sh` so the shebang works on the VM.
+
+First real use on the VM should be the safe read-only check:
+
+```bash
+cd /opt/demand-forecasting-model
+sudo -u forecast git pull --ff-only origin master
+sudo bash deploy/vm/deploy.sh --verify-only
+```
+
+## Past-days backfill: NOT needed (verified)
+
+User asked whether past days (1-9 Jun) needed backfilling into ClickHouse so the
+frontend shows new-model predictions for them. Investigation showed it is
+already done by the 16:34 run:
+
+- Frontend selects exactly ONE active run, then filters every query by that
+  `run_id` + `forecast_date` (see `apps/forecast_embedded/app/services/runs.py`,
+  `bakery.py`). Data must live under the active run_id to be visible.
+- The active run `prod_uplifted_bakery_norm_uplift_sku_20260601_h14` already
+  covers `2026-06-01..2026-06-14` (14 days, 3038 bakery-day rows).
+- API confirms:
+  ```text
+  GET /api/v1/runs/active -> run_id ...20260601_h14, horizon 2026-06-01..06-14
+  GET /api/v1/dates       -> ["2026-06-01",...,"2026-06-14"]   (all past days present)
+  ```
+
+Conclusion: no backfill required. If the frontend still shows stale/empty past
+days, the cause is the Bitrix iframe cache or the week selector in the UI, not
+missing data. Fix = reopen the app from the Bitrix menu / pick the right week.
+
 ## VM deploy invariant (do not forget)
 
 - Forecast pipeline lives ONLY on this SSH VM, NOT VibeCode.
