@@ -56,6 +56,28 @@ sudo -u forecast .venv/bin/python -m pipelines.forecast_publish.run_production_i
 sudo -u forecast .venv/bin/python -m pipelines.forecast_publish.run_production_inference --env-file .env --scenario uplifted_norm --horizon-days 14 --uplift-profile-version sku_uplift_20260601
 ```
 
+## Deploy script
+
+After the VM is bootstrapped once, routine deploys use the wrapper instead of
+running each step by hand:
+
+```bash
+cd /opt/demand-forecasting-model
+sudo bash deploy/vm/deploy.sh                # pull + install + run + verify
+sudo bash deploy/vm/deploy.sh --verify-only  # just check current prod state
+sudo bash deploy/vm/deploy.sh --no-run       # update code/.env, skip the run
+```
+
+The script pulls `master` (as the `forecast` user), reinstalls deps only if
+`requirements-prod.txt` changed, validates `.env` against the example (missing
+keys fail, duplicate keys warn), runs `forecast-production.service`, fails if the
+service did not finish with `Result=success`, and finally runs
+`scripts.verify_prod_deploy` to confirm the active run and recent-correction mode
+are consistent.
+
+Note: the service start is memory-heavy (~9 min, peaks ~1.6G + swap). The 4 GiB
+swap must stay in place.
+
 ## systemd
 
 ```bash
