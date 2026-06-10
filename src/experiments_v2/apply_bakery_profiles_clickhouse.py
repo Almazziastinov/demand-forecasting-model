@@ -27,6 +27,8 @@ from pipelines.forecast_publish.sku_hour_profile_store import UPLIFT_MULTIPLIER_
 from src.experiments_v2.apply_bakery_profiles import BAKERY_HOUR_FORECAST_COL
 from src.experiments_v2.apply_bakery_profiles import BAKERY_ID_COL
 from src.experiments_v2.apply_bakery_profiles import BAKERY_FORECAST_COL
+from src.experiments_v2.apply_bakery_profiles import CATEGORY_COL
+from src.experiments_v2.apply_bakery_profiles import CITY_COL
 from src.experiments_v2.apply_bakery_profiles import DAILY_OUTPUT_NAME
 from src.experiments_v2.apply_bakery_profiles import DATE_COL
 from src.experiments_v2.apply_bakery_profiles import DOW_COL
@@ -36,6 +38,7 @@ from src.experiments_v2.apply_bakery_profiles import HOURLY_OUTPUT_NAME
 from src.experiments_v2.apply_bakery_profiles import HOURLY_OUTPUT_COLS
 from src.experiments_v2.apply_bakery_profiles import MIN_TIER1_N_DAYS
 from src.experiments_v2.apply_bakery_profiles import PRODUCT_ID_COL
+from src.experiments_v2.apply_bakery_profiles import PRODUCT_NAME_COL
 from src.experiments_v2.apply_bakery_profiles import SKU_DAY_FORECAST_COL
 from src.experiments_v2.apply_bakery_profiles import SKU_HOUR_FORECAST_COL
 from src.experiments_v2.apply_bakery_profiles import SKU_PROFILE_CHUNK_SIZE
@@ -50,7 +53,15 @@ from src.experiments_v2.apply_bakery_profiles import load_bakery_hour_profile
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "processed"
 SKU_UPLIFT_MULTIPLIER_COL = "sku_uplift_multiplier"
 SALES_LINE_TABLE = "mart_sales_60d"
-RECENT_CORRECTION_MODES = ("none", "dead_0d", "blend_recent_50", "core_recent_70")
+RECENT_CORRECTION_MODES = (
+    "none",
+    "dead_0d",
+    "blend_recent_50",
+    "core_recent_70",
+    "runner_city_prior_soft_weekpart",
+)
+ECLAIR_PATTERN = "эклер"
+SERVICE_CATEGORY_PATTERN = "прочие|заказ"
 
 
 def _write_hourly_chunk(df: pd.DataFrame, path: Path, *, header: bool) -> None:
@@ -227,6 +238,9 @@ def load_recent_assortment_stats(
         select
             toInt64OrNull(toString(bakery_id)) as bakery_id,
             toInt64OrNull(toString(product_id)) as product_id,
+            any(city) as city,
+            any(product_name) as product_name,
+            any(category_name) as category_name,
             sum(toFloat64(quantity)) as recent_qty,
             uniqExact(check_date) as recent_days_sold
         from {sales_table}
@@ -259,11 +273,163 @@ def load_recent_assortment_stats(
     return stats
 
 
+def _winsor_mean(values: pd.Series) -> float:
+    values = pd.to_numeric(values, errors="coerce").dropna()
+    if values.empty:
+        return 0.0
+    if len(values) < 4:
+        return float(values.mean())
+    lower = values.quantile(0.10)
+    upper = values.quantile(0.90)
+    return float(values.clip(lower=lower, upper=upper).mean())
+
+
+def load_recent_daily_share_stats(
+    client,
+    *,
+    forecast_start: pd.Timestamp,
+    recent_days: int,
+    sales_table: str,
+) -> pd.DataFrame:
+    recent_end = forecast_start - pd.Timedelta(days=1)
+    recent_start = forecast_start - pd.Timedelta(days=recent_days)
+    daily = client.query_df(
+        f"""
+        select
+            check_date,
+            toInt64OrNull(toString(bakery_id)) as bakery_id,
+            toInt64OrNull(toString(product_id)) as product_id,
+            sum(toFloat64(quantity)) as recent_day_qty
+        from {sales_table}
+        where check_date between %(recent_start)s and %(recent_end)s
+          and toInt64OrNull(toString(bakery_id)) is not null
+          and toInt64OrNull(toString(product_id)) is not null
+          and toFloat64(quantity) > 0
+        group by check_date, bakery_id, product_id
+        """,
+        parameters={
+            "recent_start": str(recent_start.date()),
+            "recent_end": str(recent_end.date()),
+        },
+    )
+    if daily.empty:
+        return pd.DataFrame(columns=[BAKERY_ID_COL, PRODUCT_ID_COL])
+
+    daily["check_date"] = pd.to_datetime(daily["check_date"], errors="coerce")
+    daily = daily.dropna(subset=["check_date"])
+    daily["recent_day_qty"] = pd.to_numeric(
+        daily["recent_day_qty"],
+        errors="coerce",
+    ).fillna(0.0)
+    bakery_days = (
+        daily.groupby(["check_date", BAKERY_ID_COL], as_index=False)["recent_day_qty"]
+        .sum()
+        .rename(columns={"recent_day_qty": "bakery_recent_day_qty"})
+    )
+    pairs = daily[[BAKERY_ID_COL, PRODUCT_ID_COL]].drop_duplicates()
+    grid = bakery_days.merge(pairs, on=BAKERY_ID_COL, how="inner")
+    daily = grid.merge(
+        daily[["check_date", BAKERY_ID_COL, PRODUCT_ID_COL, "recent_day_qty"]],
+        on=["check_date", BAKERY_ID_COL, PRODUCT_ID_COL],
+        how="left",
+    )
+    daily["recent_day_qty"] = pd.to_numeric(
+        daily["recent_day_qty"],
+        errors="coerce",
+    ).fillna(0.0)
+    daily["daily_share"] = np.where(
+        daily["bakery_recent_day_qty"] > 0,
+        daily["recent_day_qty"] / daily["bakery_recent_day_qty"],
+        0.0,
+    )
+    daily[DOW_COL] = daily["check_date"].dt.dayofweek
+    daily["is_weekend"] = daily[DOW_COL].isin([5, 6]).astype("int64")
+
+    overall = (
+        daily.groupby([BAKERY_ID_COL, PRODUCT_ID_COL], as_index=False)
+        .agg(
+            recent_share_daily_winsor=("daily_share", _winsor_mean),
+            recent_daily_obs=("daily_share", "size"),
+        )
+    )
+    weekpart = (
+        daily.groupby([BAKERY_ID_COL, PRODUCT_ID_COL, "is_weekend"], as_index=False)
+        .agg(
+            recent_share_weekpart_winsor=("daily_share", _winsor_mean),
+            recent_weekpart_obs=("daily_share", "size"),
+        )
+    )
+    dow = (
+        daily.groupby([BAKERY_ID_COL, PRODUCT_ID_COL, DOW_COL], as_index=False)
+        .agg(
+            recent_share_dow_winsor=("daily_share", _winsor_mean),
+            recent_dow_obs=("daily_share", "size"),
+        )
+    )
+    return overall.merge(weekpart, on=[BAKERY_ID_COL, PRODUCT_ID_COL], how="left").merge(
+        dow,
+        on=[BAKERY_ID_COL, PRODUCT_ID_COL],
+        how="left",
+    )
+
+
+def _attach_city_recent_prior(
+    candidates: pd.DataFrame,
+    recent: pd.DataFrame,
+) -> pd.DataFrame:
+    if CITY_COL not in recent.columns:
+        recent = recent.copy()
+        recent[CITY_COL] = ""
+    city_product = (
+        recent[[CITY_COL, BAKERY_ID_COL, PRODUCT_ID_COL, "recent_qty"]]
+        .drop_duplicates([CITY_COL, BAKERY_ID_COL, PRODUCT_ID_COL])
+        .groupby([CITY_COL, PRODUCT_ID_COL], as_index=False, dropna=False)["recent_qty"]
+        .sum()
+    )
+    city_total = (
+        city_product.groupby(CITY_COL, as_index=False, dropna=False)["recent_qty"]
+        .sum()
+        .rename(columns={"recent_qty": "city_recent_total_qty"})
+    )
+    city_product = city_product.merge(city_total, on=CITY_COL, how="left", validate="many_to_one")
+    city_product["city_recent_share"] = np.where(
+        city_product["city_recent_total_qty"] > 0,
+        city_product["recent_qty"] / city_product["city_recent_total_qty"],
+        0.0,
+    )
+    city_product["city_recent_rank"] = city_product.groupby(CITY_COL, dropna=False)[
+        "city_recent_share"
+    ].rank(method="first", ascending=False)
+    return candidates.merge(
+        city_product[
+            [
+                CITY_COL,
+                PRODUCT_ID_COL,
+                "city_recent_share",
+                "city_recent_rank",
+            ]
+        ],
+        on=[CITY_COL, PRODUCT_ID_COL],
+        how="left",
+        validate="many_to_one",
+    )
+
+
+def _contains_pattern(series: pd.Series, pattern: str, *, regex: bool) -> pd.Series:
+    return (
+        series.fillna("")
+        .astype(str)
+        .str.casefold()
+        .str.contains(pattern, regex=regex)
+    )
+
+
 def _build_recent_correction_targets(
     hourly: pd.DataFrame,
     recent: pd.DataFrame,
     *,
     mode: str,
+    recent_daily: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     base_daily = (
         hourly.groupby([DATE_COL, DOW_COL, BAKERY_ID_COL, PRODUCT_ID_COL], as_index=False)
@@ -298,7 +464,22 @@ def _build_recent_correction_targets(
     )
     candidates = candidates.merge(bakery_day, on=[DATE_COL, BAKERY_ID_COL], how="left", validate="many_to_one")
     candidates = candidates.merge(
-        recent[[BAKERY_ID_COL, PRODUCT_ID_COL, "recent_qty", "recent_days_sold", "recent_share"]],
+        recent[
+            [
+                col
+                for col in [
+                    BAKERY_ID_COL,
+                    PRODUCT_ID_COL,
+                    CITY_COL,
+                    PRODUCT_NAME_COL,
+                    CATEGORY_COL,
+                    "recent_qty",
+                    "recent_days_sold",
+                    "recent_share",
+                ]
+                if col in recent.columns
+            ]
+        ],
         on=[BAKERY_ID_COL, PRODUCT_ID_COL],
         how="left",
         validate="many_to_one",
@@ -306,6 +487,10 @@ def _build_recent_correction_targets(
     candidates[["recent_qty", "recent_days_sold", "recent_share"]] = candidates[
         ["recent_qty", "recent_days_sold", "recent_share"]
     ].fillna(0.0)
+    for col in [CITY_COL, PRODUCT_NAME_COL, CATEGORY_COL]:
+        if col not in candidates.columns:
+            candidates[col] = ""
+        candidates[col] = candidates[col].fillna("")
     candidates["prod_share"] = np.where(
         candidates[BAKERY_FORECAST_COL] > 0,
         candidates["base_daily_forecast"] / candidates[BAKERY_FORECAST_COL],
@@ -326,6 +511,109 @@ def _build_recent_correction_targets(
         core_share = 0.3 * candidates["prod_share"] + 0.7 * candidates["recent_share"]
         candidates["raw_share"] = np.where(core, core_share, regular_share)
         candidates["raw_share"] = np.where(active, candidates["raw_share"], 0.0)
+    elif mode == "runner_city_prior_soft_weekpart":
+        candidates["is_weekend"] = candidates[DOW_COL].isin([5, 6]).astype("int64")
+        if recent_daily is not None and not recent_daily.empty:
+            daily_cols = [
+                BAKERY_ID_COL,
+                PRODUCT_ID_COL,
+                "is_weekend",
+                DOW_COL,
+                "recent_share_daily_winsor",
+                "recent_share_weekpart_winsor",
+                "recent_weekpart_obs",
+            ]
+            candidates = candidates.merge(
+                recent_daily[[col for col in daily_cols if col in recent_daily.columns]],
+                on=[BAKERY_ID_COL, PRODUCT_ID_COL, "is_weekend", DOW_COL],
+                how="left",
+                validate="many_to_many",
+            )
+        for col in ["recent_share_daily_winsor", "recent_share_weekpart_winsor"]:
+            if col not in candidates.columns:
+                candidates[col] = candidates["recent_share"]
+            candidates[col] = pd.to_numeric(candidates[col], errors="coerce").fillna(
+                candidates["recent_share"]
+            )
+        if "recent_weekpart_obs" not in candidates.columns:
+            candidates["recent_weekpart_obs"] = 0
+        candidates["recent_weekpart_obs"] = (
+            pd.to_numeric(candidates["recent_weekpart_obs"], errors="coerce")
+            .fillna(0)
+            .clip(lower=0, upper=12)
+        )
+        weekpart_alpha = np.minimum(0.6, 0.6 * candidates["recent_weekpart_obs"] / 12.0)
+        modeled_recent_share = (
+            weekpart_alpha * candidates["recent_share_weekpart_winsor"]
+            + (1.0 - weekpart_alpha) * candidates["recent_share_daily_winsor"]
+        )
+        modeled_recent_share = pd.to_numeric(modeled_recent_share, errors="coerce").fillna(
+            candidates["recent_share"]
+        ).clip(lower=0.0)
+
+        is_service = _contains_pattern(candidates[CATEGORY_COL], SERVICE_CATEGORY_PATTERN, regex=True)
+        is_eclair = _contains_pattern(candidates[PRODUCT_NAME_COL], ECLAIR_PATTERN, regex=False)
+        core = (
+            (candidates["recent_days_sold"] >= 20)
+            & (modeled_recent_share >= 0.01)
+            & ~is_service
+        )
+        profile_too_high = candidates["prod_share"] > modeled_recent_share * 2.0
+        profile_too_low = candidates["prod_share"] < modeled_recent_share * 0.5
+
+        raw_share = 0.3 * candidates["prod_share"] + 0.7 * modeled_recent_share
+        raw_share = np.where(
+            core,
+            0.5 * candidates["prod_share"] + 0.5 * modeled_recent_share,
+            raw_share,
+        )
+        raw_share = np.where(
+            core & profile_too_high,
+            0.2 * candidates["prod_share"] + 0.8 * modeled_recent_share,
+            raw_share,
+        )
+        raw_share = np.where(
+            core & profile_too_low,
+            0.3 * candidates["prod_share"] + 0.7 * modeled_recent_share,
+            raw_share,
+        )
+        raw_share = np.where(
+            is_eclair,
+            np.minimum(modeled_recent_share * 1.3, 0.2 * candidates["prod_share"] + 0.8 * modeled_recent_share),
+            raw_share,
+        )
+
+        runner = (
+            (candidates["recent_days_sold"] >= 20)
+            & (modeled_recent_share >= 0.005)
+            & ~is_service
+        )
+        runner_share = np.maximum(
+            0.15 * candidates["prod_share"] + 0.85 * modeled_recent_share,
+            modeled_recent_share * 0.9,
+        )
+        raw_share = np.where(runner, runner_share, raw_share)
+
+        candidates = _attach_city_recent_prior(candidates, recent)
+        city_share = pd.to_numeric(candidates["city_recent_share"], errors="coerce").fillna(0.0)
+        city_rank = pd.to_numeric(candidates["city_recent_rank"], errors="coerce").fillna(999.0)
+        rank_floor = np.select(
+            [city_rank <= 1, city_rank <= 3, city_rank <= 5],
+            [0.75, 0.65, 0.55],
+            default=0.0,
+        )
+        city_runner = (
+            (candidates["recent_days_sold"] >= 10)
+            & (city_rank <= 5)
+            & (city_share >= 0.015)
+            & ~is_service
+        )
+        prior_share = np.maximum(
+            modeled_recent_share,
+            0.30 * modeled_recent_share + 0.70 * city_share * rank_floor,
+        )
+        raw_share = np.where(city_runner, np.maximum(raw_share, prior_share), raw_share)
+        candidates["raw_share"] = np.where(active, raw_share, 0.0)
     else:
         raise ValueError(f"Unsupported recent correction mode: {mode}")
 
@@ -367,7 +655,21 @@ def apply_recent_sku_hour_correction(
     if recent.empty:
         return pd.read_csv(daily_path, encoding="utf-8-sig"), len(hourly), []
 
-    targets = _build_recent_correction_targets(hourly, recent, mode=mode)
+    recent_daily = pd.DataFrame()
+    if mode == "runner_city_prior_soft_weekpart":
+        recent_daily = load_recent_daily_share_stats(
+            client,
+            forecast_start=forecast_start,
+            recent_days=recent_days,
+            sales_table=sales_table,
+        )
+
+    targets = _build_recent_correction_targets(
+        hourly,
+        recent,
+        mode=mode,
+        recent_daily=recent_daily,
+    )
     bakery_hour = (
         hourly.groupby([DATE_COL, DOW_COL, BAKERY_ID_COL, HOUR_COL], as_index=False)
         .agg(bakery_hour_forecast=(SKU_HOUR_FORECAST_COL, "sum"))

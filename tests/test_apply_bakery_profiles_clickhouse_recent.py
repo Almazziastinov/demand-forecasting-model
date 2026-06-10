@@ -75,3 +75,63 @@ def test_blend_recent_50_can_add_recent_sku_absent_from_profile() -> None:
     assert existing["corrected_daily_forecast"] == 75.0
     assert new["corrected_daily_forecast"] == 25.0
     assert targets["corrected_daily_forecast"].sum() == 100.0
+
+
+def test_runner_city_prior_soft_weekpart_lifts_city_top_runner() -> None:
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-05-02", "2026-05-02"]),
+            "dow": [5, 5],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [20.0, 80.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    recent = pd.DataFrame(
+        {
+            "bakery_id": [1, 1, 2, 2],
+            "product_id": [10, 20, 10, 20],
+            "city": ["Казань", "Казань", "Казань", "Казань"],
+            "product_name": [
+                "Треугольник курица безд",
+                "Беккен капуста",
+                "Треугольник курица безд",
+                "Беккен капуста",
+            ],
+            "category_name": [
+                "Выпечка сытная",
+                "Выпечка сытная",
+                "Выпечка сытная",
+                "Выпечка сытная",
+            ],
+            "recent_qty": [200.0, 800.0, 900.0, 100.0],
+            "recent_days_sold": [21, 21, 21, 21],
+            "recent_share": [0.20, 0.80, 0.90, 0.10],
+        }
+    )
+    recent_daily = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "is_weekend": [1, 1],
+            "dow": [5, 5],
+            "recent_share_daily_winsor": [0.20, 0.80],
+            "recent_share_weekpart_winsor": [0.20, 0.80],
+            "recent_weekpart_obs": [8, 8],
+        }
+    )
+
+    targets = _build_recent_correction_targets(
+        hourly,
+        recent,
+        mode="runner_city_prior_soft_weekpart",
+        recent_daily=recent_daily,
+    )
+
+    lifted = targets[targets["product_id"] == 10].iloc[0]
+    reduced = targets[targets["product_id"] == 20].iloc[0]
+    assert round(float(lifted["corrected_daily_forecast"]), 4) > 20.0
+    assert round(float(reduced["corrected_daily_forecast"]), 4) < 80.0
+    assert round(float(targets["corrected_daily_forecast"].sum()), 4) == 100.0

@@ -36,7 +36,10 @@ DEFAULT_UPLIFTED_BIAS_PATH = ROOT / "models" / "bakery_day_bias_uplifted.json"
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "processed"
 DEFAULT_SUMMARY_PATH = ROOT / "reports" / "production_inference_summary.json"
 DEFAULT_WEATHER_PATH = ROOT / "data" / "processed" / "bakery_weather_features.csv"
-DEFAULT_RECENT_CORRECTION_MODE = os.getenv("FORECAST_RECENT_CORRECTION_MODE", "none")
+DEFAULT_RECENT_CORRECTION_MODE = os.getenv(
+    "FORECAST_RECENT_CORRECTION_MODE",
+    "runner_city_prior_soft_weekpart",
+)
 DEFAULT_RECENT_CORRECTION_DAYS = int(os.getenv("FORECAST_RECENT_CORRECTION_DAYS", "30"))
 DEFAULT_RECENT_SALES_TABLE = os.getenv("FORECAST_RECENT_SALES_TABLE", "mart_sales_60d")
 
@@ -188,7 +191,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--uplift-profile-version", default=None)
     parser.add_argument(
         "--recent-correction-mode",
-        choices=["none", "dead_0d", "blend_recent_50", "core_recent_70"],
+        choices=[
+            "none",
+            "dead_0d",
+            "blend_recent_50",
+            "core_recent_70",
+            "runner_city_prior_soft_weekpart",
+        ],
         default=DEFAULT_RECENT_CORRECTION_MODE,
     )
     parser.add_argument("--recent-correction-days", type=int, default=DEFAULT_RECENT_CORRECTION_DAYS)
