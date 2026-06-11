@@ -27,8 +27,6 @@ from src.experiments_v2.build_bakery_daily_dataset import (
 )
 from src.experiments_v2.build_bakery_hour_profile import DOW_COL
 from src.experiments_v2.build_bakery_hour_profile import HOUR_COL
-from src.experiments_v2.build_bakery_weather_features import fetch_weather_features
-from src.experiments_v2.build_bakery_weather_features import infer_weather_request
 from src.experiments_v2.build_uplifted_bakery_daily_dataset import BASE_TARGET_COL
 from src.experiments_v2.build_uplifted_bakery_daily_dataset import (
     DEFAULT_OUTPUT_PATH as DEFAULT_UPLIFTED_OUTPUT_PATH,
@@ -342,6 +340,13 @@ def refresh_production_datasets(
 
     weather_rows = None
     if refresh_weather:
+        from src.experiments_v2.build_bakery_weather_features import (
+            fetch_weather_features,
+        )
+        from src.experiments_v2.build_bakery_weather_features import (
+            infer_weather_request,
+        )
+
         weather_cities, weather_start, weather_end = infer_weather_request(
             [Path(daily_paths["dataset"]), uplifted_output],
             horizon_days=int(horizon_days),
