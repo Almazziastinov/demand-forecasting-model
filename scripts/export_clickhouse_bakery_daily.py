@@ -38,6 +38,29 @@ def validate_columns(df: pd.DataFrame) -> None:
         )
 
 
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize ClickHouse result columns to the required bakery-day schema.
+
+    Some ClickHouse/proxy combinations return expression names instead of SELECT
+    aliases for aggregate queries. The SQL template controls column order, so a
+    positional fallback is safer than failing the production refresh.
+    """
+    if all(col in df.columns for col in REQUIRED_COLUMNS):
+        return df
+    if len(df.columns) < len(REQUIRED_COLUMNS):
+        return df
+
+    work = df.copy()
+    rename_map = {
+        current: expected
+        for current, expected in zip(
+            work.columns[: len(REQUIRED_COLUMNS)],
+            REQUIRED_COLUMNS,
+        )
+    }
+    return work.rename(columns=rename_map)
+
+
 def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
     ordered = [col for col in REQUIRED_COLUMNS if col in df.columns]
     tail = [col for col in df.columns if col not in ordered]
@@ -80,6 +103,7 @@ def export_daily_windows(
             flush=True,
         )
         df = client.query_df(sql)
+        df = normalize_columns(df)
         validate_columns(df)
         df = reorder_columns(df)
         rows = len(df)

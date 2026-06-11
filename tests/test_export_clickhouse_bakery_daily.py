@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from scripts.export_clickhouse_bakery_daily import export_daily_windows
+from scripts.export_clickhouse_bakery_daily import normalize_columns
 
 
 class _FakeClient:
@@ -61,3 +62,31 @@ def test_export_daily_windows_writes_required_columns():
         "price_x_qty_sum",
     ]
     output.unlink()
+
+
+def test_normalize_columns_accepts_clickhouse_expression_names():
+    frame = pd.DataFrame(
+        {
+            "fcl.check_date": ["2026-06-10"],
+            "fcl.bakery_id": [1],
+            "any(db.bakery_name)": ["Bakery"],
+            "any(db.city)": ["Kazan"],
+            "sum(toFloat64(fcl.quantity))": [100.0],
+            "sum(ifNull(toFloat64(fcl.line_amount), 0.0))": [1000.0],
+            "sum(if(isNull(fcl.price), 0.0, toFloat64(fcl.quantity)))": [100.0],
+            "sum(price_x_qty)": [1000.0],
+        }
+    )
+
+    normalized = normalize_columns(frame)
+
+    assert normalized.columns.tolist() == [
+        "date",
+        "bakery_id",
+        "bakery_name",
+        "city",
+        "bakery_sales",
+        "line_amount_sum",
+        "priced_quantity",
+        "price_x_qty_sum",
+    ]
