@@ -19,24 +19,29 @@ DEFAULT_ENV_PATH = ROOT / ".env"
 DEFAULT_SUMMARY_PATH = ROOT / "reports" / "production_inference_summary.json"
 
 ENV_MODE_KEY = "FORECAST_RECENT_CORRECTION_MODE"
+ENV_REFRESH_KEY = "FORECAST_REFRESH_DATASETS"
 
 
-def read_env_mode(env_path: Path) -> str | None:
-    """Return the recent-correction mode from .env, or None if absent.
+def read_env_value(env_path: Path, key: str) -> str | None:
+    """Return the last value for a key from .env, or None if absent.
 
-    If the key appears more than once we flag it: a duplicate previously caused
-    silent confusion in production.
+    If the key appears more than once we flag it: duplicate .env keys have
+    previously caused silent production confusion.
     """
     if not env_path.exists():
         return None
     values = []
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line.startswith(f"{ENV_MODE_KEY}="):
+        if line.startswith(f"{key}="):
             values.append(line.split("=", 1)[1].strip())
     if len(values) > 1:
-        print(f"WARNING: {ENV_MODE_KEY} appears {len(values)} times in {env_path}")
+        print(f"WARNING: {key} appears {len(values)} times in {env_path}")
     return values[-1] if values else None
+
+
+def _env_bool(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def main() -> int:
@@ -52,17 +57,31 @@ def main() -> int:
     problems: list[str] = []
 
     # --- .env mode -------------------------------------------------------
-    env_mode = read_env_mode(env_path)
+    env_mode = read_env_value(env_path, ENV_MODE_KEY)
+    env_refresh = read_env_value(env_path, ENV_REFRESH_KEY)
     print(f".env {ENV_MODE_KEY} = {env_mode}")
+    print(f".env {ENV_REFRESH_KEY} = {env_refresh}")
 
     # --- summary json ----------------------------------------------------
     summary_mode = None
+    summary_refresh = None
     if summary_path.exists():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         summary_mode = summary.get("recent_correction_mode")
+        summary_refresh = summary.get("dataset_refresh")
         print(f"summary mode = {summary_mode}")
         print(f"summary days = {summary.get('recent_correction_days')}")
         print(f"summary table = {summary.get('recent_sales_table')}")
+        if summary_refresh:
+            print(
+                "summary dataset_refresh = "
+                f"{summary_refresh.get('history_start_date')}.."
+                f"{summary_refresh.get('history_end_date')} | "
+                f"base={summary_refresh.get('base_dataset_path')} | "
+                f"uplifted={summary_refresh.get('uplifted_dataset_path')}"
+            )
+        else:
+            print("summary dataset_refresh = none")
         for s in summary.get("scenarios", []):
             rows = s.get("loaded_rows", {})
             print(
@@ -81,6 +100,11 @@ def main() -> int:
         problems.append(
             f"mode mismatch: .env={env_mode} but last run used {summary_mode} "
             "(run may predate the .env change -- re-run the service)"
+        )
+    if _env_bool(env_refresh) and not summary_refresh:
+        problems.append(
+            f"{ENV_REFRESH_KEY} is enabled but last summary has no dataset_refresh "
+            "(run may predate the refresh change -- re-run the service)"
         )
 
     # --- active run in ClickHouse ---------------------------------------

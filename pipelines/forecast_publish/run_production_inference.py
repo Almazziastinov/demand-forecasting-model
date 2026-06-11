@@ -15,8 +15,15 @@ from pipelines.forecast_publish.load_forecast_run import DEFAULT_ENV_PATH
 from pipelines.forecast_publish.load_forecast_run import DEFAULT_SCHEMA_PATH
 from pipelines.forecast_publish.load_forecast_run import create_client
 from pipelines.forecast_publish.load_forecast_run import load_forecast_run
+from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_HISTORY_START_DATE
+from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_REFRESH_SUMMARY_PATH
+from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_TIMEZONE
+from pipelines.forecast_publish.production_dataset_refresh import resolve_default_refresh_dates
+from pipelines.forecast_publish.production_dataset_refresh import refresh_production_datasets
 from pipelines.forecast_publish.sku_hour_profile_store import PROFILE_TABLE
 from pipelines.forecast_publish.sku_hour_profile_store import UPLIFT_MULTIPLIER_TABLE
+from scripts.export_clickhouse_checks import DEFAULT_OUTPUT as DEFAULT_RAW_OUTPUT
+from scripts.export_clickhouse_checks import DEFAULT_SQL_TEMPLATE
 from src.experiments_v2.apply_bakery_profiles import DEFAULT_BAKERY_HOUR_PROFILE_PATH
 from src.experiments_v2.apply_bakery_profiles_clickhouse import allocate_from_clickhouse
 from src.experiments_v2.bakery_day_forecast import DEFAULT_HORIZON_DAYS
@@ -42,6 +49,7 @@ DEFAULT_RECENT_CORRECTION_MODE = os.getenv(
 )
 DEFAULT_RECENT_CORRECTION_DAYS = int(os.getenv("FORECAST_RECENT_CORRECTION_DAYS", "30"))
 DEFAULT_RECENT_SALES_TABLE = os.getenv("FORECAST_RECENT_SALES_TABLE", "mart_sales_60d")
+DEFAULT_REFRESH_DATASETS = os.getenv("FORECAST_REFRESH_DATASETS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 SCENARIOS = {
@@ -177,6 +185,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run production forecast inference and publish runs to ClickHouse")
     parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH))
     parser.add_argument("--schema-path", default=str(DEFAULT_SCHEMA_PATH))
+    parser.add_argument("--refresh-datasets", action="store_true", default=DEFAULT_REFRESH_DATASETS)
+    parser.add_argument("--refresh-timezone", default=DEFAULT_TIMEZONE)
+    parser.add_argument("--history-start-date", default=DEFAULT_HISTORY_START_DATE)
+    parser.add_argument("--history-end-date", default=None)
+    parser.add_argument("--raw-output", default=str(DEFAULT_RAW_OUTPUT))
+    parser.add_argument("--sql-template", default=str(DEFAULT_SQL_TEMPLATE))
+    parser.add_argument("--dataset-refresh-summary-path", default=str(DEFAULT_REFRESH_SUMMARY_PATH))
+    parser.add_argument("--skip-weather-refresh", action="store_true")
     parser.add_argument("--base-dataset-path", default=str(DEFAULT_BASE_DATASET_PATH))
     parser.add_argument("--uplifted-dataset-path", default=str(DEFAULT_UPLIFTED_DATASET_PATH))
     parser.add_argument("--base-model-path", default=str(DEFAULT_BASE_MODEL_PATH))
@@ -223,6 +239,33 @@ def main() -> None:
     args = parser.parse_args()
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
+    dataset_refresh_result = None
+    if args.refresh_datasets:
+        history_end_date = args.history_end_date or resolve_default_refresh_dates(
+            timezone=args.refresh_timezone,
+        ).history_end_date
+        dataset_refresh_result = refresh_production_datasets(
+            env_file=args.env_file,
+            sql_template=args.sql_template,
+            raw_output=args.raw_output,
+            processed_dir=Path(args.base_dataset_path).parent,
+            history_start_date=args.history_start_date,
+            history_end_date=history_end_date,
+            horizon_days=args.horizon_days,
+            bakery_hour_profile_path=args.bakery_hour_profile_path,
+            uplifted_output_path=args.uplifted_dataset_path,
+            weather_path=args.weather_path,
+            uplift_table=args.uplift_table,
+            uplift_profile_version=args.uplift_profile_version,
+            refresh_weather=not args.skip_weather_refresh,
+        )
+        refresh_summary_path = Path(args.dataset_refresh_summary_path)
+        refresh_summary_path.parent.mkdir(parents=True, exist_ok=True)
+        refresh_summary_path.write_text(
+            json.dumps(dataset_refresh_result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
     scenario_names = list(SCENARIOS) if args.scenario == "both" else [args.scenario]
     if args.activate_run != "none" and args.activate_run not in scenario_names:
         raise ValueError("--activate-run must be one of the selected scenarios")
@@ -237,6 +280,7 @@ def main() -> None:
         "recent_correction_mode": args.recent_correction_mode,
         "recent_correction_days": args.recent_correction_days,
         "recent_sales_table": args.recent_sales_table,
+        "dataset_refresh": dataset_refresh_result,
         "scenarios": results,
     }
     summary_path = Path(args.summary_path)

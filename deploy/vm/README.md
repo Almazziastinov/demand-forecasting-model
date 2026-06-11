@@ -78,6 +78,28 @@ are consistent.
 Note: the service start is memory-heavy (~9 min, peaks ~1.6G + swap). The 4 GiB
 swap must stay in place.
 
+### Dataset refresh rollout
+
+Production inference can refresh `bakery_daily_sales.csv`,
+`bakery_daily_sales_uplifted.csv`, and weather features from ClickHouse before
+forecasting. Enable it in `/opt/demand-forecasting-model/.env`:
+
+```bash
+FORECAST_REFRESH_DATASETS=1
+```
+
+Then deploy normally:
+
+```bash
+cd /opt/demand-forecasting-model
+sudo bash deploy/vm/deploy.sh
+```
+
+`scripts.verify_prod_deploy` will fail if `FORECAST_REFRESH_DATASETS=1` but the
+latest `reports/production_inference_summary.json` has no `dataset_refresh`
+section. This prevents accidentally leaving the scheduled job on the old frozen
+CSV horizon after enabling the refresh flag.
+
 ## systemd
 
 ```bash
