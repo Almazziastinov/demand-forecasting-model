@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import sys
+import types
+from pathlib import Path
+
 import pandas as pd
 
 from pipelines.forecast_publish.production_dataset_refresh import (
     build_uplifted_daily_from_clickhouse_multipliers,
+)
+from pipelines.forecast_publish.production_dataset_refresh import (
+    refresh_weather_features_with_fallback,
 )
 from pipelines.forecast_publish.production_dataset_refresh import (
     resolve_default_refresh_dates,
@@ -78,3 +85,52 @@ def test_build_uplifted_daily_from_clickhouse_multipliers() -> None:
     assert round(float(b1["bakery_sales_uplifted"]), 4) == 125.0
     assert round(float(b2["bakery_sales_uplifted"]), 4) == 100.0
     assert summary["uplift_source"] == "clickhouse_uplift_multipliers"
+
+
+def test_refresh_weather_features_falls_back_to_existing_file(monkeypatch):
+    work_dir = Path("tests") / "_tmp_production_dataset_refresh"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    weather_path = work_dir / "weather.csv"
+    pd.DataFrame(
+        {
+            "date": ["2026-06-10"],
+            "city": ["Kazan"],
+            "temp_mean": [20.0],
+        }
+    ).to_csv(weather_path, index=False, encoding="utf-8-sig")
+    dataset_path = work_dir / "daily.csv"
+    pd.DataFrame(
+        {
+            "date": ["2026-06-10"],
+            "city": ["Kazan"],
+        }
+    ).to_csv(dataset_path, index=False, encoding="utf-8-sig")
+
+    fake_module = types.ModuleType("src.experiments_v2.build_bakery_weather_features")
+
+    def _raise_fetch(*args, **kwargs):
+        raise TimeoutError("openmeteo timeout")
+
+    fake_module.fetch_weather_features = _raise_fetch
+    fake_module.infer_weather_request = lambda paths, horizon_days: (
+        ["Kazan"],
+        "2026-06-10",
+        "2026-06-24",
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "src.experiments_v2.build_bakery_weather_features",
+        fake_module,
+    )
+
+    result = refresh_weather_features_with_fallback(
+        dataset_paths=[dataset_path],
+        horizon_days=14,
+        weather_path=weather_path,
+    )
+
+    assert result["weather_status"] == "existing_file_fallback"
+    assert result["weather_rows"] == 1
+    assert "openmeteo timeout" in str(result["weather_error"])
+    weather_path.unlink()
+    dataset_path.unlink()

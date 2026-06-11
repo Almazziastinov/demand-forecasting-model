@@ -292,6 +292,53 @@ def build_uplifted_daily_from_clickhouse_multipliers(
     return work, summary
 
 
+def refresh_weather_features_with_fallback(
+    *,
+    dataset_paths: list[Path],
+    horizon_days: int,
+    weather_path: str | Path,
+) -> dict[str, object]:
+    from src.experiments_v2.build_bakery_weather_features import (
+        fetch_weather_features,
+    )
+    from src.experiments_v2.build_bakery_weather_features import (
+        infer_weather_request,
+    )
+
+    weather_output = Path(weather_path)
+    weather_cities, weather_start, weather_end = infer_weather_request(
+        dataset_paths,
+        horizon_days=int(horizon_days),
+    )
+    try:
+        weather_df = fetch_weather_features(
+            weather_cities,
+            start_date=weather_start,
+            end_date=weather_end,
+        )
+    except Exception as exc:
+        if not weather_output.exists():
+            raise
+        fallback = pd.read_csv(weather_output, encoding="utf-8-sig")
+        return {
+            "weather_rows": int(len(fallback)),
+            "weather_status": "existing_file_fallback",
+            "weather_error": str(exc),
+            "weather_start_date": weather_start,
+            "weather_end_date": weather_end,
+        }
+
+    weather_output.parent.mkdir(parents=True, exist_ok=True)
+    weather_df.to_csv(weather_output, index=False, encoding="utf-8-sig")
+    return {
+        "weather_rows": int(len(weather_df)),
+        "weather_status": "refreshed",
+        "weather_error": None,
+        "weather_start_date": weather_start,
+        "weather_end_date": weather_end,
+    }
+
+
 def refresh_production_datasets(
     *,
     env_file: str | Path = DEFAULT_ENV_PATH,
@@ -347,28 +394,19 @@ def refresh_production_datasets(
         encoding="utf-8",
     )
 
-    weather_rows = None
+    weather_result: dict[str, object] = {
+        "weather_rows": None,
+        "weather_status": "skipped",
+        "weather_error": None,
+        "weather_start_date": None,
+        "weather_end_date": None,
+    }
     if refresh_weather:
-        from src.experiments_v2.build_bakery_weather_features import (
-            fetch_weather_features,
-        )
-        from src.experiments_v2.build_bakery_weather_features import (
-            infer_weather_request,
-        )
-
-        weather_cities, weather_start, weather_end = infer_weather_request(
-            [Path(daily_paths["dataset"]), uplifted_output],
+        weather_result = refresh_weather_features_with_fallback(
+            dataset_paths=[Path(daily_paths["dataset"]), uplifted_output],
             horizon_days=int(horizon_days),
+            weather_path=weather_path,
         )
-        weather_df = fetch_weather_features(
-            weather_cities,
-            start_date=weather_start,
-            end_date=weather_end,
-        )
-        weather_output = Path(weather_path)
-        weather_output.parent.mkdir(parents=True, exist_ok=True)
-        weather_df.to_csv(weather_output, index=False, encoding="utf-8-sig")
-        weather_rows = int(len(weather_df))
 
     return {
         "history_start_date": history_start_date,
@@ -380,7 +418,7 @@ def refresh_production_datasets(
         "uplifted_dataset_path": str(uplifted_output),
         "uplifted_summary_path": str(uplifted_summary_output),
         "weather_path": str(Path(weather_path)),
-        "weather_rows": weather_rows,
+        **weather_result,
         "daily_summary": daily_summary,
         "uplifted_summary": uplifted_summary,
     }
