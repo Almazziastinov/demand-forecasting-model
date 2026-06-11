@@ -429,13 +429,68 @@ def build_bakery_daily_dataset(
             print(f"processed chunks: {i}", flush=True)
 
     daily = merge_partial_results(parts)
-    daily = add_complete_bakery_calendar(daily)
+    daily = build_bakery_daily_dataset_from_aggregates(daily)
+    daily.attrs["dedup_summary"] = dedup_totals
+    return daily
+
+
+def build_bakery_daily_dataset_from_aggregates(
+    daily: pd.DataFrame,
+    *,
+    dedup_summary: dict[str, float | int] | None = None,
+) -> pd.DataFrame:
+    """Build the model-ready bakery-day dataset from pre-aggregated rows.
+
+    This path is used by production refresh when ClickHouse already grouped raw
+    check lines to bakery-day level. It intentionally reuses the same calendar,
+    imputation, cleaning, and lag feature logic as the raw CSV builder.
+    """
+    required = [
+        DATE_COL,
+        BAKERY_ID_COL,
+        BAKERY_NAME_COL,
+        CITY_COL,
+        TARGET_COL,
+        "line_amount_sum",
+        "priced_quantity",
+        "price_x_qty_sum",
+    ]
+    missing = [col for col in required if col not in daily.columns]
+    if missing:
+        raise ValueError(
+            "Aggregated bakery-day data missing columns: " + ", ".join(missing)
+        )
+
+    work = daily.copy()
+    work[DATE_COL] = pd.to_datetime(work[DATE_COL], errors="coerce")
+    work = work.dropna(subset=[DATE_COL, BAKERY_ID_COL]).copy()
+
+    numeric_cols = [TARGET_COL, "line_amount_sum", "priced_quantity", "price_x_qty_sum"]
+    for col in numeric_cols:
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0.0)
+
+    work = (
+        work.groupby(
+            [DATE_COL, BAKERY_ID_COL, BAKERY_NAME_COL, CITY_COL],
+            as_index=False,
+        )
+        .agg(
+            bakery_sales=(TARGET_COL, "sum"),
+            line_amount_sum=("line_amount_sum", "sum"),
+            priced_quantity=("priced_quantity", "sum"),
+            price_x_qty_sum=("price_x_qty_sum", "sum"),
+        )
+        .sort_values([BAKERY_ID_COL, DATE_COL])
+        .reset_index(drop=True)
+    )
+    daily = add_complete_bakery_calendar(work)
     daily = add_price_features(daily)
     daily = add_calendar_features(daily)
     daily = add_missing_sales_imputation(daily)
     daily = add_cleaning_features(daily)
     daily = add_lag_features(daily)
-    daily.attrs["dedup_summary"] = dedup_totals
+    if dedup_summary:
+        daily.attrs["dedup_summary"] = dedup_summary
     return daily
 
 

@@ -10,15 +10,21 @@ import pandas as pd
 from pipelines.forecast_publish.load_forecast_run import DEFAULT_ENV_PATH
 from pipelines.forecast_publish.load_forecast_run import create_client
 from pipelines.forecast_publish.sku_hour_profile_store import UPLIFT_MULTIPLIER_TABLE
-from scripts.export_clickhouse_checks import DEFAULT_OUTPUT as DEFAULT_RAW_OUTPUT
-from scripts.export_clickhouse_checks import DEFAULT_SQL_TEMPLATE
-from scripts.export_clickhouse_checks import create_client as create_export_client
-from scripts.export_clickhouse_checks import export_windows
+from scripts.export_clickhouse_bakery_daily import (
+    DEFAULT_OUTPUT as DEFAULT_DAILY_AGGREGATE_OUTPUT,
+)
+from scripts.export_clickhouse_bakery_daily import (
+    DEFAULT_SQL_TEMPLATE as DEFAULT_DAILY_SQL_TEMPLATE,
+)
+from scripts.export_clickhouse_bakery_daily import create_client as create_export_client
+from scripts.export_clickhouse_bakery_daily import export_daily_windows
 from src.experiments_v2.build_bakery_daily_dataset import BAKERY_ID_COL
 from src.experiments_v2.build_bakery_daily_dataset import CHUNK_SIZE
 from src.experiments_v2.build_bakery_daily_dataset import DATE_COL
 from src.experiments_v2.build_bakery_daily_dataset import TARGET_COL
-from src.experiments_v2.build_bakery_daily_dataset import build_bakery_daily_dataset
+from src.experiments_v2.build_bakery_daily_dataset import (
+    build_bakery_daily_dataset_from_aggregates,
+)
 from src.experiments_v2.build_bakery_daily_dataset import (
     build_summary as build_daily_summary,
 )
@@ -47,6 +53,8 @@ from src.experiments_v2.build_uplifted_bakery_daily_dataset import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_SQL_TEMPLATE = DEFAULT_DAILY_SQL_TEMPLATE
+DEFAULT_RAW_OUTPUT = DEFAULT_DAILY_AGGREGATE_OUTPUT
 DEFAULT_PROCESSED_DIR = ROOT / "data" / "processed"
 DEFAULT_BAKERY_HOUR_PROFILE_PATH = DEFAULT_PROCESSED_DIR / "bakery_hour_profile.csv"
 DEFAULT_WEATHER_PATH = DEFAULT_PROCESSED_DIR / "bakery_weather_features.csv"
@@ -303,7 +311,7 @@ def refresh_production_datasets(
     chunk_size: int = CHUNK_SIZE,
 ) -> dict:
     sql_template_text = Path(sql_template).read_text(encoding="utf-8")
-    export_windows(
+    aggregate_export = export_daily_windows(
         client=create_export_client(env_file),
         sql_template_text=sql_template_text,
         output_path=Path(raw_output),
@@ -313,7 +321,8 @@ def refresh_production_datasets(
         limit=None,
     )
 
-    daily_df = build_bakery_daily_dataset(raw_output, chunk_size=chunk_size)
+    daily_aggregate = pd.read_csv(raw_output, encoding="utf-8-sig")
+    daily_df = build_bakery_daily_dataset_from_aggregates(daily_aggregate)
     daily_summary = build_daily_summary(daily_df)
     daily_paths = save_daily_outputs(processed_dir, daily_df, daily_summary)
 
@@ -364,7 +373,8 @@ def refresh_production_datasets(
     return {
         "history_start_date": history_start_date,
         "history_end_date": history_end_date,
-        "raw_output": str(Path(raw_output)),
+        "daily_aggregate_output": str(Path(raw_output)),
+        "daily_aggregate_rows": aggregate_export["rows"],
         "base_dataset_path": str(daily_paths["dataset"]),
         "base_summary_path": str(daily_paths["summary"]),
         "uplifted_dataset_path": str(uplifted_output),

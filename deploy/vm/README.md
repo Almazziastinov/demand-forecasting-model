@@ -82,7 +82,9 @@ swap must stay in place.
 
 Production inference can refresh `bakery_daily_sales.csv`,
 `bakery_daily_sales_uplifted.csv`, and weather features from ClickHouse before
-forecasting. Enable it in `/opt/demand-forecasting-model/.env`:
+forecasting. The refresh exports bakery-day aggregates in ClickHouse first, so
+the VM no longer has to download and aggregate raw check-line history. Enable it
+in `/opt/demand-forecasting-model/.env`:
 
 ```bash
 FORECAST_REFRESH_DATASETS=1

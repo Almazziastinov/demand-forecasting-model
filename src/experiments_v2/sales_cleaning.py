@@ -527,6 +527,9 @@ def _quantile_caps(
     caps = caps.rename(
         columns={lower_quantile: f"{prefix}_lower", upper_quantile: f"{prefix}_upper"}
     )
+    for col in [f"{prefix}_lower", f"{prefix}_upper"]:
+        if col not in caps.columns:
+            caps[col] = np.nan
     counts = grouped.size().rename(f"{prefix}_count")
     result = caps.join(counts).reset_index()
     return result

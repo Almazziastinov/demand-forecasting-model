@@ -10,7 +10,12 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.experiments_v2.build_bakery_daily_dataset import build_bakery_daily_dataset  # noqa: E402
+from src.experiments_v2.build_bakery_daily_dataset import (  # noqa: E402
+    build_bakery_daily_dataset,
+)
+from src.experiments_v2.build_bakery_daily_dataset import (  # noqa: E402
+    build_bakery_daily_dataset_from_aggregates,
+)
 from src.experiments_v2.build_bakery_daily_dataset import build_summary  # noqa: E402
 from src.experiments_v2.build_bakery_daily_dataset import RU_BAKERY_NAME_COL  # noqa: E402
 from src.experiments_v2.build_bakery_daily_dataset import RU_CHECK_DATE_COL  # noqa: E402
@@ -244,3 +249,27 @@ def test_build_bakery_daily_dataset_imputes_missing_calendar_days():
     assert float(missing_day["base_model_sample_weight"]) == 0.25
 
     source.unlink()
+
+
+def test_build_bakery_daily_dataset_from_aggregates_adds_features():
+    aggregates = pd.DataFrame(
+        {
+            "date": pd.date_range("2026-06-01", periods=8).tolist(),
+            "bakery_id": [1] * 8,
+            "bakery_name": ["Bakery"] * 8,
+            "city": ["Kazan"] * 8,
+            "bakery_sales": [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0],
+            "line_amount_sum": [100.0] * 8,
+            "priced_quantity": [10.0] * 8,
+            "price_x_qty_sum": [100.0] * 8,
+        }
+    )
+
+    result = build_bakery_daily_dataset_from_aggregates(aggregates)
+
+    assert len(result) == 8
+    assert result["avg_price"].tolist() == [10.0] * 8
+    assert "bakery_sales_base_rolling_quantile_capped" in result.columns
+    last = result.sort_values("date").iloc[-1]
+    assert float(last["bakery_sales_lag1"]) == 16.0
+    assert float(last["bakery_sales_lag7"]) == 10.0
