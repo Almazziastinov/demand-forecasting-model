@@ -7,14 +7,19 @@ from app.db import get_client
 
 
 BAKERY_DAY_TABLE = "bakery_forecast_day_embedded"
+BAKERY_DAY_SNAPSHOT_TABLE = "bakery_forecast_day_snapshots"
 CONTEXT_TABLE = "forecast_day_context_embedded"
 SKU_DAY_TABLE = "sku_forecast_day_embedded"
+SKU_DAY_SNAPSHOT_TABLE = "sku_forecast_day_snapshots"
 SKU_HOUR_TABLE = "sku_forecast_hour_embedded"
+SKU_HOUR_SNAPSHOT_TABLE = "sku_forecast_hour_snapshots"
 SALES_LINE_TABLE = "mart_sales_60d"
 ACCESS_TABLE = "bitrix_user_bakery_access_embedded"
 MANAGEMENT_TABLE = "dim_management"
 MONTH_REVENUE_TABLE = "bakery_month_revenue_embedded"
 CLOSED_BAKERY_STATUS = "\u0417\u0430\u043a\u0440\u044b\u0442\u0430"
+ACTIVE_ROW_SORT_KEY = "tuple(2, toDateTime64('2100-01-01 00:00:00', 3))"
+SNAPSHOT_ROW_SORT_KEY = "tuple(1, generated_at)"
 
 
 def _records(df):
@@ -66,6 +71,150 @@ def _open_bakery_filter(bakery_expr: str) -> str:
         """
 
 
+def _bakery_day_source(date_filter_sql: str) -> str:
+    return """
+        (
+            select
+                forecast_date,
+                bakery_id,
+                argMax(run_id, sort_key) as run_id,
+                argMax(bakery_name, sort_key) as bakery_name,
+                argMax(city, sort_key) as city,
+                argMax(forecast_base, sort_key) as forecast_base,
+                argMax(forecast_final, sort_key) as forecast_final
+            from (
+                select
+                    run_id,
+                    forecast_date,
+                    bakery_id,
+                    bakery_name,
+                    city,
+                    forecast_base,
+                    forecast_final,
+                    {active_sort_key} as sort_key
+                from {active_table}
+                where run_id = %(run_id)s
+                  and {date_filter_sql}
+                union all
+                select
+                    source_run_id as run_id,
+                    forecast_date,
+                    bakery_id,
+                    bakery_name,
+                    city,
+                    forecast_base,
+                    forecast_final,
+                    {snapshot_sort_key} as sort_key
+                from {snapshot_table}
+                where lead_days = 1
+                  and {date_filter_sql}
+            )
+            group by forecast_date, bakery_id
+        )
+        """.format(
+        active_table=BAKERY_DAY_TABLE,
+        snapshot_table=BAKERY_DAY_SNAPSHOT_TABLE,
+        active_sort_key=ACTIVE_ROW_SORT_KEY,
+        snapshot_sort_key=SNAPSHOT_ROW_SORT_KEY,
+        date_filter_sql=date_filter_sql,
+    )
+
+
+def _sku_day_source(date_filter_sql: str) -> str:
+    return """
+        (
+            select
+                forecast_date,
+                bakery_id,
+                product_id,
+                argMax(run_id, sort_key) as run_id,
+                argMax(product_name, sort_key) as product_name,
+                argMax(category_name, sort_key) as category_name,
+                argMax(forecast_qty, sort_key) as forecast_qty
+            from (
+                select
+                    run_id,
+                    forecast_date,
+                    bakery_id,
+                    product_id,
+                    product_name,
+                    category_name,
+                    forecast_qty,
+                    {active_sort_key} as sort_key
+                from {active_table}
+                where run_id = %(run_id)s
+                  and {date_filter_sql}
+                union all
+                select
+                    source_run_id as run_id,
+                    forecast_date,
+                    bakery_id,
+                    product_id,
+                    product_name,
+                    category_name,
+                    forecast_qty,
+                    {snapshot_sort_key} as sort_key
+                from {snapshot_table}
+                where lead_days = 1
+                  and {date_filter_sql}
+            )
+            group by forecast_date, bakery_id, product_id
+        )
+        """.format(
+        active_table=SKU_DAY_TABLE,
+        snapshot_table=SKU_DAY_SNAPSHOT_TABLE,
+        active_sort_key=ACTIVE_ROW_SORT_KEY,
+        snapshot_sort_key=SNAPSHOT_ROW_SORT_KEY,
+        date_filter_sql=date_filter_sql,
+    )
+
+
+def _sku_hour_source(date_filter_sql: str) -> str:
+    return """
+        (
+            select
+                forecast_date,
+                bakery_id,
+                product_id,
+                hour,
+                argMax(run_id, sort_key) as run_id,
+                argMax(forecast_qty, sort_key) as forecast_qty
+            from (
+                select
+                    run_id,
+                    forecast_date,
+                    bakery_id,
+                    product_id,
+                    hour,
+                    forecast_qty,
+                    {active_sort_key} as sort_key
+                from {active_table}
+                where run_id = %(run_id)s
+                  and {date_filter_sql}
+                union all
+                select
+                    source_run_id as run_id,
+                    forecast_date,
+                    bakery_id,
+                    product_id,
+                    hour,
+                    forecast_qty,
+                    {snapshot_sort_key} as sort_key
+                from {snapshot_table}
+                where lead_days = 1
+                  and {date_filter_sql}
+            )
+            group by forecast_date, bakery_id, product_id, hour
+        )
+        """.format(
+        active_table=SKU_HOUR_TABLE,
+        snapshot_table=SKU_HOUR_SNAPSHOT_TABLE,
+        active_sort_key=ACTIVE_ROW_SORT_KEY,
+        snapshot_sort_key=SNAPSHOT_ROW_SORT_KEY,
+        date_filter_sql=date_filter_sql,
+    )
+
+
 def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[dict]:
     client = get_client()
     access_sql, access_params = _access_filter(auth, "b.bakery_id")
@@ -96,20 +245,19 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
             c.is_pre_holiday as is_pre_holiday,
             c.is_post_holiday as is_post_holiday,
             c.event_window_type as event_window_type
-        from {table} b
+        from {source} b
         left join {context_table} c
           on c.run_id = b.run_id
          and c.forecast_date = b.forecast_date
          and c.city = b.city
         left join sales
           on sales.sales_bakery_id = b.bakery_id
-        where b.run_id = %(run_id)s
-          and b.forecast_date = %(forecast_date)s
+        where b.forecast_date = %(forecast_date)s
           {open_bakery_sql}
           {access_sql}
         order by forecast_final desc, bakery_name asc
         """.format(
-        table=BAKERY_DAY_TABLE,
+        source=_bakery_day_source("forecast_date = %(forecast_date)s"),
         sales_line_table=SALES_LINE_TABLE,
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
@@ -168,7 +316,7 @@ def get_bakery_week(
             c.is_pre_holiday as is_pre_holiday,
             c.is_post_holiday as is_post_holiday,
             c.event_window_type as event_window_type
-        from {table} b
+        from {source} b
         left join {context_table} c
           on c.run_id = b.run_id
          and c.forecast_date = b.forecast_date
@@ -176,14 +324,13 @@ def get_bakery_week(
         left join sales
           on sales.forecast_date = b.forecast_date
          and sales.sales_bakery_id = b.bakery_id
-        where b.run_id = %(run_id)s
-          and b.forecast_date between %(start_date)s and %(end_date)s
+        where b.forecast_date between %(start_date)s and %(end_date)s
           and b.bakery_id = %(bakery_id)s
           {open_bakery_sql}
           {access_sql}
         order by b.forecast_date
         """.format(
-        table=BAKERY_DAY_TABLE,
+        source=_bakery_day_source("forecast_date between %(start_date)s and %(end_date)s"),
         sales_line_table=SALES_LINE_TABLE,
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
@@ -225,16 +372,15 @@ def get_bakery_day(
         select b.bakery_id as bakery_id, b.bakery_name as bakery_name, b.city as city,
                b.forecast_base as forecast_base, b.forecast_final as forecast_final,
                sales.actual_qty, sales.actual_revenue
-        from {table} b
+        from {source} b
         left join sales on sales.sales_bakery_id = b.bakery_id
-        where b.run_id = %(run_id)s
-          and b.forecast_date = %(forecast_date)s
+        where b.forecast_date = %(forecast_date)s
           and b.bakery_id = %(bakery_id)s
           {open_bakery_sql}
           {access_sql}
         limit 1
         """.format(
-        table=BAKERY_DAY_TABLE,
+        source=_bakery_day_source("forecast_date = %(forecast_date)s"),
         sales_line_table=SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -324,10 +470,9 @@ def get_top_sku(
                d.forecast_qty as forecast_qty,
                sales.actual_qty as actual_qty,
                sales.actual_revenue as actual_revenue
-        from {table} d
+        from {source} d
         left join sales on sales.sales_product_id = d.product_id
-        where d.run_id = %(run_id)s
-          and d.forecast_date = %(forecast_date)s
+        where d.forecast_date = %(forecast_date)s
           and d.bakery_id = %(bakery_id)s
           {category_sql}
           {open_bakery_sql}
@@ -335,7 +480,7 @@ def get_top_sku(
         order by d.forecast_qty desc, d.product_name asc
         limit %(limit)s
         """.format(
-        table=SKU_DAY_TABLE,
+        source=_sku_day_source("forecast_date = %(forecast_date)s"),
         sales_line_table=SALES_LINE_TABLE,
         category_sql=category_sql,
         open_bakery_sql=open_bakery_sql,
@@ -358,19 +503,18 @@ def get_top_sku(
 
 def get_categories(run_id: str, forecast_date: str, bakery_id: int, auth: AuthContext) -> list[str]:
     client = get_client()
-    access_sql, access_params = _access_filter(auth, "bakery_id")
-    open_bakery_sql = _open_bakery_filter("bakery_id")
+    access_sql, access_params = _access_filter(auth, "d.bakery_id")
+    open_bakery_sql = _open_bakery_filter("d.bakery_id")
     query = """
         select distinct coalesce(category_name, 'Без группы') as category_name
-        from {table}
-        where run_id = %(run_id)s
-          and forecast_date = %(forecast_date)s
-          and bakery_id = %(bakery_id)s
+        from {source} d
+        where d.forecast_date = %(forecast_date)s
+          and d.bakery_id = %(bakery_id)s
           {open_bakery_sql}
           {access_sql}
         order by category_name
         """.format(
-        table=SKU_DAY_TABLE,
+        source=_sku_day_source("forecast_date = %(forecast_date)s"),
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -401,9 +545,8 @@ def get_hourly_total(
     query = """
         with forecast as (
             select hour, sum(forecast_qty) as forecast_qty
-            from {table}
-            where run_id = %(run_id)s
-              and forecast_date = %(forecast_date)s
+            from {source}
+            where forecast_date = %(forecast_date)s
               and bakery_id = %(bakery_id)s
               {open_bakery_sql}
               {access_sql}
@@ -426,7 +569,7 @@ def get_hourly_total(
         full outer join actual on actual.hour = forecast.hour
         order by hour
         """.format(
-        table=SKU_HOUR_TABLE,
+        source=_sku_hour_source("forecast_date = %(forecast_date)s"),
         sales_line_table=SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -457,14 +600,13 @@ def get_sku_hour(
     query = """
         with forecast as (
             select h.hour, h.product_id, d.product_name, d.category_name, h.forecast_qty
-            from {hour_table} h
-            left join {day_table} d
+            from {hour_source} h
+            left join {day_source} d
               on d.run_id = h.run_id
              and d.forecast_date = h.forecast_date
              and d.bakery_id = h.bakery_id
              and d.product_id = h.product_id
-            where h.run_id = %(run_id)s
-              and h.forecast_date = %(forecast_date)s
+            where h.forecast_date = %(forecast_date)s
               and h.bakery_id = %(bakery_id)s
               and h.product_id = %(product_id)s
               {open_bakery_sql}
@@ -492,8 +634,8 @@ def get_sku_hour(
         full outer join actual on actual.hour = forecast.hour
         order by hour
         """.format(
-        hour_table=SKU_HOUR_TABLE,
-        day_table=SKU_DAY_TABLE,
+        hour_source=_sku_hour_source("forecast_date = %(forecast_date)s"),
+        day_source=_sku_day_source("forecast_date = %(forecast_date)s"),
         sales_line_table=SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -528,21 +670,20 @@ def get_sku_hour_forecast(
             d.category_name as category_name,
             h.hour as hour,
             h.forecast_qty as forecast_qty
-        from {hour_table} h
-        left join {day_table} d
+        from {hour_source} h
+        left join {day_source} d
           on d.run_id = h.run_id
          and d.forecast_date = h.forecast_date
          and d.bakery_id = h.bakery_id
          and d.product_id = h.product_id
-        where h.run_id = %(run_id)s
-          and h.forecast_date = %(forecast_date)s
+        where h.forecast_date = %(forecast_date)s
           and h.bakery_id = %(bakery_id)s
           {open_bakery_sql}
           {access_sql}
         order by d.product_name, h.product_id, h.hour
         """.format(
-        hour_table=SKU_HOUR_TABLE,
-        day_table=SKU_DAY_TABLE,
+        hour_source=_sku_hour_source("forecast_date = %(forecast_date)s"),
+        day_source=_sku_day_source("forecast_date = %(forecast_date)s"),
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -587,17 +728,16 @@ def get_sku_day(
                d.forecast_qty as forecast_qty,
                sales.actual_qty as actual_qty,
                sales.actual_revenue as actual_revenue
-        from {table} d
+        from {source} d
         left join sales on sales.sales_product_id = d.product_id
-        where d.run_id = %(run_id)s
-          and d.forecast_date = %(forecast_date)s
+        where d.forecast_date = %(forecast_date)s
           and d.bakery_id = %(bakery_id)s
           and d.product_id = %(product_id)s
           {open_bakery_sql}
           {access_sql}
         limit 1
         """.format(
-        table=SKU_DAY_TABLE,
+        source=_sku_day_source("forecast_date = %(forecast_date)s"),
         sales_line_table=SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,

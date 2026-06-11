@@ -105,8 +105,15 @@ def get_run_dates(run_id: str) -> list[str]:
     client = get_client()
     query = """
         select distinct forecast_date
-        from bakery_forecast_day_embedded
-        where run_id = %(run_id)s
+        from (
+            select forecast_date
+            from bakery_forecast_day_embedded
+            where run_id = %(run_id)s
+            union all
+            select forecast_date
+            from bakery_forecast_day_snapshots
+            where lead_days = 1
+        )
         order by forecast_date
         """
     df = client.query_df(query, parameters={"run_id": run_id})

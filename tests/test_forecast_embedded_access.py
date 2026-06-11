@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
 from app.auth import AuthContext, get_auth_context  # noqa: E402
 from app.services import bakery as bakery_service  # noqa: E402
+from app.services import runs as runs_service  # noqa: E402
 from app.settings import get_settings  # noqa: E402
 
 
@@ -26,6 +27,7 @@ class _FakeClient:
                 "bakery_id": [1],
                 "bakery_name": ["Bakery"],
                 "city": ["Kazan"],
+                "forecast_date": ["2026-06-10"],
                 "forecast_final": [100.0],
             }
         )
@@ -68,6 +70,49 @@ def test_admin_bakery_list_is_not_filtered_by_access_table(monkeypatch):
     assert "bitrix_user_id" not in params
     assert "dim_management" in query
     assert params["closed_bakery_status"] == "Закрыта"
+
+
+def test_bakery_list_reads_lead_one_snapshots(monkeypatch):
+    fake = _FakeClient()
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+    auth = AuthContext(user_id="1", portal_id="portal", role="admin")
+
+    bakery_service.get_bakery_list("active_run", "2026-06-10", auth)
+
+    query, params = fake.queries[0]
+    assert "bakery_forecast_day_embedded" in query
+    assert "bakery_forecast_day_snapshots" in query
+    assert "lead_days = 1" in query
+    assert "argMax(forecast_final, sort_key)" in query
+    assert params["run_id"] == "active_run"
+
+
+def test_sku_hour_reads_lead_one_snapshots(monkeypatch):
+    fake = _FakeClient()
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+    auth = AuthContext(user_id="1", portal_id="portal", role="admin")
+
+    bakery_service.get_sku_hour("active_run", "2026-06-10", 1, 10, auth)
+
+    query, params = fake.queries[0]
+    assert "sku_forecast_hour_embedded" in query
+    assert "sku_forecast_hour_snapshots" in query
+    assert "sku_forecast_day_snapshots" in query
+    assert "lead_days = 1" in query
+    assert params["run_id"] == "active_run"
+
+
+def test_run_dates_include_lead_one_snapshots(monkeypatch):
+    fake = _FakeClient()
+    monkeypatch.setattr(runs_service, "get_client", lambda: fake)
+
+    runs_service.get_run_dates("active_run")
+
+    query, params = fake.queries[0]
+    assert "bakery_forecast_day_embedded" in query
+    assert "bakery_forecast_day_snapshots" in query
+    assert "lead_days = 1" in query
+    assert params["run_id"] == "active_run"
 
 
 def test_access_control_requires_portal_id(monkeypatch):
