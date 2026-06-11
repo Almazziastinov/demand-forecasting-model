@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -63,6 +64,8 @@ DEFAULT_REFRESH_SUMMARY_PATH = (
 )
 DEFAULT_HISTORY_START_DATE = "2025-01-01"
 DEFAULT_TIMEZONE = "Europe/Moscow"
+DEFAULT_CLICKHOUSE_RETRY_ATTEMPTS = 3
+DEFAULT_CLICKHOUSE_RETRY_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
@@ -98,13 +101,39 @@ def _normalize_key_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame
     return work
 
 
+def create_client_with_retry(
+    factory,
+    env_file: str | Path,
+    *,
+    attempts: int = DEFAULT_CLICKHOUSE_RETRY_ATTEMPTS,
+    sleep_seconds: float = DEFAULT_CLICKHOUSE_RETRY_SECONDS,
+):
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return factory(env_file)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            print(
+                "ClickHouse client connection failed "
+                f"(attempt {attempt}/{attempts}): {exc}; "
+                f"retrying in {sleep_seconds:g}s",
+                flush=True,
+            )
+            time.sleep(sleep_seconds)
+    assert last_exc is not None
+    raise last_exc
+
+
 def load_uplift_multipliers_from_clickhouse(
     *,
     env_file: str | Path = DEFAULT_ENV_PATH,
     uplift_table: str = UPLIFT_MULTIPLIER_TABLE,
     profile_version: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    client = create_client(env_file)
+    client = create_client_with_retry(create_client, env_file)
     where = ""
     if profile_version:
         safe_version = profile_version.replace("'", "''")
@@ -359,7 +388,7 @@ def refresh_production_datasets(
 ) -> dict:
     sql_template_text = Path(sql_template).read_text(encoding="utf-8")
     aggregate_export = export_daily_windows(
-        client=create_export_client(env_file),
+        client=create_client_with_retry(create_export_client, env_file),
         sql_template_text=sql_template_text,
         output_path=Path(raw_output),
         date_from=history_start_date,

@@ -10,6 +10,9 @@ from pipelines.forecast_publish.production_dataset_refresh import (
     build_uplifted_daily_from_clickhouse_multipliers,
 )
 from pipelines.forecast_publish.production_dataset_refresh import (
+    create_client_with_retry,
+)
+from pipelines.forecast_publish.production_dataset_refresh import (
     refresh_weather_features_with_fallback,
 )
 from pipelines.forecast_publish.production_dataset_refresh import (
@@ -25,6 +28,31 @@ def test_resolve_default_refresh_dates_uses_moscow_business_day() -> None:
 
     assert dates.forecast_start_date == "2026-06-11"
     assert dates.history_end_date == "2026-06-10"
+
+
+def test_create_client_with_retry_retries_transient_failure(monkeypatch):
+    calls = {"count": 0}
+
+    def factory(env_file):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise TimeoutError("clickhouse timeout")
+        return {"env_file": env_file}
+
+    monkeypatch.setattr(
+        "pipelines.forecast_publish.production_dataset_refresh.time.sleep",
+        lambda seconds: None,
+    )
+
+    client = create_client_with_retry(
+        factory,
+        "env",
+        attempts=2,
+        sleep_seconds=0.01,
+    )
+
+    assert client == {"env_file": "env"}
+    assert calls["count"] == 2
 
 
 def test_build_uplifted_daily_from_clickhouse_multipliers() -> None:
