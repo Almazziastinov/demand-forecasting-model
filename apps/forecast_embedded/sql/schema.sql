@@ -77,6 +77,53 @@ engine = MergeTree
 partition by toYYYYMM(forecast_date)
 order by (run_id, forecast_date, bakery_id, product_id, hour);
 
+create table if not exists bakery_forecast_day_snapshots (
+  source_run_id String,
+  forecast_origin_date Date,
+  lead_days Int16,
+  forecast_date Date,
+  generated_at DateTime64(3),
+  bakery_id Int64,
+  bakery_name String,
+  city Nullable(String),
+  forecast_base Nullable(Float64),
+  forecast_final Float64
+)
+engine = ReplacingMergeTree(generated_at)
+partition by toYYYYMM(forecast_date)
+order by (forecast_date, lead_days, bakery_id);
+
+create table if not exists sku_forecast_day_snapshots (
+  source_run_id String,
+  forecast_origin_date Date,
+  lead_days Int16,
+  forecast_date Date,
+  generated_at DateTime64(3),
+  bakery_id Int64,
+  product_id Int64,
+  product_name Nullable(String),
+  category_name Nullable(String),
+  forecast_qty Float64
+)
+engine = ReplacingMergeTree(generated_at)
+partition by toYYYYMM(forecast_date)
+order by (forecast_date, lead_days, bakery_id, product_id);
+
+create table if not exists sku_forecast_hour_snapshots (
+  source_run_id String,
+  forecast_origin_date Date,
+  lead_days Int16,
+  forecast_date Date,
+  generated_at DateTime64(3),
+  bakery_id Int64,
+  product_id Int64,
+  hour Int16,
+  forecast_qty Float64
+)
+engine = ReplacingMergeTree(generated_at)
+partition by toYYYYMM(forecast_date)
+order by (forecast_date, lead_days, bakery_id, product_id, hour);
+
 create table if not exists sku_hour_share_profile_smoothed_embedded (
   bakery_id Int64,
   bakery_name String,

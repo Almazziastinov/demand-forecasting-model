@@ -24,8 +24,11 @@ from pipelines.forecast_publish.load_forecast_run import insert_run_metadata
 from pipelines.forecast_publish.load_forecast_run import load_product_lookup
 from pipelines.forecast_publish.load_forecast_run import load_schema
 from pipelines.forecast_publish.load_forecast_run import prepare_bakery_day
+from pipelines.forecast_publish.load_forecast_run import prepare_bakery_day_snapshots
 from pipelines.forecast_publish.load_forecast_run import prepare_sku_day
+from pipelines.forecast_publish.load_forecast_run import prepare_sku_day_snapshots
 from pipelines.forecast_publish.load_forecast_run import prepare_sku_hour
+from pipelines.forecast_publish.load_forecast_run import prepare_sku_hour_snapshots
 from pipelines.forecast_publish.sku_hour_profile_store import export_profile_from_clickhouse
 from pipelines.forecast_publish.sku_hour_profile_store import PROFILE_TABLE
 from scripts.export_clickhouse_checks import create_client as create_export_client
@@ -135,6 +138,25 @@ def publish_run(
     client.insert_df(CONTEXT_TABLE, context_day)
     client.insert_df("sku_forecast_day_embedded", sku_day)
     client.insert_df("sku_forecast_hour_embedded", sku_hour)
+    snapshot_generated_at = pd.Timestamp.utcnow().tz_localize(None)
+    bakery_snapshots = prepare_bakery_day_snapshots(
+        bakery_day,
+        run_id=run_id,
+        generated_at=snapshot_generated_at,
+    )
+    sku_day_snapshots = prepare_sku_day_snapshots(
+        sku_day,
+        run_id=run_id,
+        generated_at=snapshot_generated_at,
+    )
+    sku_hour_snapshots = prepare_sku_hour_snapshots(
+        sku_hour,
+        run_id=run_id,
+        generated_at=snapshot_generated_at,
+    )
+    client.insert_df("bakery_forecast_day_snapshots", bakery_snapshots)
+    client.insert_df("sku_forecast_day_snapshots", sku_day_snapshots)
+    client.insert_df("sku_forecast_hour_snapshots", sku_hour_snapshots)
 
     if activate:
         activate_run(client, run_id)
@@ -147,6 +169,9 @@ def publish_run(
         "context_rows": str(len(context_day)),
         "sku_day_rows": str(len(sku_day)),
         "sku_hour_rows": str(len(sku_hour)),
+        "bakery_snapshot_rows": str(len(bakery_snapshots)),
+        "sku_day_snapshot_rows": str(len(sku_day_snapshots)),
+        "sku_hour_snapshot_rows": str(len(sku_hour_snapshots)),
         "activated": str(bool(activate)).lower(),
     }
 

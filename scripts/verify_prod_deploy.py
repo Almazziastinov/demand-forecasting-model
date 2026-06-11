@@ -125,6 +125,54 @@ def main() -> int:
         else:
             print("\nactive run(s):")
             print(df.to_string(index=False))
+            active_run_id = str(df["run_id"].iloc[0])
+            snapshot_df = client.query_df(
+                """
+                select
+                    table_name,
+                    rows,
+                    min_lead_days,
+                    max_lead_days
+                from (
+                    select
+                        'bakery_forecast_day_snapshots' as table_name,
+                        count() as rows,
+                        min(lead_days) as min_lead_days,
+                        max(lead_days) as max_lead_days
+                    from bakery_forecast_day_snapshots
+                    where source_run_id = %(run_id)s
+                    union all
+                    select
+                        'sku_forecast_day_snapshots' as table_name,
+                        count() as rows,
+                        min(lead_days) as min_lead_days,
+                        max(lead_days) as max_lead_days
+                    from sku_forecast_day_snapshots
+                    where source_run_id = %(run_id)s
+                    union all
+                    select
+                        'sku_forecast_hour_snapshots' as table_name,
+                        count() as rows,
+                        min(lead_days) as min_lead_days,
+                        max(lead_days) as max_lead_days
+                    from sku_forecast_hour_snapshots
+                    where source_run_id = %(run_id)s
+                )
+                order by table_name
+                """,
+                parameters={"run_id": active_run_id},
+            )
+            print("\nsnapshot rows for active run:")
+            print(snapshot_df.to_string(index=False))
+            missing_snapshots = snapshot_df.loc[
+                snapshot_df["rows"] == 0,
+                "table_name",
+            ].tolist()
+            if missing_snapshots:
+                problems.append(
+                    "active run has no snapshot rows in: "
+                    + ", ".join(str(table) for table in missing_snapshots)
+                )
     except Exception as exc:  # pragma: no cover - network/credentials dependent
         problems.append(f"could not query active run: {exc}")
 

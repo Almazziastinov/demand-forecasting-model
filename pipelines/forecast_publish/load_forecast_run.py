@@ -23,6 +23,11 @@ DEFAULT_SKU_HOUR_PATH = ROOT / "data" / "processed" / "sku_hour_forecast_future_
 DEFAULT_PROFILE_PATH = ROOT / "data" / "processed" / "sku_hour_share_profile_smoothed.csv"
 DEFAULT_ENV_PATH = ROOT / ".env"
 DEFAULT_PROFILE_TABLE = "sku_hour_share_profile_smoothed_embedded"
+SNAPSHOT_TABLES = [
+    "bakery_forecast_day_snapshots",
+    "sku_forecast_day_snapshots",
+    "sku_forecast_hour_snapshots",
+]
 
 
 def _as_bool(value: str | None, default: bool = False) -> bool:
@@ -100,11 +105,13 @@ def count_run_rows(client, run_id: str) -> dict[str, int]:
         CONTEXT_TABLE,
         "sku_forecast_day_embedded",
         "sku_forecast_hour_embedded",
+        *SNAPSHOT_TABLES,
     ]
     counts: dict[str, int] = {}
     for table in tables:
+        key = "source_run_id" if table in SNAPSHOT_TABLES else "run_id"
         df = client.query_df(
-            f"select count() as rows from {table} where run_id = %(run_id)s",
+            f"select count() as rows from {table} where {key} = %(run_id)s",
             parameters={"run_id": run_id},
         )
         counts[table] = int(df["rows"].iloc[0])
@@ -119,8 +126,10 @@ def delete_forecast_run(client, run_id: str) -> None:
         CONTEXT_TABLE,
         "sku_forecast_day_embedded",
         "sku_forecast_hour_embedded",
+        *SNAPSHOT_TABLES,
     ]:
-        client.command(f"alter table {table} delete where run_id = '{safe_run_id}'")
+        key = "source_run_id" if table in SNAPSHOT_TABLES else "run_id"
+        client.command(f"alter table {table} delete where {key} = '{safe_run_id}'")
 
 
 def wait_for_run_deleted(
@@ -217,6 +226,118 @@ def prepare_sku_hour(df: pd.DataFrame, run_id: str) -> pd.DataFrame:
     ].dropna(subset=["forecast_date", "bakery_id", "product_id", "hour", "forecast_qty"])
 
 
+def _add_snapshot_columns(
+    df: pd.DataFrame,
+    *,
+    run_id: str,
+    forecast_origin_date: str | pd.Timestamp | None,
+    generated_at: pd.Timestamp,
+) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+    work = df.copy()
+    forecast_dates = pd.to_datetime(work["forecast_date"], errors="coerce")
+    if forecast_origin_date is None:
+        origin = forecast_dates.min() - pd.Timedelta(days=1)
+    else:
+        origin = pd.Timestamp(forecast_origin_date)
+    origin = origin.normalize()
+    work["source_run_id"] = run_id
+    work["forecast_origin_date"] = origin.date()
+    work["lead_days"] = (forecast_dates - origin).dt.days.astype("int16")
+    work["generated_at"] = generated_at
+    return work
+
+
+def prepare_bakery_day_snapshots(
+    bakery_day: pd.DataFrame,
+    *,
+    run_id: str,
+    forecast_origin_date: str | pd.Timestamp | None = None,
+    generated_at: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    generated = generated_at or pd.Timestamp.utcnow().tz_localize(None)
+    work = _add_snapshot_columns(
+        bakery_day,
+        run_id=run_id,
+        forecast_origin_date=forecast_origin_date,
+        generated_at=generated,
+    )
+    return work[
+        [
+            "source_run_id",
+            "forecast_origin_date",
+            "lead_days",
+            "forecast_date",
+            "generated_at",
+            "bakery_id",
+            "bakery_name",
+            "city",
+            "forecast_base",
+            "forecast_final",
+        ]
+    ]
+
+
+def prepare_sku_day_snapshots(
+    sku_day: pd.DataFrame,
+    *,
+    run_id: str,
+    forecast_origin_date: str | pd.Timestamp | None = None,
+    generated_at: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    generated = generated_at or pd.Timestamp.utcnow().tz_localize(None)
+    work = _add_snapshot_columns(
+        sku_day,
+        run_id=run_id,
+        forecast_origin_date=forecast_origin_date,
+        generated_at=generated,
+    )
+    return work[
+        [
+            "source_run_id",
+            "forecast_origin_date",
+            "lead_days",
+            "forecast_date",
+            "generated_at",
+            "bakery_id",
+            "product_id",
+            "product_name",
+            "category_name",
+            "forecast_qty",
+        ]
+    ]
+
+
+def prepare_sku_hour_snapshots(
+    sku_hour: pd.DataFrame,
+    *,
+    run_id: str,
+    forecast_origin_date: str | pd.Timestamp | None = None,
+    generated_at: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    generated = generated_at or pd.Timestamp.utcnow().tz_localize(None)
+    work = _add_snapshot_columns(
+        sku_hour,
+        run_id=run_id,
+        forecast_origin_date=forecast_origin_date,
+        generated_at=generated,
+    )
+    return work[
+        [
+            "source_run_id",
+            "forecast_origin_date",
+            "lead_days",
+            "forecast_date",
+            "generated_at",
+            "bakery_id",
+            "product_id",
+            "hour",
+            "forecast_qty",
+        ]
+    ]
+
+
 def insert_run_metadata(
     client,
     *,
@@ -307,6 +428,25 @@ def load_forecast_run(
     client.insert_df(CONTEXT_TABLE, context_day)
     client.insert_df("sku_forecast_day_embedded", sku_day)
     client.insert_df("sku_forecast_hour_embedded", sku_hour)
+    snapshot_generated_at = pd.Timestamp.utcnow().tz_localize(None)
+    bakery_snapshots = prepare_bakery_day_snapshots(
+        bakery_day,
+        run_id=final_run_id,
+        generated_at=snapshot_generated_at,
+    )
+    sku_day_snapshots = prepare_sku_day_snapshots(
+        sku_day,
+        run_id=final_run_id,
+        generated_at=snapshot_generated_at,
+    )
+    sku_hour_snapshots = prepare_sku_hour_snapshots(
+        sku_hour,
+        run_id=final_run_id,
+        generated_at=snapshot_generated_at,
+    )
+    client.insert_df("bakery_forecast_day_snapshots", bakery_snapshots)
+    client.insert_df("sku_forecast_day_snapshots", sku_day_snapshots)
+    client.insert_df("sku_forecast_hour_snapshots", sku_hour_snapshots)
 
     return {
         "run_id": final_run_id,
@@ -314,6 +454,9 @@ def load_forecast_run(
         "context_rows": len(context_day),
         "sku_day_rows": len(sku_day),
         "sku_hour_rows": len(sku_hour),
+        "bakery_snapshot_rows": len(bakery_snapshots),
+        "sku_day_snapshot_rows": len(sku_day_snapshots),
+        "sku_hour_snapshot_rows": len(sku_hour_snapshots),
     }
 
 
