@@ -159,6 +159,8 @@ def test_refresh_weather_features_falls_back_to_existing_file(monkeypatch):
 
     assert result["weather_status"] == "existing_file_fallback"
     assert result["weather_rows"] == 1
+    assert result["weather_start_date"] == "2026-06-10"
+    assert result["weather_end_date"] == "2026-06-24"
     assert "openmeteo timeout" in str(result["weather_error"])
     weather_path.unlink()
     dataset_path.unlink()

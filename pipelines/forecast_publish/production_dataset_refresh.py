@@ -339,6 +339,8 @@ def refresh_weather_features_with_fallback(
         dataset_paths,
         horizon_days=int(horizon_days),
     )
+    weather_start_value = str(pd.Timestamp(weather_start).date())
+    weather_end_value = str(pd.Timestamp(weather_end).date())
     try:
         weather_df = fetch_weather_features(
             weather_cities,
@@ -353,8 +355,8 @@ def refresh_weather_features_with_fallback(
             "weather_rows": int(len(fallback)),
             "weather_status": "existing_file_fallback",
             "weather_error": str(exc),
-            "weather_start_date": weather_start,
-            "weather_end_date": weather_end,
+            "weather_start_date": weather_start_value,
+            "weather_end_date": weather_end_value,
         }
 
     weather_output.parent.mkdir(parents=True, exist_ok=True)
@@ -363,8 +365,8 @@ def refresh_weather_features_with_fallback(
         "weather_rows": int(len(weather_df)),
         "weather_status": "refreshed",
         "weather_error": None,
-        "weather_start_date": weather_start,
-        "weather_end_date": weather_end,
+        "weather_start_date": weather_start_value,
+        "weather_end_date": weather_end_value,
     }
 
 
