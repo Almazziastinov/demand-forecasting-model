@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ИИ прогноз плана</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260609b">
-  <script src="/static/app.js?v=20260609b" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v=20260615a">
+  <script src="/static/app.js?v=20260615a" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -23,5 +23,12 @@
   <main class="page">
     {% block content %}{% endblock %}
   </main>
+  <div class="loading-overlay" data-loading-overlay hidden aria-live="polite" aria-busy="true">
+    <div class="loading-dialog" role="status">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <strong data-loading-title>Загрузка данных</strong>
+      <span data-loading-message>Подождите, действие выполняется.</span>
+    </div>
+  </div>
 </body>
 </html>

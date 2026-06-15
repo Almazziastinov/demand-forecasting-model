@@ -1,4 +1,73 @@
 document.addEventListener("DOMContentLoaded", () => {
+  const overlay = document.querySelector("[data-loading-overlay]");
+  const overlayTitle = overlay?.querySelector("[data-loading-title]");
+  const overlayMessage = overlay?.querySelector("[data-loading-message]");
+  let downloadHideTimer = null;
+
+  const showLoading = (title = "Загрузка данных", message = "Подождите, действие выполняется.") => {
+    if (!overlay) {
+      return;
+    }
+    if (downloadHideTimer) {
+      window.clearTimeout(downloadHideTimer);
+      downloadHideTimer = null;
+    }
+    if (overlayTitle) {
+      overlayTitle.textContent = title;
+    }
+    if (overlayMessage) {
+      overlayMessage.textContent = message;
+    }
+    overlay.hidden = false;
+    document.body.classList.add("is-loading");
+  };
+
+  const hideLoading = () => {
+    if (!overlay) {
+      return;
+    }
+    overlay.hidden = true;
+    document.body.classList.remove("is-loading");
+  };
+
+  document.querySelectorAll("form").forEach((form) => {
+    form.addEventListener("submit", () => {
+      showLoading();
+    });
+    form.querySelectorAll("input, select").forEach((control) => {
+      control.addEventListener("change", () => {
+        showLoading();
+      });
+    });
+  });
+
+  document.querySelectorAll("a[href]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      if (event.defaultPrevented || event.button !== 0 || link.target === "_blank") {
+        return;
+      }
+      const href = link.getAttribute("href") || "";
+      if (!href || href.startsWith("#") || href.startsWith("javascript:")) {
+        return;
+      }
+
+      if (href.includes("baking-plan.xlsx")) {
+        showLoading("Формируем план выпекания", "Excel-файл готовится и скоро начнёт скачиваться.");
+        downloadHideTimer = window.setTimeout(hideLoading, 10000);
+        return;
+      }
+
+      showLoading();
+    });
+  });
+
+  window.addEventListener("pageshow", hideLoading);
+  window.addEventListener("focus", () => {
+    if (downloadHideTimer) {
+      window.setTimeout(hideLoading, 600);
+    }
+  });
+
   document.querySelectorAll("[data-bakery-search]").forEach((input) => {
     const sidebar = input.closest(".sidebar");
     const links = Array.from(sidebar?.querySelectorAll(".bakery-link") || []);
