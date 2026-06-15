@@ -74,6 +74,8 @@ class ScheduledColumn:
     window: BakingWindow
     is_defrost: bool
     note: str | None
+    quantity: int | None = None
+    is_artificial: bool = False
 
 
 def is_defrost_cell(value: object) -> bool:
@@ -235,13 +237,53 @@ def read_row_schedule(
                 window=window,
                 is_defrost=defrost,
                 note=str(value) if defrost else None,
+                quantity=_extract_positive_int(value),
             )
         )
     return schedule
 
 
 def _round_up(qty: float, round_to: int) -> int:
+    if round_to <= 1:
+        return int(math.ceil(qty))
     return int(math.ceil(qty / round_to) * round_to)
+
+
+def _extract_positive_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        rounded = int(round(value))
+        return rounded if rounded > 0 and math.isclose(value, rounded) else None
+
+    match = re.search(r"\d+", str(value))
+    if not match:
+        return None
+    parsed = int(match.group(0))
+    return parsed if parsed > 0 else None
+
+
+def schedule_round_to(schedule: list[ScheduledColumn]) -> int:
+    quantities = [
+        item.quantity
+        for item in schedule
+        if not item.is_defrost and item.quantity is not None and item.quantity > 0
+    ]
+    if not quantities:
+        quantities = [
+            item.quantity
+            for item in schedule
+            if item.quantity is not None and item.quantity > 0
+        ]
+    if not quantities:
+        return 1
+
+    round_to = quantities[0]
+    for quantity in quantities[1:]:
+        round_to = math.gcd(round_to, quantity)
+    return max(round_to, 1)
 
 
 def _early_window_sum(
@@ -254,13 +296,58 @@ def _early_window_sum(
     )
 
 
+def _with_midday_split_window(
+    bake_windows: list[BakingWindow],
+    *,
+    available_windows: dict[int, BakingWindow] | None,
+    hourly: dict[int, float],
+    first_sales_hour: int,
+    last_sales_hour: int,
+) -> list[BakingWindow]:
+    if len(bake_windows) != 1 or not available_windows:
+        return bake_windows
+
+    early_window = bake_windows[0]
+    if early_window.end_hour > DEFROST_EARLY_CUTOFF:
+        return bake_windows
+
+    later_demand = sum(
+        qty
+        for hour, qty in hourly.items()
+        if DEFROST_EARLY_CUTOFF <= hour <= last_sales_hour
+    )
+    if later_demand <= 0:
+        return bake_windows
+
+    candidates = [
+        window
+        for window in available_windows.values()
+        if window.column != early_window.column
+        and window.end_hour >= DEFROST_EARLY_CUTOFF
+        and window.start_hour >= first_sales_hour
+    ]
+    if not candidates:
+        return bake_windows
+
+    split_window = sorted(
+        candidates,
+        key=lambda item: (
+            abs(item.end_hour - DEFROST_EARLY_CUTOFF),
+            item.end_hour,
+            item.column,
+        ),
+    )[0]
+    return [early_window, split_window]
+
+
 def allocate_template_row(
     *,
     template_sku_name: object,
     schedule: list[ScheduledColumn],
     product_hour_lookup: dict[str, dict[int, float]],
     next_day_hour_lookup: dict[str, dict[int, float]] | None = None,
-    round_to: int = 1,
+    round_to: int | None = None,
+    available_windows: dict[int, BakingWindow] | None = None,
     first_sales_hour: int = FIRST_SALES_HOUR,
     last_sales_hour: int = LAST_SALES_HOUR,
 ) -> dict[int, int | str]:
@@ -275,7 +362,15 @@ def allocate_template_row(
     if not hourly:
         return {}
 
+    effective_round_to = round_to or schedule_round_to(schedule)
     bake_windows = [item.window for item in schedule if not item.is_defrost]
+    bake_windows = _with_midday_split_window(
+        bake_windows,
+        available_windows=available_windows,
+        hourly=hourly,
+        first_sales_hour=first_sales_hour,
+        last_sales_hour=last_sales_hour,
+    )
     allocated: dict[int, int | str] = {}
 
     coverage = coverage_hours(
@@ -283,11 +378,19 @@ def allocate_template_row(
         first_sales_hour=first_sales_hour,
         last_sales_hour=last_sales_hour,
     )
-    for column, hours in coverage.items():
-        qty = sum(hourly.get(hour, 0.0) for hour in hours)
-        if qty <= 0:
+    carry = 0.0
+    for window in sorted(
+        bake_windows,
+        key=lambda item: (item.start_hour, item.end_hour, item.column),
+    ):
+        demand = sum(hourly.get(hour, 0.0) for hour in coverage.get(window.column, []))
+        net_qty = max(demand - carry, 0.0)
+        if net_qty <= 0:
+            carry = max(carry - demand, 0.0)
             continue
-        allocated[column] = _round_up(qty, round_to)
+        baked_qty = _round_up(net_qty, effective_round_to)
+        allocated[window.column] = baked_qty
+        carry = carry + baked_qty - demand
 
     defrost_columns = [item for item in schedule if item.is_defrost]
     if defrost_columns:
@@ -298,7 +401,8 @@ def allocate_template_row(
             )
         source = next_hourly if next_hourly else hourly
         defrost_qty = _round_up(
-            _early_window_sum(source, first_sales_hour=first_sales_hour), round_to
+            _early_window_sum(source, first_sales_hour=first_sales_hour),
+            effective_round_to,
         )
         for item in defrost_columns:
             # Strip the template's leading number, keep the annotation (e.g.
@@ -399,12 +503,17 @@ def build_baking_plan_workbook(
             next_day_hour_lookup=next_day_hour_lookup,
             first_sales_hour=first_sales_hour,
             last_sales_hour=last_sales_hour,
+            available_windows=sheet_windows,
         )
-        # Only rewrite the columns this SKU is actually scheduled in; clear a
-        # scheduled cell that resolved to no forecast, leave all others untouched.
+        # Rewrite scheduled cells and any added split window. Other template cells
+        # stay untouched.
         for item in schedule:
             column = item.window.column
             sheet.cell(row=row_index, column=column).value = allocated.get(column)
+        scheduled_columns = {item.window.column for item in schedule}
+        for column, value in allocated.items():
+            if column not in scheduled_columns:
+                sheet.cell(row=row_index, column=column).value = value
 
     output = BytesIO()
     workbook.save(output)

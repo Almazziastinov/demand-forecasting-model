@@ -14,6 +14,7 @@ from app.services.baking_plan import coverage_hours  # noqa: E402
 from app.services.baking_plan import is_defrost_cell  # noqa: E402
 from app.services.baking_plan import normalize_sku_name  # noqa: E402
 from app.services.baking_plan import revenue_bucket  # noqa: E402
+from app.services.baking_plan import schedule_round_to  # noqa: E402
 from app.services.baking_plan import sku_match_keys  # noqa: E402
 
 
@@ -36,6 +37,18 @@ def _schedule(*columns, defrost=()):
             note="20 (ночная дефр)" if c in defrost else None,
         )
         for c in columns
+    ]
+
+
+def _schedule_with_quantities(items, defrost=()):
+    return [
+        ScheduledColumn(
+            window=WINDOWS[c],
+            is_defrost=c in defrost,
+            note="20 (РЅРѕС‡РЅР°СЏ РґРµС„СЂ)" if c in defrost else None,
+            quantity=q,
+        )
+        for c, q in items
     ]
 
 
@@ -72,6 +85,47 @@ def test_allocate_only_fills_scheduled_columns() -> None:
     assert set(result.keys()) == {3, 8}
     assert result[3] == 3 + 12 + 15 + 15 + 20 + 30  # hours 6..11
     assert result[8] == 27  # hour 12..end
+
+
+def test_schedule_round_to_uses_template_batch_gcd() -> None:
+    assert schedule_round_to(_schedule_with_quantities([(3, 20), (8, 20)])) == 20
+    assert (
+        schedule_round_to(_schedule_with_quantities([(3, 20), (8, 10), (12, 20)]))
+        == 10
+    )
+
+
+def test_allocate_rounds_up_and_carries_surplus_to_next_bakes() -> None:
+    rows = [
+        {"product_name": "batch sku", "hour": h, "forecast_qty": q}
+        for h, q in {6: 21, 12: 25, 16: 1}.items()
+    ]
+    lookup = build_product_hour_lookup(rows)
+
+    result = allocate_template_row(
+        template_sku_name="batch sku",
+        schedule=_schedule_with_quantities([(3, 20), (8, 20), (12, 20)]),
+        product_hour_lookup=lookup,
+    )
+
+    assert result == {3: 40, 8: 20}
+
+
+def test_allocate_adds_midday_split_for_single_early_bake() -> None:
+    rows = [
+        {"product_name": "split sku", "hour": h, "forecast_qty": q}
+        for h, q in {7: 20, 12: 15, 18: 25}.items()
+    ]
+    lookup = build_product_hour_lookup(rows)
+
+    result = allocate_template_row(
+        template_sku_name="split sku",
+        schedule=_schedule_with_quantities([(3, 20)]),
+        product_hour_lookup=lookup,
+        available_windows=WINDOWS,
+    )
+
+    assert result == {3: 20, 8: 40}
 
 
 def test_defrost_cell_detection_keys_off_cell_value_not_sku_name() -> None:
