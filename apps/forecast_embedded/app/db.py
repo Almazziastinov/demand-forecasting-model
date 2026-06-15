@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 
+import time
 from pathlib import Path
 
 import clickhouse_connect
@@ -54,12 +55,22 @@ def get_client():
     if missing:
         raise RuntimeError(f"Missing ClickHouse settings in .env: {', '.join(missing)}")
 
-    return clickhouse_connect.get_client(
-        host=host,
-        port=int(port),
-        username=username,
-        password=password,
-        database=database,
-        secure=settings.clickhouse_secure,
-        verify=settings.clickhouse_verify,
-    )
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            return clickhouse_connect.get_client(
+                host=host,
+                port=int(port),
+                username=username,
+                password=password,
+                database=database,
+                secure=settings.clickhouse_secure,
+                verify=settings.clickhouse_verify,
+                connect_timeout=25,
+                send_receive_timeout=300,
+            )
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(2)
+    raise last_error
