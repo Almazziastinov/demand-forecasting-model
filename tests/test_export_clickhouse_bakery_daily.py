@@ -8,6 +8,9 @@ from scripts.export_clickhouse_bakery_daily import export_daily_windows
 from scripts.export_clickhouse_bakery_daily import normalize_columns
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class _FakeClient:
     def __init__(self, frame: pd.DataFrame):
         self.frame = frame
@@ -90,3 +93,15 @@ def test_normalize_columns_accepts_clickhouse_expression_names():
         "priced_quantity",
         "price_x_qty_sum",
     ]
+
+
+def test_bakery_daily_template_deduplicates_check_lines_before_aggregation():
+    template = (ROOT / "scripts" / "clickhouse_bakery_daily_template.sql").read_text(
+        encoding="utf-8"
+    )
+    lower_template = template.lower()
+
+    assert "select distinct" in lower_template
+    assert "from svezhar.fct_check_lines as fcl" in lower_template
+    assert "from (\n    select distinct" in lower_template
+    assert "sum(tofloat64(sales.quantity))" in lower_template
