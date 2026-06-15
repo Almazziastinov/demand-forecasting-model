@@ -53,6 +53,8 @@ from src.experiments_v2.apply_bakery_profiles import load_bakery_hour_profile
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "processed"
 SKU_UPLIFT_MULTIPLIER_COL = "sku_uplift_multiplier"
 SALES_LINE_TABLE = "mart_sales_60d"
+RAW_SALES_LINE_TABLE = "Svezhar.fct_check_lines"
+SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
 RECENT_CORRECTION_MODES = (
     "none",
     "dead_0d",
@@ -224,6 +226,31 @@ def stream_profile_chunks(client, *, profile_table: str, chunk_size: int):
                 yield block
 
 
+def _recent_sales_source_sql(sales_table: str) -> str:
+    if sales_table == RAW_SALES_LINE_TABLE:
+        return f"""
+        (
+            select distinct
+                fcl.check_datetime,
+                fcl.check_date,
+                fcl.bakery_id,
+                fcl.product_id,
+                fcl.quantity,
+                db.city as city,
+                dp.product_name as product_name,
+                dp.category_name as category_name
+            from {RAW_SALES_LINE_TABLE} as fcl
+            any left join Svezhar.dim_bakeries as db
+                on db.bakery_id = fcl.bakery_id
+            any left join Svezhar.dim_products as dp
+                on dp.product_id = fcl.product_id
+            where hex(fcl.cash_event_type) = '{SALES_EVENT_HEX}'
+              and fcl.check_date between %(recent_start)s and %(recent_end)s
+        )
+        """
+    return sales_table
+
+
 def load_recent_assortment_stats(
     client,
     *,
@@ -233,6 +260,7 @@ def load_recent_assortment_stats(
 ) -> pd.DataFrame:
     recent_end = forecast_start - pd.Timedelta(days=1)
     recent_start = forecast_start - pd.Timedelta(days=recent_days)
+    source_sql = _recent_sales_source_sql(sales_table)
     stats = client.query_df(
         f"""
         select
@@ -243,7 +271,7 @@ def load_recent_assortment_stats(
             any(category_name) as category_name,
             sum(toFloat64(quantity)) as recent_qty,
             uniqExact(check_date) as recent_days_sold
-        from {sales_table}
+        from {source_sql}
         where check_date between %(recent_start)s and %(recent_end)s
           and toInt64OrNull(toString(bakery_id)) is not null
           and toInt64OrNull(toString(product_id)) is not null
@@ -293,6 +321,7 @@ def load_recent_daily_share_stats(
 ) -> pd.DataFrame:
     recent_end = forecast_start - pd.Timedelta(days=1)
     recent_start = forecast_start - pd.Timedelta(days=recent_days)
+    source_sql = _recent_sales_source_sql(sales_table)
     daily = client.query_df(
         f"""
         select
@@ -300,7 +329,7 @@ def load_recent_daily_share_stats(
             toInt64OrNull(toString(bakery_id)) as bakery_id,
             toInt64OrNull(toString(product_id)) as product_id,
             sum(toFloat64(quantity)) as recent_day_qty
-        from {sales_table}
+        from {source_sql}
         where check_date between %(recent_start)s and %(recent_end)s
           and toInt64OrNull(toString(bakery_id)) is not null
           and toInt64OrNull(toString(product_id)) is not null

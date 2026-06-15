@@ -3,7 +3,9 @@ from __future__ import annotations
 import pandas as pd
 
 from src.experiments_v2.apply_bakery_profiles_clickhouse import (
+    RAW_SALES_LINE_TABLE,
     _build_recent_correction_targets,
+    _recent_sales_source_sql,
 )
 
 
@@ -135,3 +137,12 @@ def test_runner_city_prior_soft_weekpart_lifts_city_top_runner() -> None:
     assert round(float(lifted["corrected_daily_forecast"]), 4) > 20.0
     assert round(float(reduced["corrected_daily_forecast"]), 4) < 80.0
     assert round(float(targets["corrected_daily_forecast"].sum()), 4) == 100.0
+
+
+def test_recent_sales_source_deduplicates_raw_check_lines() -> None:
+    source = _recent_sales_source_sql(RAW_SALES_LINE_TABLE).lower()
+
+    assert "select distinct" in source
+    assert "svezhar.fct_check_lines" in source
+    assert "hex(fcl.cash_event_type)" in source
+    assert "fcl.check_date between %(recent_start)s and %(recent_end)s" in source
