@@ -33,6 +33,28 @@ class _FakeClient:
         )
 
 
+class _FakeRunsClient:
+    def __init__(self):
+        self.queries: list[tuple[str, dict]] = []
+
+    def query_df(self, query: str, parameters: dict | None = None):
+        self.queries.append((query, parameters or {}))
+        return pd.DataFrame(
+            {
+                "run_id": ["run_20260615_h14"],
+                "model_version": ["bakery_day_lgbm_uplifted"],
+                "profile_version": ["clickhouse_norm_uplift_sku"],
+                "source_kind": ["bakery_driven"],
+                "horizon_start": [pd.Timestamp("2026-06-15").date()],
+                "horizon_end": [pd.Timestamp("2026-06-28").date()],
+                "latest_generated_at": [pd.Timestamp("2026-06-15 12:00:00")],
+                "statuses": [["active"]],
+                "is_active": [1],
+                "is_bias_adjusted": [True],
+            }
+        )
+
+
 def test_partner_bakery_list_is_filtered_by_access_table(monkeypatch):
     fake = _FakeClient()
     monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
@@ -131,6 +153,16 @@ def test_run_dates_include_lead_one_snapshots(monkeypatch):
     assert "bakery_forecast_day_snapshots" in query
     assert "lead_days = 1" in query
     assert params["run_id"] == "active_run"
+
+
+def test_list_runs_adds_forecast_display_name(monkeypatch):
+    fake = _FakeRunsClient()
+    monkeypatch.setattr(runs_service, "get_client", lambda: fake)
+
+    rows = runs_service.list_runs()
+
+    assert rows[0]["display_name"] == "Прогноз 15.06-28.06"
+    assert rows[0]["is_active"] is True
 
 
 def test_access_control_requires_portal_id(monkeypatch):

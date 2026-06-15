@@ -1,9 +1,31 @@
 from __future__ import annotations
 
+from datetime import date
+from datetime import datetime
+
 from app.db import get_client
 from app.settings import get_settings
 
 RUNS_TABLE = "forecast_runs_embedded"
+
+
+def _format_short_date(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%d.%m")
+    if isinstance(value, date):
+        return value.strftime("%d.%m")
+    parsed = datetime.fromisoformat(str(value)[:10])
+    return parsed.strftime("%d.%m")
+
+
+def _run_display_name(record: dict) -> str:
+    start = _format_short_date(record.get("horizon_start"))
+    end = _format_short_date(record.get("horizon_end"))
+    if start and end:
+        return f"Прогноз {start}-{end}"
+    return "Прогноз"
 
 
 def _normalize_record_dates(record: dict) -> dict:
@@ -12,6 +34,7 @@ def _normalize_record_dates(record: dict) -> dict:
         value = normalized.get(key)
         if value is not None:
             normalized[key] = getattr(value, "isoformat", lambda: str(value))()
+    normalized["display_name"] = _run_display_name(record)
     return normalized
 
 

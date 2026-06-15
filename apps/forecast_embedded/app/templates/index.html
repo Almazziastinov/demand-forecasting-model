@@ -43,11 +43,11 @@
       </label>
       {% if is_admin %}
       <label>
-        Модель
+        Прогноз
         <select name="run_id" onchange="this.form.submit()">
           {% for run in runs %}
           <option value="{{ run.run_id }}" {% if run.run_id == active_run.run_id %}selected{% endif %}>
-            {{ run.run_id }}{% if run.is_active %} - активная{% endif %}
+            {{ run.display_name }}{% if run.is_active %} - активный{% endif %} ({{ run.run_id }})
           </option>
           {% endfor %}
         </select>
