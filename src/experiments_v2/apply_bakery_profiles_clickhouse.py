@@ -231,11 +231,11 @@ def _recent_sales_source_sql(sales_table: str) -> str:
         return f"""
         (
             select distinct
-                fcl.check_datetime,
-                fcl.check_date,
-                fcl.bakery_id,
-                fcl.product_id,
-                fcl.quantity,
+                fcl.check_datetime as check_datetime,
+                fcl.check_date as check_date,
+                fcl.bakery_id as bakery_id,
+                fcl.product_id as product_id,
+                fcl.quantity as quantity,
                 db.city as city,
                 dp.product_name as product_name,
                 dp.category_name as category_name
