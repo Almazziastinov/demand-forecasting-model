@@ -87,6 +87,24 @@ def test_bakery_list_reads_lead_one_snapshots(monkeypatch):
     assert params["run_id"] == "active_run"
 
 
+def test_bakery_week_reads_actuals_from_raw_check_lines(monkeypatch):
+    fake = _FakeClient()
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+    auth = AuthContext(user_id="1", portal_id="portal", role="admin")
+
+    bakery_service.get_bakery_week("active_run", "2026-06-11", "2026-06-17", 79, auth)
+
+    query, params = fake.queries[0]
+    assert "Svezhar.fct_check_lines" in query
+    assert "hex(fcl.cash_event_type) = %(sales_event_hex)s" in query
+    assert (
+        "fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s)"
+        in query
+    )
+    assert "mart_sales_60d" not in query
+    assert params["sales_event_hex"] == "D09FD180D0BED0B4D0B0D0B6D0B0"
+
+
 def test_sku_hour_reads_lead_one_snapshots(monkeypatch):
     fake = _FakeClient()
     monkeypatch.setattr(bakery_service, "get_client", lambda: fake)

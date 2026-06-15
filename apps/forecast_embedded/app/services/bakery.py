@@ -14,6 +14,8 @@ SKU_DAY_SNAPSHOT_TABLE = "sku_forecast_day_snapshots"
 SKU_HOUR_TABLE = "sku_forecast_hour_embedded"
 SKU_HOUR_SNAPSHOT_TABLE = "sku_forecast_hour_snapshots"
 SALES_LINE_TABLE = "mart_sales_60d"
+RAW_SALES_LINE_TABLE = "Svezhar.fct_check_lines"
+SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
 ACCESS_TABLE = "bitrix_user_bakery_access_embedded"
 MANAGEMENT_TABLE = "dim_management"
 MONTH_REVENUE_TABLE = "bakery_month_revenue_embedded"
@@ -222,11 +224,12 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
     query = """
         with sales as (
             select
-                toInt64OrNull(toString(bakery_id)) as sales_bakery_id,
-                sum(toFloat64(quantity)) as actual_qty,
-                sum(toFloat64(line_amount)) as actual_revenue
-            from {sales_line_table}
-            where check_date = %(forecast_date)s
+                toInt64OrNull(toString(fcl.bakery_id)) as sales_bakery_id,
+                sum(toFloat64(fcl.quantity)) as actual_qty,
+                sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
+            from {raw_sales_line_table} fcl
+            where hex(fcl.cash_event_type) = %(sales_event_hex)s
+              and fcl.check_date = toDate(%(forecast_date)s)
             group by sales_bakery_id
         )
         select
@@ -258,7 +261,7 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
         order by forecast_final desc, bakery_name asc
         """.format(
         source=_bakery_day_source("forecast_date = %(forecast_date)s"),
-        sales_line_table=SALES_LINE_TABLE,
+        raw_sales_line_table=RAW_SALES_LINE_TABLE,
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -268,6 +271,7 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
         parameters={
             "run_id": run_id,
             "forecast_date": forecast_date,
+            "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
             **access_params,
         },
@@ -288,12 +292,13 @@ def get_bakery_week(
     query = """
         with sales as (
             select
-                check_date as forecast_date,
-                toInt64OrNull(toString(bakery_id)) as sales_bakery_id,
-                sum(toFloat64(quantity)) as actual_qty,
-                sum(toFloat64(line_amount)) as actual_revenue
-            from {sales_line_table}
-            where check_date between %(start_date)s and %(end_date)s
+                fcl.check_date as forecast_date,
+                toInt64OrNull(toString(fcl.bakery_id)) as sales_bakery_id,
+                sum(toFloat64(fcl.quantity)) as actual_qty,
+                sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
+            from {raw_sales_line_table} fcl
+            where hex(fcl.cash_event_type) = %(sales_event_hex)s
+              and fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s)
             group by forecast_date, sales_bakery_id
         )
         select
@@ -331,7 +336,7 @@ def get_bakery_week(
         order by b.forecast_date
         """.format(
         source=_bakery_day_source("forecast_date between %(start_date)s and %(end_date)s"),
-        sales_line_table=SALES_LINE_TABLE,
+        raw_sales_line_table=RAW_SALES_LINE_TABLE,
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -343,6 +348,7 @@ def get_bakery_week(
             "start_date": start_date,
             "end_date": end_date,
             "bakery_id": bakery_id,
+            "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
             **access_params,
         },
@@ -362,11 +368,12 @@ def get_bakery_day(
     query = """
         with sales as (
             select
-                toInt64OrNull(toString(bakery_id)) as sales_bakery_id,
-                sum(toFloat64(quantity)) as actual_qty,
-                sum(toFloat64(line_amount)) as actual_revenue
-            from {sales_line_table}
-            where check_date = %(forecast_date)s
+                toInt64OrNull(toString(fcl.bakery_id)) as sales_bakery_id,
+                sum(toFloat64(fcl.quantity)) as actual_qty,
+                sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
+            from {raw_sales_line_table} fcl
+            where hex(fcl.cash_event_type) = %(sales_event_hex)s
+              and fcl.check_date = toDate(%(forecast_date)s)
             group by sales_bakery_id
         )
         select b.bakery_id as bakery_id, b.bakery_name as bakery_name, b.city as city,
@@ -381,7 +388,7 @@ def get_bakery_day(
         limit 1
         """.format(
         source=_bakery_day_source("forecast_date = %(forecast_date)s"),
-        sales_line_table=SALES_LINE_TABLE,
+        raw_sales_line_table=RAW_SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -391,6 +398,7 @@ def get_bakery_day(
             "run_id": run_id,
             "forecast_date": forecast_date,
             "bakery_id": bakery_id,
+            "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
             **access_params,
         },
@@ -456,12 +464,13 @@ def get_top_sku(
     query = """
         with sales as (
             select
-                toInt64OrNull(toString(product_id)) as sales_product_id,
-                sum(toFloat64(quantity)) as actual_qty,
-                sum(toFloat64(line_amount)) as actual_revenue
-            from {sales_line_table}
-            where check_date = %(forecast_date)s
-              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+                toInt64OrNull(toString(fcl.product_id)) as sales_product_id,
+                sum(toFloat64(fcl.quantity)) as actual_qty,
+                sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
+            from {raw_sales_line_table} fcl
+            where hex(fcl.cash_event_type) = %(sales_event_hex)s
+              and fcl.check_date = toDate(%(forecast_date)s)
+              and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s
             group by sales_product_id
         )
         select d.product_id as product_id,
@@ -481,7 +490,7 @@ def get_top_sku(
         limit %(limit)s
         """.format(
         source=_sku_day_source("forecast_date = %(forecast_date)s"),
-        sales_line_table=SALES_LINE_TABLE,
+        raw_sales_line_table=RAW_SALES_LINE_TABLE,
         category_sql=category_sql,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -494,6 +503,7 @@ def get_top_sku(
             "bakery_id": bakery_id,
             "limit": limit,
             "category": category or "",
+            "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
             **access_params,
         },
@@ -554,11 +564,12 @@ def get_hourly_total(
         ),
         actual as (
             select
-                toHour(check_datetime) as hour,
-                sum(toFloat64(quantity)) as actual_qty
-            from {sales_line_table}
-            where check_date = %(forecast_date)s
-              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+                toHour(fcl.check_datetime) as hour,
+                sum(toFloat64(fcl.quantity)) as actual_qty
+            from {raw_sales_line_table} fcl
+            where hex(fcl.cash_event_type) = %(sales_event_hex)s
+              and fcl.check_date = toDate(%(forecast_date)s)
+              and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s
             group by hour
         )
         select
@@ -570,7 +581,7 @@ def get_hourly_total(
         order by hour
         """.format(
         source=_sku_hour_source("forecast_date = %(forecast_date)s"),
-        sales_line_table=SALES_LINE_TABLE,
+        raw_sales_line_table=RAW_SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -580,6 +591,7 @@ def get_hourly_total(
             "run_id": run_id,
             "forecast_date": forecast_date,
             "bakery_id": bakery_id,
+            "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
             **access_params,
         },
@@ -614,13 +626,14 @@ def get_sku_hour(
         ),
         actual as (
             select
-                toHour(check_datetime) as hour,
-                toInt64OrNull(toString(product_id)) as product_id,
-                sum(toFloat64(quantity)) as actual_qty
-            from {sales_line_table}
-            where check_date = %(forecast_date)s
-              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
-              and toInt64OrNull(toString(product_id)) = %(product_id)s
+                toHour(fcl.check_datetime) as hour,
+                toInt64OrNull(toString(fcl.product_id)) as product_id,
+                sum(toFloat64(fcl.quantity)) as actual_qty
+            from {raw_sales_line_table} fcl
+            where hex(fcl.cash_event_type) = %(sales_event_hex)s
+              and fcl.check_date = toDate(%(forecast_date)s)
+              and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s
+              and toInt64OrNull(toString(fcl.product_id)) = %(product_id)s
             group by hour, product_id
         )
         select
@@ -636,7 +649,7 @@ def get_sku_hour(
         """.format(
         hour_source=_sku_hour_source("forecast_date = %(forecast_date)s"),
         day_source=_sku_day_source("forecast_date = %(forecast_date)s"),
-        sales_line_table=SALES_LINE_TABLE,
+        raw_sales_line_table=RAW_SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -647,6 +660,7 @@ def get_sku_hour(
             "forecast_date": forecast_date,
             "bakery_id": bakery_id,
             "product_id": product_id,
+            "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
             **access_params,
         },
@@ -713,13 +727,14 @@ def get_sku_day(
     query = """
         with sales as (
             select
-                toInt64OrNull(toString(product_id)) as sales_product_id,
-                sum(toFloat64(quantity)) as actual_qty,
-                sum(toFloat64(line_amount)) as actual_revenue
-            from {sales_line_table}
-            where check_date = %(forecast_date)s
-              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
-              and toInt64OrNull(toString(product_id)) = %(product_id)s
+                toInt64OrNull(toString(fcl.product_id)) as sales_product_id,
+                sum(toFloat64(fcl.quantity)) as actual_qty,
+                sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
+            from {raw_sales_line_table} fcl
+            where hex(fcl.cash_event_type) = %(sales_event_hex)s
+              and fcl.check_date = toDate(%(forecast_date)s)
+              and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s
+              and toInt64OrNull(toString(fcl.product_id)) = %(product_id)s
             group by sales_product_id
         )
         select d.product_id as product_id,
@@ -738,7 +753,7 @@ def get_sku_day(
         limit 1
         """.format(
         source=_sku_day_source("forecast_date = %(forecast_date)s"),
-        sales_line_table=SALES_LINE_TABLE,
+        raw_sales_line_table=RAW_SALES_LINE_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -749,6 +764,7 @@ def get_sku_day(
             "forecast_date": forecast_date,
             "bakery_id": bakery_id,
             "product_id": product_id,
+            "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
             **access_params,
         },
