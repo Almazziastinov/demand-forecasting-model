@@ -24,6 +24,7 @@ Required application environment variables:
 Optional:
 
 - `ACTIVE_RUN_ID` - force a specific run instead of reading the active one
+- `ENV_FILE` - explicit env file path for local/dev runs, for example `.env.dev`
 - `BITRIX_EMBED_MODE` - `true` or `false`
 - `CLICKHOUSE_HOST`
 - `CLICKHOUSE_PORT`
@@ -46,6 +47,28 @@ For local development, ClickHouse connection can still fall back to the reposito
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 3000 --reload
 ```
+
+## Local Dev Environment
+
+Use the production ClickHouse database with suffixed dev tables. The app and
+publish scripts use `FORECAST_TABLE_SUFFIX=_dev` to read/write tables such as
+`forecast_runs_embedded_dev` instead of production tables.
+
+```powershell
+Copy-Item deploy\vm\forecast.dev.env.example .env.dev
+# fill CLICKHOUSE_* credentials; CLICKHOUSE_DATABASE can be the production database
+# keep FORECAST_TABLE_SUFFIX=_dev
+
+.\scripts\dev_run_inference.ps1
+.\scripts\dev_run_embedded_api.ps1
+```
+
+The dev API defaults to `http://127.0.0.1:3001` and reads `ENV_FILE=.env.dev`.
+The inference script refuses to run if `APP_ENV=prod` or if
+`FORECAST_TABLE_SUFFIX` is empty.
+
+See [docs/dev_environment.md](../../docs/dev_environment.md) for the concrete
+dev forecast and dev front commands.
 
 ## Storage
 

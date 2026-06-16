@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-
 from app.auth import AuthContext
 from app.db import get_client
+from app.table_names import table_name
 
-
-BAKERY_DAY_TABLE = "bakery_forecast_day_embedded"
-BAKERY_DAY_SNAPSHOT_TABLE = "bakery_forecast_day_snapshots"
-CONTEXT_TABLE = "forecast_day_context_embedded"
-SKU_DAY_TABLE = "sku_forecast_day_embedded"
-SKU_DAY_SNAPSHOT_TABLE = "sku_forecast_day_snapshots"
-SKU_HOUR_TABLE = "sku_forecast_hour_embedded"
-SKU_HOUR_SNAPSHOT_TABLE = "sku_forecast_hour_snapshots"
+BAKERY_DAY_TABLE = table_name("bakery_forecast_day_embedded")
+BAKERY_DAY_SNAPSHOT_TABLE = table_name("bakery_forecast_day_snapshots")
+CONTEXT_TABLE = table_name("forecast_day_context_embedded")
+SKU_DAY_TABLE = table_name("sku_forecast_day_embedded")
+SKU_DAY_SNAPSHOT_TABLE = table_name("sku_forecast_day_snapshots")
+SKU_HOUR_TABLE = table_name("sku_forecast_hour_embedded")
+SKU_HOUR_SNAPSHOT_TABLE = table_name("sku_forecast_hour_snapshots")
 SALES_LINE_TABLE = "mart_sales_60d"
 RAW_SALES_LINE_TABLE = "Svezhar.fct_check_lines"
 SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
-ACCESS_TABLE = "bitrix_user_bakery_access_embedded"
+ACCESS_TABLE = table_name("bitrix_user_bakery_access_embedded")
 MANAGEMENT_TABLE = "dim_management"
-MONTH_REVENUE_TABLE = "bakery_month_revenue_embedded"
+MONTH_REVENUE_TABLE = table_name("bakery_month_revenue_embedded")
 CLOSED_BAKERY_STATUS = "\u0417\u0430\u043a\u0440\u044b\u0442\u0430"
 ACTIVE_ROW_SORT_KEY = "tuple(2, toDateTime64('2100-01-01 00:00:00', 3))"
 SNAPSHOT_ROW_SORT_KEY = "tuple(1, generated_at)"

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-
 import time
 from pathlib import Path
 
 import clickhouse_connect
 
 from app.settings import get_settings
-
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_ENV_PATH = ROOT / ".env"
@@ -31,7 +29,7 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
 
 def get_client():
     settings = get_settings()
-    env = load_env_file()
+    env = load_env_file(settings.env_file or DEFAULT_ENV_PATH)
 
     # Prefer runtime env vars for deploys; fall back to repository .env for local work.
     host = settings.clickhouse_host or env.get("CLICKHOUSE_HOST") or env.get("HOST")

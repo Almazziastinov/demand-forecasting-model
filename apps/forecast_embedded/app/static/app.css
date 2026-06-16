@@ -61,6 +61,29 @@ a {
   font-size: 13px;
 }
 
+.env-ribbon {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+}
+
+.env-ribbon strong,
+.env-ribbon span {
+  line-height: 1;
+}
+
+.env-ribbon span {
+  color: #b45309;
+  font-weight: 700;
+}
+
 .user-pill {
   display: inline-flex;
   align-items: center;

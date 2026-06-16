@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-
 import logging
 import re
 from datetime import date as date_type
@@ -11,15 +10,14 @@ from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthContext, get_auth_context
-from app.services import baking_plan as baking_plan_service
 from app.services import bakery as bakery_service
+from app.services import baking_plan as baking_plan_service
 from app.services import runs as run_service
-
+from app.settings import get_settings
 
 router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory="app/templates")
@@ -199,6 +197,7 @@ def _page_context(
     week_start: str,
     selected_bakery_id: int | None = None,
 ) -> dict:
+    settings = get_settings()
     bakeries = bakery_service.get_bakery_list(active_run["run_id"], week_start, auth) if week_start else []
     if selected_bakery_id is None and bakeries:
         selected_bakery_id = int(bakeries[0]["bakery_id"])
@@ -207,6 +206,8 @@ def _page_context(
         "active_run": active_run,
         "runs": run_service.list_runs() if auth.is_admin else [],
         "auth": auth,
+        "app_env": settings.app_env,
+        "table_suffix": settings.table_suffix,
         "is_admin": auth.is_admin,
         "week_start": week_start,
         "bakeries": bakeries,

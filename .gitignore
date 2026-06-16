@@ -9,6 +9,8 @@ __pycache__/
 .pytest_tmp_local/
 tmp_pytest_codex/
 .env
+.env.*
+!.env.example
 
 # Data (processed files are reproducible)
 data/processed/

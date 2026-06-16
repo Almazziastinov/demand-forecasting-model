@@ -144,3 +144,42 @@ curl http://127.0.0.1:3000/health
 curl http://127.0.0.1:3000/api/v1/runs/active
 curl http://127.0.0.1:3000/api/v1/runs
 ```
+
+## Dev environment
+
+Use the dev environment for local or VM-side validation before touching
+production. It uses the same production ClickHouse database, but all forecast
+serving writes/read go to suffixed dev tables:
+
+```bash
+cp deploy/vm/forecast.dev.env.example .env.dev
+# fill CLICKHOUSE_* credentials; CLICKHOUSE_DATABASE can be the production database
+# keep FORECAST_TABLE_SUFFIX=_dev
+```
+
+Local Windows helpers:
+
+```powershell
+.\scripts\dev_run_inference.ps1
+.\scripts\dev_run_embedded_api.ps1
+```
+
+VM systemd units:
+
+```bash
+sudo cp deploy/vm/forecast-production-dev.service /etc/systemd/system/
+sudo cp deploy/vm/forecast-embedded-api-dev.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start forecast-production-dev.service
+sudo systemctl enable --now forecast-embedded-api-dev.service
+curl http://127.0.0.1:3001/health
+```
+
+Dev safeguards:
+
+- use `.env.dev`, not `.env`;
+- keep `APP_ENV=dev`;
+- keep `FORECAST_TABLE_SUFFIX=_dev`;
+- keep `FORECAST_RUN_PREFIX=dev`;
+- keep `FORECAST_ACTIVATE_RUN=none` until the run is checked;
+- never run dev scripts with an empty `FORECAST_TABLE_SUFFIX`.

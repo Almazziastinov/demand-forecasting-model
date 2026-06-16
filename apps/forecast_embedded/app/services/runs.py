@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
-from datetime import datetime
+from datetime import date, datetime
 
 from app.db import get_client
 from app.settings import get_settings
+from app.table_names import table_name
 
-RUNS_TABLE = "forecast_runs_embedded"
+RUNS_TABLE = table_name("forecast_runs_embedded")
+BAKERY_DAY_TABLE = table_name("bakery_forecast_day_embedded")
+BAKERY_DAY_SNAPSHOT_TABLE = table_name("bakery_forecast_day_snapshots")
 
 
 def _format_short_date(value: object) -> str | None:
@@ -130,15 +132,18 @@ def get_run_dates(run_id: str) -> list[str]:
         select distinct forecast_date
         from (
             select forecast_date
-            from bakery_forecast_day_embedded
+            from {bakery_day_table}
             where run_id = %(run_id)s
             union all
             select forecast_date
-            from bakery_forecast_day_snapshots
+            from {bakery_day_snapshot_table}
             where lead_days = 1
         )
         order by forecast_date
-        """
+        """.format(
+        bakery_day_table=BAKERY_DAY_TABLE,
+        bakery_day_snapshot_table=BAKERY_DAY_SNAPSHOT_TABLE,
+    )
     df = client.query_df(query, parameters={"run_id": run_id})
     if df.empty:
         return []

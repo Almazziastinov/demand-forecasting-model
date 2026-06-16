@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-
 import argparse
-from pathlib import Path
 import time
+from pathlib import Path
 from uuid import uuid4
 
 import clickhouse_connect
 import pandas as pd
 
-from pipelines.forecast_publish.forecast_context import CONTEXT_TABLE
-from pipelines.forecast_publish.forecast_context import prepare_forecast_context
+from pipelines.forecast_publish.forecast_context import (
+    CONTEXT_TABLE,
+    prepare_forecast_context,
+)
+from pipelines.forecast_publish.table_names import (
+    apply_table_suffix_to_sql,
+    get_table_suffix_from_env_file,
+    table_name,
+)
 from src.experiments_v2.bakery_day_forecast import DEFAULT_WEATHER_PATH
-
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SCHEMA_PATH = ROOT / "apps" / "forecast_embedded" / "sql" / "schema.sql"
@@ -54,13 +59,13 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
 def get_clickhouse_settings(env_path: str | Path = DEFAULT_ENV_PATH) -> dict[str, object]:
     env = load_env_file(env_path)
     return {
-        "host": env.get("HOST") or env.get("CLICKHOUSE_HOST"),
-        "port": int(env.get("PORT") or env.get("CLICKHOUSE_PORT") or "8443"),
-        "username": env.get("USER") or env.get("CLICKHOUSE_USER"),
-        "password": env.get("PASSWORD") or env.get("CLICKHOUSE_PASSWORD"),
-        "database": env.get("DATABASE") or env.get("CLICKHOUSE_DATABASE"),
-        "secure": _as_bool(env.get("SECURE") or env.get("CLICKHOUSE_SECURE"), default=True),
-        "verify": _as_bool(env.get("VERIFY") or env.get("CLICKHOUSE_VERIFY"), default=False),
+        "host": env.get("CLICKHOUSE_HOST") or env.get("HOST"),
+        "port": int(env.get("CLICKHOUSE_PORT") or env.get("PORT") or "8443"),
+        "username": env.get("CLICKHOUSE_USER") or env.get("USER"),
+        "password": env.get("CLICKHOUSE_PASSWORD") or env.get("PASSWORD"),
+        "database": env.get("CLICKHOUSE_DATABASE") or env.get("DATABASE"),
+        "secure": _as_bool(env.get("CLICKHOUSE_SECURE") or env.get("SECURE"), default=True),
+        "verify": _as_bool(env.get("CLICKHOUSE_VERIFY") or env.get("VERIFY"), default=False),
     }
 
 
@@ -77,8 +82,11 @@ def create_client(env_path: str | Path):
     )
 
 
-def load_schema(client, schema_path: Path) -> None:
-    sql_text = schema_path.read_text(encoding="utf-8")
+def load_schema(client, schema_path: Path, table_suffix: str = "") -> None:
+    sql_text = apply_table_suffix_to_sql(
+        schema_path.read_text(encoding="utf-8"),
+        table_suffix,
+    )
     for statement in sql_text.split(";"):
         stmt = statement.strip()
         if stmt:
@@ -98,7 +106,7 @@ def _quote_clickhouse_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "''")
 
 
-def count_run_rows(client, run_id: str) -> dict[str, int]:
+def count_run_rows(client, run_id: str, table_suffix: str = "") -> dict[str, int]:
     tables = [
         "forecast_runs_embedded",
         "bakery_forecast_day_embedded",
@@ -110,15 +118,16 @@ def count_run_rows(client, run_id: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table in tables:
         key = "source_run_id" if table in SNAPSHOT_TABLES else "run_id"
+        resolved_table = table_name(table, table_suffix)
         df = client.query_df(
-            f"select count() as rows from {table} where {key} = %(run_id)s",
+            f"select count() as rows from {resolved_table} where {key} = %(run_id)s",
             parameters={"run_id": run_id},
         )
         counts[table] = int(df["rows"].iloc[0])
     return counts
 
 
-def delete_forecast_run(client, run_id: str) -> None:
+def delete_forecast_run(client, run_id: str, table_suffix: str = "") -> None:
     safe_run_id = _quote_clickhouse_string(run_id)
     for table in [
         "forecast_runs_embedded",
@@ -129,19 +138,21 @@ def delete_forecast_run(client, run_id: str) -> None:
         *SNAPSHOT_TABLES,
     ]:
         key = "source_run_id" if table in SNAPSHOT_TABLES else "run_id"
-        client.command(f"alter table {table} delete where {key} = '{safe_run_id}'")
+        resolved_table = table_name(table, table_suffix)
+        client.command(f"alter table {resolved_table} delete where {key} = '{safe_run_id}'")
 
 
 def wait_for_run_deleted(
     client,
     run_id: str,
     *,
+    table_suffix: str = "",
     timeout_seconds: int = 120,
     poll_seconds: float = 2.0,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
     while True:
-        counts = count_run_rows(client, run_id)
+        counts = count_run_rows(client, run_id, table_suffix=table_suffix)
         if all(rows == 0 for rows in counts.values()):
             return
         if time.monotonic() >= deadline:
@@ -347,6 +358,7 @@ def insert_run_metadata(
     horizon_start: str,
     horizon_end: str,
     notes: str | None,
+    table_suffix: str = "",
 ) -> None:
     run_df = pd.DataFrame(
         [
@@ -364,7 +376,7 @@ def insert_run_metadata(
             }
         ]
     )
-    client.insert_df("forecast_runs_embedded", run_df)
+    client.insert_df(table_name("forecast_runs_embedded", table_suffix), run_df)
 
 
 def load_forecast_run(
@@ -385,12 +397,13 @@ def load_forecast_run(
     weather_path: str | Path | None = DEFAULT_WEATHER_PATH,
 ) -> dict[str, int | str]:
     client = create_client(env_file)
-    load_schema(client, Path(schema_path))
+    table_suffix = get_table_suffix_from_env_file(env_file)
+    load_schema(client, Path(schema_path), table_suffix=table_suffix)
 
     final_run_id = build_run_id(run_id)
     if replace_existing:
-        delete_forecast_run(client, final_run_id)
-        wait_for_run_deleted(client, final_run_id)
+        delete_forecast_run(client, final_run_id, table_suffix=table_suffix)
+        wait_for_run_deleted(client, final_run_id, table_suffix=table_suffix)
 
     bakery_raw = pd.read_csv(bakery_path, encoding="utf-8-sig")
     sku_day_raw = pd.read_csv(sku_day_path, encoding="utf-8-sig")
@@ -413,6 +426,7 @@ def load_forecast_run(
         horizon_start=horizon_start,
         horizon_end=horizon_end,
         notes=notes,
+        table_suffix=table_suffix,
     )
 
     bakery_day = prepare_bakery_day(bakery_raw, final_run_id)
@@ -424,10 +438,10 @@ def load_forecast_run(
     sku_day = prepare_sku_day(sku_day_raw, lookup, final_run_id)
     sku_hour = prepare_sku_hour(sku_hour_raw, final_run_id)
 
-    client.insert_df("bakery_forecast_day_embedded", bakery_day)
-    client.insert_df(CONTEXT_TABLE, context_day)
-    client.insert_df("sku_forecast_day_embedded", sku_day)
-    client.insert_df("sku_forecast_hour_embedded", sku_hour)
+    client.insert_df(table_name("bakery_forecast_day_embedded", table_suffix), bakery_day)
+    client.insert_df(table_name(CONTEXT_TABLE, table_suffix), context_day)
+    client.insert_df(table_name("sku_forecast_day_embedded", table_suffix), sku_day)
+    client.insert_df(table_name("sku_forecast_hour_embedded", table_suffix), sku_hour)
     snapshot_generated_at = pd.Timestamp.utcnow().tz_localize(None)
     bakery_snapshots = prepare_bakery_day_snapshots(
         bakery_day,
@@ -444,9 +458,9 @@ def load_forecast_run(
         run_id=final_run_id,
         generated_at=snapshot_generated_at,
     )
-    client.insert_df("bakery_forecast_day_snapshots", bakery_snapshots)
-    client.insert_df("sku_forecast_day_snapshots", sku_day_snapshots)
-    client.insert_df("sku_forecast_hour_snapshots", sku_hour_snapshots)
+    client.insert_df(table_name("bakery_forecast_day_snapshots", table_suffix), bakery_snapshots)
+    client.insert_df(table_name("sku_forecast_day_snapshots", table_suffix), sku_day_snapshots)
+    client.insert_df(table_name("sku_forecast_hour_snapshots", table_suffix), sku_hour_snapshots)
 
     return {
         "run_id": final_run_id,

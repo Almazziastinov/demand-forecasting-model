@@ -1,0 +1,18 @@
+[Unit]
+Description=Demand forecast embedded API DEV
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=forecast
+Group=forecast
+WorkingDirectory=/opt/demand-forecasting-model/apps/forecast_embedded
+EnvironmentFile=/opt/demand-forecasting-model/.env.dev
+Environment=ENV_FILE=/opt/demand-forecasting-model/.env.dev
+ExecStart=/opt/demand-forecasting-model/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port ${PORT}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

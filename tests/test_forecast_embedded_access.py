@@ -10,6 +10,7 @@ from starlette.requests import Request
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
+from app import db as embedded_db  # noqa: E402
 from app.auth import AuthContext, get_auth_context  # noqa: E402
 from app.services import bakery as bakery_service  # noqa: E402
 from app.services import runs as runs_service  # noqa: E402
@@ -180,6 +181,43 @@ def test_access_control_requires_portal_id(monkeypatch):
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Missing X-Vibe-Portal-Id"
+    get_settings.cache_clear()
+
+
+def test_db_uses_explicit_env_file(monkeypatch):
+    work_dir = Path("tests") / "_tmp_forecast_publish"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    env_file = work_dir / ".env.embedded_dev"
+    env_file.write_text(
+        "\n".join(
+            [
+                "CLICKHOUSE_HOST=dev-host",
+                "CLICKHOUSE_PORT=9440",
+                "CLICKHOUSE_USER=dev-user",
+                "CLICKHOUSE_PASSWORD=dev-password",
+                "CLICKHOUSE_DATABASE=demand_forecast_dev",
+                "CLICKHOUSE_SECURE=false",
+                "CLICKHOUSE_VERIFY=false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_get_client(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("ENV_FILE", str(env_file))
+    monkeypatch.setattr(embedded_db.clickhouse_connect, "get_client", fake_get_client)
+
+    embedded_db.get_client()
+
+    assert captured["host"] == "dev-host"
+    assert captured["port"] == 9440
+    assert captured["username"] == "dev-user"
+    assert captured["database"] == "demand_forecast_dev"
     get_settings.cache_clear()
 
 

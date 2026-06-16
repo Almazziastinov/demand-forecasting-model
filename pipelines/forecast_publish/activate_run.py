@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-
 import argparse
 from pathlib import Path
 
 import clickhouse_connect
 import pandas as pd
 
+from pipelines.forecast_publish.table_names import (
+    get_table_suffix_from_env_file,
+    table_name,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_PATH = ROOT / ".env"
@@ -38,13 +41,13 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
 def get_clickhouse_settings(env_path: str | Path = DEFAULT_ENV_PATH) -> dict[str, object]:
     env = load_env_file(env_path)
     return {
-        "host": env.get("HOST") or env.get("CLICKHOUSE_HOST"),
-        "port": int(env.get("PORT") or env.get("CLICKHOUSE_PORT") or "8443"),
-        "username": env.get("USER") or env.get("CLICKHOUSE_USER"),
-        "password": env.get("PASSWORD") or env.get("CLICKHOUSE_PASSWORD"),
-        "database": env.get("DATABASE") or env.get("CLICKHOUSE_DATABASE"),
-        "secure": _as_bool(env.get("SECURE") or env.get("CLICKHOUSE_SECURE"), default=True),
-        "verify": _as_bool(env.get("VERIFY") or env.get("CLICKHOUSE_VERIFY"), default=False),
+        "host": env.get("CLICKHOUSE_HOST") or env.get("HOST"),
+        "port": int(env.get("CLICKHOUSE_PORT") or env.get("PORT") or "8443"),
+        "username": env.get("CLICKHOUSE_USER") or env.get("USER"),
+        "password": env.get("CLICKHOUSE_PASSWORD") or env.get("PASSWORD"),
+        "database": env.get("CLICKHOUSE_DATABASE") or env.get("DATABASE"),
+        "secure": _as_bool(env.get("CLICKHOUSE_SECURE") or env.get("SECURE"), default=True),
+        "verify": _as_bool(env.get("CLICKHOUSE_VERIFY") or env.get("VERIFY"), default=False),
     }
 
 
@@ -61,12 +64,13 @@ def create_client(env_path: str | Path):
     )
 
 
-def fetch_run(client, run_id: str) -> dict | None:
+def fetch_run(client, run_id: str, table_suffix: str = "") -> dict | None:
+    runs_table = table_name(RUNS_TABLE, table_suffix)
     df = client.query_df(
         f"""
         select run_id, model_version, profile_version, source_kind,
                horizon_start, horizon_end, generated_at, status, notes, is_bias_adjusted
-        from {RUNS_TABLE}
+        from {runs_table}
         where run_id = %(run_id)s
         order by generated_at desc
         limit 1
@@ -78,12 +82,13 @@ def fetch_run(client, run_id: str) -> dict | None:
     return df.iloc[0].to_dict()
 
 
-def archive_current_active_runs(client) -> None:
+def archive_current_active_runs(client, table_suffix: str = "") -> None:
+    runs_table = table_name(RUNS_TABLE, table_suffix)
     active = client.query_df(
         f"""
         select run_id, model_version, profile_version, source_kind,
                horizon_start, horizon_end, generated_at, notes, is_bias_adjusted
-        from {RUNS_TABLE}
+        from {runs_table}
         where status = 'active'
         """
     )
@@ -92,16 +97,17 @@ def archive_current_active_runs(client) -> None:
 
     archived = active.copy()
     archived["status"] = "archived"
-    client.insert_df(RUNS_TABLE, archived)
-    client.command(f"alter table {RUNS_TABLE} delete where status = 'active'")
+    client.insert_df(runs_table, archived)
+    client.command(f"alter table {runs_table} delete where status = 'active'")
 
 
-def activate_run(client, run_id: str) -> None:
-    run_row = fetch_run(client, run_id)
+def activate_run(client, run_id: str, table_suffix: str = "") -> None:
+    runs_table = table_name(RUNS_TABLE, table_suffix)
+    run_row = fetch_run(client, run_id, table_suffix=table_suffix)
     if not run_row:
         raise ValueError(f"Run not found: {run_id}")
 
-    archive_current_active_runs(client)
+    archive_current_active_runs(client, table_suffix=table_suffix)
 
     active_row = {
         "run_id": run_row["run_id"],
@@ -115,7 +121,7 @@ def activate_run(client, run_id: str) -> None:
         "notes": run_row.get("notes"),
         "is_bias_adjusted": run_row["is_bias_adjusted"],
     }
-    client.insert_df(RUNS_TABLE, pd.DataFrame([active_row]))
+    client.insert_df(runs_table, pd.DataFrame([active_row]))
 
 
 def main() -> None:
@@ -125,7 +131,8 @@ def main() -> None:
     args = parser.parse_args()
 
     client = create_client(args.env_file)
-    activate_run(client, args.run_id)
+    table_suffix = get_table_suffix_from_env_file(args.env_file)
+    activate_run(client, args.run_id, table_suffix=table_suffix)
 
     print("=" * 72)
     print("RUN ACTIVATED")

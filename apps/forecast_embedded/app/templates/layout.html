@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ИИ прогноз плана</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260615a">
-  <script src="/static/app.js?v=20260615a" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v=20260616dev">
+  <script src="/static/app.js?v=20260616dev" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -13,6 +13,12 @@
       <a class="brand" href="/">ИИ прогноз плана</a>
       <p class="topbar-subtitle">Прогноз спроса и почасовой профиль продаж</p>
     </div>
+    {% if app_env and app_env != "prod" %}
+    <div class="env-ribbon">
+      <strong>{{ app_env|upper }}</strong>
+      {% if table_suffix %}<span>{{ table_suffix }}</span>{% endif %}
+    </div>
+    {% endif %}
     {% if auth %}
     <div class="user-pill">
       <span>{{ auth.display_name or "Пользователь" }}</span>

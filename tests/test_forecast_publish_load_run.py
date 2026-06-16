@@ -44,6 +44,29 @@ def test_load_product_lookup_from_clickhouse_deduplicates_rows():
     assert set(result["product_id"]) == {10, 11}
 
 
+def test_clickhouse_settings_prefer_clickhouse_port_over_app_port():
+    work_dir = Path("tests") / "_tmp_forecast_publish"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    env_path = work_dir / ".env.port_priority"
+    env_path.write_text(
+        "\n".join(
+            [
+                "PORT=3001",
+                "CLICKHOUSE_PORT=8443",
+                "CLICKHOUSE_HOST=clickhouse-host",
+                "CLICKHOUSE_USER=user",
+                "CLICKHOUSE_PASSWORD=password",
+                "CLICKHOUSE_DATABASE=Svezhar",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = module.get_clickhouse_settings(env_path)
+
+    assert settings["port"] == 8443
+
+
 def test_prepare_bakery_day_snapshots_sets_lead_days():
     source = pd.DataFrame(
         {
@@ -169,3 +192,84 @@ def test_load_forecast_run_can_use_clickhouse_lookup(monkeypatch):
     sku_day_snapshot = fake.inserts[6][1].iloc[0]
     assert sku_day_snapshot["product_name"] == "Product"
     assert sku_day_snapshot["category_name"] == "Category"
+
+
+def test_load_forecast_run_uses_table_suffix_from_env(monkeypatch):
+    work_dir = Path("tests") / "_tmp_forecast_publish"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    bakery_path = work_dir / "bakery_suffix.csv"
+    sku_day_path = work_dir / "sku_day_suffix.csv"
+    sku_hour_path = work_dir / "sku_hour_suffix.csv"
+    schema_path = work_dir / "schema_suffix.sql"
+    env_path = work_dir / ".env.suffix"
+
+    pd.DataFrame(
+        {
+            "date": ["2026-06-01"],
+            "bakery_id": [1],
+            "bakery_name": ["Bakery"],
+            "city": ["Kazan"],
+            "bakery_day_forecast": [100.0],
+            "bakery_day_forecast_bias_adj": [110.0],
+        }
+    ).to_csv(bakery_path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(
+        {
+            "date": ["2026-06-01"],
+            "dow": [0],
+            "bakery_id": [1],
+            "product_id": [10],
+            "sku_day_forecast": [110.0],
+        }
+    ).to_csv(sku_day_path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(
+        {
+            "date": ["2026-06-01"],
+            "dow": [0],
+            "hour": [9],
+            "bakery_id": [1],
+            "product_id": [10],
+            "sku_hour_forecast": [110.0],
+        }
+    ).to_csv(sku_hour_path, index=False, encoding="utf-8-sig")
+    schema_path.write_text(
+        "create table if not exists forecast_runs_embedded (id Int64);",
+        encoding="utf-8",
+    )
+    env_path.write_text("FORECAST_TABLE_SUFFIX=_dev\n", encoding="utf-8")
+
+    fake = _FakeClient(
+        pd.DataFrame(
+            {
+                "bakery_id": [1],
+                "product_id": [10],
+                "product_name": ["Product"],
+                "category_name": ["Category"],
+            }
+        )
+    )
+    monkeypatch.setattr(module, "create_client", lambda env_file: fake)
+
+    module.load_forecast_run(
+        env_file=env_path,
+        schema_path=schema_path,
+        bakery_path=bakery_path,
+        sku_day_path=sku_day_path,
+        sku_hour_path=sku_hour_path,
+        profile_path=None,
+        lookup_source="clickhouse",
+        run_id="run_suffix",
+        weather_path=None,
+    )
+
+    assert "forecast_runs_embedded_dev" in fake.commands[0]
+    assert [table for table, _ in fake.inserts] == [
+        "forecast_runs_embedded_dev",
+        "bakery_forecast_day_embedded_dev",
+        "forecast_day_context_embedded_dev",
+        "sku_forecast_day_embedded_dev",
+        "sku_forecast_hour_embedded_dev",
+        "bakery_forecast_day_snapshots_dev",
+        "sku_forecast_day_snapshots_dev",
+        "sku_forecast_hour_snapshots_dev",
+    ]

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
-
 import argparse
 import json
 import os
@@ -11,25 +10,35 @@ from pathlib import Path
 import pandas as pd
 
 from pipelines.forecast_publish.activate_run import activate_run
-from pipelines.forecast_publish.load_forecast_run import DEFAULT_ENV_PATH
-from pipelines.forecast_publish.load_forecast_run import DEFAULT_SCHEMA_PATH
-from pipelines.forecast_publish.load_forecast_run import create_client
-from pipelines.forecast_publish.load_forecast_run import load_forecast_run
-from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_HISTORY_START_DATE
-from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_RAW_OUTPUT
-from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_REFRESH_SUMMARY_PATH
-from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_SQL_TEMPLATE
-from pipelines.forecast_publish.production_dataset_refresh import DEFAULT_TIMEZONE
-from pipelines.forecast_publish.production_dataset_refresh import resolve_default_refresh_dates
-from pipelines.forecast_publish.production_dataset_refresh import refresh_production_datasets
-from pipelines.forecast_publish.sku_hour_profile_store import PROFILE_TABLE
-from pipelines.forecast_publish.sku_hour_profile_store import UPLIFT_MULTIPLIER_TABLE
+from pipelines.forecast_publish.load_forecast_run import (
+    DEFAULT_ENV_PATH,
+    DEFAULT_SCHEMA_PATH,
+    create_client,
+    get_clickhouse_settings,
+    load_env_file,
+    load_forecast_run,
+)
+from pipelines.forecast_publish.production_dataset_refresh import (
+    DEFAULT_HISTORY_START_DATE,
+    DEFAULT_RAW_OUTPUT,
+    DEFAULT_REFRESH_SUMMARY_PATH,
+    DEFAULT_SQL_TEMPLATE,
+    DEFAULT_TIMEZONE,
+    refresh_production_datasets,
+    resolve_default_refresh_dates,
+)
+from pipelines.forecast_publish.sku_hour_profile_store import (
+    PROFILE_TABLE,
+    UPLIFT_MULTIPLIER_TABLE,
+)
+from pipelines.forecast_publish.table_names import get_table_suffix_from_env_file
 from src.experiments_v2.apply_bakery_profiles import DEFAULT_BAKERY_HOUR_PROFILE_PATH
 from src.experiments_v2.apply_bakery_profiles_clickhouse import allocate_from_clickhouse
-from src.experiments_v2.bakery_day_forecast import DEFAULT_HORIZON_DAYS
-from src.experiments_v2.bakery_day_forecast import FORECAST_BIAS_ADJ_COL
-from src.experiments_v2.bakery_day_forecast import run_forecast_mode
-
+from src.experiments_v2.bakery_day_forecast import (
+    DEFAULT_HORIZON_DAYS,
+    FORECAST_BIAS_ADJ_COL,
+    run_forecast_mode,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASE_DATASET_PATH = ROOT / "data" / "processed" / "bakery_daily_sales.csv"
@@ -164,7 +173,11 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
 
     if args.activate_run == scenario_name:
         client = create_client(args.env_file)
-        activate_run(client, run_id)
+        activate_run(
+            client,
+            run_id,
+            table_suffix=get_table_suffix_from_env_file(args.env_file),
+        )
 
     summary = {
         "scenario": scenario_name,
@@ -224,6 +237,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--horizon-days", type=int, default=DEFAULT_HORIZON_DAYS)
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--run-prefix", default="prod")
+    parser.add_argument(
+        "--require-nonprod-tables",
+        action="store_true",
+        help="Refuse to run unless APP_ENV is not prod and FORECAST_TABLE_SUFFIX is set.",
+    )
     parser.add_argument("--scenario", choices=["both", *SCENARIOS.keys()], default="both")
     parser.add_argument("--activate-run", choices=["none", *SCENARIOS.keys()], default="none")
     parser.add_argument("--notes", default=None)
@@ -234,9 +252,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def assert_nonprod_tables(env_file: str | Path) -> None:
+    env = load_env_file(env_file)
+    app_env = (env.get("APP_ENV") or os.getenv("APP_ENV") or "dev").strip().lower()
+    settings = get_clickhouse_settings(env_file)
+    database = str(settings.get("database") or "")
+    table_suffix = env.get("FORECAST_TABLE_SUFFIX", "").strip()
+    if app_env == "prod":
+        raise RuntimeError(f"Refusing non-prod run with APP_ENV=prod in {env_file}")
+    if not database:
+        raise RuntimeError(f"CLICKHOUSE_DATABASE is required in {env_file}")
+    if not table_suffix:
+        raise RuntimeError(
+            f"FORECAST_TABLE_SUFFIX is required for non-prod run in {env_file}"
+        )
+    get_table_suffix_from_env_file(env_file)
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.require_nonprod_tables:
+        assert_nonprod_tables(args.env_file)
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     dataset_refresh_result = None

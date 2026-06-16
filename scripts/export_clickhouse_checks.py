@@ -93,19 +93,31 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
     return env
 
 
+def first_setting(env: dict[str, str], *keys: str) -> str | None:
+    for key in keys:
+        value = env.get(key) or os.getenv(key)
+        if value:
+            return value
+    return None
+
+
 def get_connection_settings(env_path: str | Path) -> dict[str, str]:
     env = load_env_file(env_path)
     settings = {
-        "host": env.get("HOST") or env.get("CLICKHOUSE_HOST") or os.getenv("HOST") or os.getenv("CLICKHOUSE_HOST"),
-        "port": env.get("PORT") or env.get("CLICKHOUSE_PORT") or os.getenv("PORT") or os.getenv("CLICKHOUSE_PORT"),
-        "username": env.get("USER") or env.get("CLICKHOUSE_USER") or os.getenv("USER") or os.getenv("CLICKHOUSE_USER"),
-        "password": env.get("PASSWORD") or env.get("CLICKHOUSE_PASSWORD") or os.getenv("PASSWORD") or os.getenv("CLICKHOUSE_PASSWORD"),
-        "database": env.get("DATABASE") or env.get("CLICKHOUSE_DATABASE") or os.getenv("DATABASE") or os.getenv("CLICKHOUSE_DATABASE"),
-        "secure": env.get("SECURE") or env.get("CLICKHOUSE_SECURE") or os.getenv("SECURE") or os.getenv("CLICKHOUSE_SECURE"),
-        "verify": env.get("VERIFY") or env.get("CLICKHOUSE_VERIFY") or os.getenv("VERIFY") or os.getenv("CLICKHOUSE_VERIFY"),
+        "host": first_setting(env, "CLICKHOUSE_HOST", "HOST"),
+        "port": first_setting(env, "CLICKHOUSE_PORT", "PORT"),
+        "username": first_setting(env, "CLICKHOUSE_USER", "USER"),
+        "password": first_setting(env, "CLICKHOUSE_PASSWORD", "PASSWORD"),
+        "database": first_setting(env, "CLICKHOUSE_DATABASE", "DATABASE"),
+        "secure": first_setting(env, "CLICKHOUSE_SECURE", "SECURE"),
+        "verify": first_setting(env, "CLICKHOUSE_VERIFY", "VERIFY"),
     }
 
-    missing = [key for key in ["host", "port", "username", "password", "database"] if not settings.get(key)]
+    missing = [
+        key
+        for key in ["host", "port", "username", "password", "database"]
+        if not settings.get(key)
+    ]
     if missing:
         raise ValueError(
             "Missing ClickHouse connection settings: "
@@ -128,8 +140,10 @@ def create_client(env_path: str | Path):
         username=settings["username"],
         password=settings["password"],
         database=settings["database"],
-        secure=str(settings.get("secure", "true")).strip().lower() in {"1", "true", "yes", "on"},
-        verify=str(settings.get("verify", "false")).strip().lower() in {"1", "true", "yes", "on"},
+        secure=str(settings.get("secure", "true")).strip().lower()
+        in {"1", "true", "yes", "on"},
+        verify=str(settings.get("verify", "false")).strip().lower()
+        in {"1", "true", "yes", "on"},
     )
 
 
@@ -208,7 +222,10 @@ def export_windows(
             date_to=window_to,
             limit=limit,
         )
-        print(f"[{index}/{len(windows)}] Querying {window_from} .. {window_to}", flush=True)
+        print(
+            f"[{index}/{len(windows)}] Querying {window_from} .. {window_to}",
+            flush=True,
+        )
         df = client.query_df(sql)
         validate_columns(df)
         df = reorder_columns(df)
