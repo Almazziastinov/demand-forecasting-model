@@ -125,7 +125,7 @@ def load_profile_audit_metadata(path: str | Path) -> pd.DataFrame:
     return work.rename(columns=rename_cols)
 
 
-def smooth_applied_chunk(chunk: pd.DataFrame, profile_means: pd.DataFrame) -> pd.DataFrame:
+def build_adjusted_applied_chunk(chunk: pd.DataFrame, profile_means: pd.DataFrame) -> pd.DataFrame:
     work = chunk.merge(
         profile_means,
         on=PROFILE_KEY_COLS,
@@ -139,8 +139,22 @@ def smooth_applied_chunk(chunk: pd.DataFrame, profile_means: pd.DataFrame) -> pd
     work[ADJUSTED_SHARE_COL] = np.maximum(work[SKU_SHARE_COL], work[PROFILE_MEAN_COL])
     work[UPLIFT_RAW_COL] = work[ADJUSTED_SHARE_COL] - work[SKU_SHARE_COL]
     work[UPLIFT_FLAG_COL] = (work[UPLIFT_RAW_COL] > 1e-12).astype(int)
+    return work
+
+
+def build_adjusted_denominators(chunk: pd.DataFrame) -> pd.DataFrame:
     group_cols = [DATE_COL, BAKERY_ID_COL, HOUR_COL]
-    denom = work.groupby(group_cols)[ADJUSTED_SHARE_COL].transform("sum")
+    return (
+        chunk.groupby(group_cols, as_index=False)[ADJUSTED_SHARE_COL]
+        .sum()
+        .rename(columns={ADJUSTED_SHARE_COL: "adjusted_share_sum"})
+    )
+
+
+def normalize_adjusted_applied_chunk(chunk: pd.DataFrame, denominators: pd.DataFrame) -> pd.DataFrame:
+    group_cols = [DATE_COL, BAKERY_ID_COL, HOUR_COL]
+    work = chunk.merge(denominators, on=group_cols, how="left", validate="many_to_one")
+    denom = pd.to_numeric(work["adjusted_share_sum"], errors="coerce").fillna(0.0)
     work[ADJUSTED_SHARE_NORM_COL] = np.where(
         denom > 0,
         work[ADJUSTED_SHARE_COL] / denom,
@@ -148,7 +162,19 @@ def smooth_applied_chunk(chunk: pd.DataFrame, profile_means: pd.DataFrame) -> pd
     )
     work[UPLIFT_NORM_DELTA_COL] = work[ADJUSTED_SHARE_NORM_COL] - work[SKU_SHARE_COL]
     work[ADJUSTED_SALES_COL] = work[ADJUSTED_SHARE_NORM_COL] * work[BAKERY_HOUR_SALES_COL]
-    return work
+    return work.drop(columns=["adjusted_share_sum"])
+
+
+def smooth_applied_chunk(chunk: pd.DataFrame, profile_means: pd.DataFrame) -> pd.DataFrame:
+    """Smooth and normalize one complete group-safe chunk.
+
+    Kept for small in-memory callers/tests. The full production smoothing path
+    uses a two-pass normalization in ``smooth_profile`` so date x bakery x hour
+    groups split across CSV chunks still normalize exactly once.
+    """
+    adjusted = build_adjusted_applied_chunk(chunk, profile_means)
+    denominators = build_adjusted_denominators(adjusted)
+    return normalize_adjusted_applied_chunk(adjusted, denominators)
 
 
 def build_adjusted_profile(
@@ -224,7 +250,11 @@ def build_adjusted_profile(
     )
     profile["mean_sku_share_in_hour"] = np.where(profile["n_days"] > 0, profile["share_sum"] / profile["n_days"], 0.0)
     profile["mean_sku_hour_sales"] = np.where(profile["n_days"] > 0, profile["sales_sum"] / profile["n_days"], 0.0)
-    profile["mean_share_uplift_raw"] = np.where(profile["n_days"] > 0, profile["uplift_raw_sum"] / profile["n_days"], 0.0)
+    profile["mean_share_uplift_raw"] = np.where(
+        profile["n_days"] > 0,
+        profile["uplift_raw_sum"] / profile["n_days"],
+        0.0,
+    )
     profile["mean_share_uplift_norm_delta"] = np.where(
         profile["n_days"] > 0,
         profile["uplift_norm_delta_sum"] / profile["n_days"],
@@ -306,18 +336,47 @@ def smooth_profile(
     output_applied_path = out_dir / OUTPUT_APPLIED_NAME
     output_profile_path = out_dir / OUTPUT_PROFILE_NAME
     output_summary_path = out_dir / OUTPUT_SUMMARY_NAME
+    temp_adjusted_path = out_dir / OUTPUT_APPLIED_NAME.replace(
+        ".csv",
+        ".adjusted_tmp.csv",
+    )
 
     if output_applied_path.exists():
         output_applied_path.unlink()
+    if temp_adjusted_path.exists():
+        temp_adjusted_path.unlink()
 
     profile_means = load_profile_means(profile_path)
     profile_audit = load_profile_audit_metadata(profile_path)
     applied_rows = 0
+    denominator_parts: list[pd.DataFrame] = []
 
     reader = pd.read_csv(applied_path, encoding="utf-8-sig", chunksize=chunk_size)
     for i, chunk in enumerate(reader, start=1):
-        smoothed = smooth_applied_chunk(chunk, profile_means)
-        applied_rows += len(smoothed)
+        adjusted = build_adjusted_applied_chunk(chunk, profile_means)
+        applied_rows += len(adjusted)
+        denominator_parts.append(build_adjusted_denominators(adjusted))
+        adjusted.to_csv(
+            temp_adjusted_path,
+            mode="a",
+            index=False,
+            encoding="utf-8-sig",
+            header=(i == 1),
+        )
+        if i % 5 == 0:
+            print(f"adjusted chunks: {i}", flush=True)
+
+    denominators = (
+        pd.concat(denominator_parts, ignore_index=True)
+        .groupby([DATE_COL, BAKERY_ID_COL, HOUR_COL], as_index=False)[
+            "adjusted_share_sum"
+        ]
+        .sum()
+    )
+
+    reader = pd.read_csv(temp_adjusted_path, encoding="utf-8-sig", chunksize=chunk_size)
+    for i, chunk in enumerate(reader, start=1):
+        smoothed = normalize_adjusted_applied_chunk(chunk, denominators)
         smoothed.to_csv(
             output_applied_path,
             mode="a",
@@ -326,7 +385,9 @@ def smooth_profile(
             header=(i == 1),
         )
         if i % 5 == 0:
-            print(f"smoothed chunks: {i}", flush=True)
+            print(f"normalized chunks: {i}", flush=True)
+
+    temp_adjusted_path.unlink(missing_ok=True)
 
     profile = build_adjusted_profile(
         output_applied_path,

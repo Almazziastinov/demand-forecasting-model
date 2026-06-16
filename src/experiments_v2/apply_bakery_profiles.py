@@ -43,6 +43,8 @@ SKU_SHARE_COL = "mean_sku_share_in_hour_norm"
 DEFAULT_SKU_SHARE_COL = SKU_SHARE_COL
 SKU_HOUR_FORECAST_COL = "sku_hour_forecast"
 SKU_DAY_FORECAST_COL = "sku_day_forecast"
+FIRST_REGULAR_SALES_HOUR = 6
+MIN_EARLY_BAKERY_HOUR_N_DAYS = 8
 
 DEFAULT_BAKERY_FORECAST_PATH = ROOT / "data" / "processed" / "bakery_daily_sales.csv"
 DEFAULT_BAKERY_HOUR_PROFILE_PATH = ROOT / "data" / "processed" / "bakery_hour_profile.csv"
@@ -121,15 +123,38 @@ def load_bakery_hour_profile(path: str | Path) -> pd.DataFrame:
         raise KeyError(f"Missing columns in bakery hour profile: {missing}")
 
     keep_cols = [BAKERY_ID_COL, DOW_COL, HOUR_COL, BAKERY_HOUR_SHARE_COL]
+    if N_DAYS_COL in df.columns:
+        keep_cols.append(N_DAYS_COL)
     if BAKERY_NAME_COL in df.columns:
         keep_cols.append(BAKERY_NAME_COL)
 
     work = df[keep_cols].copy()
     work[BAKERY_HOUR_SHARE_COL] = pd.to_numeric(work[BAKERY_HOUR_SHARE_COL], errors="coerce").fillna(0.0)
+    work[HOUR_COL] = pd.to_numeric(work[HOUR_COL], errors="coerce")
+    if N_DAYS_COL in work.columns:
+        work[N_DAYS_COL] = pd.to_numeric(work[N_DAYS_COL], errors="coerce").fillna(0)
+        thin_early_hour = (work[HOUR_COL] < FIRST_REGULAR_SALES_HOUR) & (
+            work[N_DAYS_COL] < MIN_EARLY_BAKERY_HOUR_N_DAYS
+        )
+        work = work.loc[~thin_early_hour].copy()
+        work.drop(columns=[N_DAYS_COL], inplace=True)
+    group_cols = [col for col in work.columns if col != BAKERY_HOUR_SHARE_COL]
     work = (
-        work.groupby([col for col in keep_cols if col != BAKERY_HOUR_SHARE_COL], as_index=False)
+        work.groupby(group_cols, as_index=False)
         .agg(mean_hour_share_norm=(BAKERY_HOUR_SHARE_COL, "mean"))
     )
+    totals = (
+        work.groupby([BAKERY_ID_COL, DOW_COL], as_index=False)[BAKERY_HOUR_SHARE_COL]
+        .sum()
+        .rename(columns={BAKERY_HOUR_SHARE_COL: "profile_sum"})
+    )
+    work = work.merge(totals, on=[BAKERY_ID_COL, DOW_COL], how="left", validate="many_to_one")
+    work[BAKERY_HOUR_SHARE_COL] = np.where(
+        work["profile_sum"] > 0,
+        work[BAKERY_HOUR_SHARE_COL] / work["profile_sum"],
+        0.0,
+    )
+    work.drop(columns=["profile_sum"], inplace=True)
     return work
 
 
