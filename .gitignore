@@ -19,6 +19,7 @@ data/.weather_cache.sqlite
 data/raw/sales_hrs_all.csv
 data/raw/sales_hrs_all_clickhouse.csv
 data/raw/sales_hrs_all_clickhouse_*.csv
+data/raw/bakery_daily_sales_clickhouse.csv
 data/raw/sales_hrs_increment_*.csv
 data/raw/dim_kkt_clickhouse.csv
 data/raw/moves_clickhouse.csv
