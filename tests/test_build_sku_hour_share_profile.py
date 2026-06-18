@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.experiments_v2.build_sku_hour_share_profile import aggregate_sku_hourly_chunk  # noqa: E402
 from src.experiments_v2.build_sku_hour_share_profile import build_sku_hour_share_profile  # noqa: E402
+from src.experiments_v2.build_sku_hour_share_profile import filter_hourly_by_assortment  # noqa: E402
 
 
 def _hourly() -> pd.DataFrame:
@@ -74,6 +75,28 @@ def test_build_sku_hour_share_profile_normalizes_per_bakery_hour():
     p2 = profile[profile["product_id"] == "P2"].iloc[0]
     assert round(float(p1["mean_sku_share_in_hour_norm"]), 4) == 0.25
     assert round(float(p2["mean_sku_share_in_hour_norm"]), 4) == 0.75
+
+
+def test_assortment_filter_removes_sku_before_share_normalization():
+    hourly = _hourly()
+    hourly["city"] = "Kazan"
+    hourly["product_id"] = hourly["product_id"].replace({"P1": "1", "P2": "2"})
+    assortment = pd.DataFrame(
+        [
+            {
+                "city": "Kazan",
+                "product_id": "1",
+            }
+        ]
+    )
+
+    filtered, stats = filter_hourly_by_assortment(hourly, assortment)
+    profile, applied = build_sku_hour_share_profile(filtered)
+
+    assert stats["rows_removed"] == 2
+    assert set(profile["product_id"]) == {"1"}
+    assert round(float(profile["mean_sku_share_in_hour_norm"].iloc[0]), 4) == 1.0
+    assert round(float(applied["sku_share_in_hour"].iloc[0]), 4) == 1.0
 
 
 def test_build_sku_hour_share_profile_uses_daily_profile_weights():

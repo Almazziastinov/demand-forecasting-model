@@ -152,6 +152,8 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         recent_correction_days=args.recent_correction_days,
         recent_sales_table=args.recent_sales_table,
         chunk_size=args.chunk_size,
+        assortment_table=args.assortment_table,
+        disable_assortment_filter=args.disable_assortment_filter,
     )
 
     run_id = _build_run_id(args.run_prefix, scenario, bakery_path, args.horizon_days)
@@ -231,6 +233,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--recent-correction-days", type=int, default=DEFAULT_RECENT_CORRECTION_DAYS)
     parser.add_argument("--recent-sales-table", default=DEFAULT_RECENT_SALES_TABLE)
+    parser.add_argument("--assortment-table", default="assortment_city_products")
+    parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--summary-path", default=str(DEFAULT_SUMMARY_PATH))
     parser.add_argument("--weather-path", default=str(DEFAULT_WEATHER_PATH))

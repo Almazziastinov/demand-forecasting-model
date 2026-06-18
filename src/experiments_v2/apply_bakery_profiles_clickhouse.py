@@ -55,6 +55,7 @@ SKU_UPLIFT_MULTIPLIER_COL = "sku_uplift_multiplier"
 SALES_LINE_TABLE = "mart_sales_60d"
 RAW_SALES_LINE_TABLE = "Svezhar.fct_check_lines"
 SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
+ASSORTMENT_TABLE = "assortment_city_products"
 RECENT_CORRECTION_MODES = (
     "none",
     "dead_0d",
@@ -68,6 +69,89 @@ SERVICE_CATEGORY_PATTERN = "прочие|заказ"
 
 def _write_hourly_chunk(df: pd.DataFrame, path: Path, *, header: bool) -> None:
     df.to_csv(path, mode="a", index=False, encoding="utf-8-sig", header=header)
+
+
+def load_active_assortment_pairs(client, *, assortment_table: str) -> pd.DataFrame:
+    return client.query_df(
+        f"""
+        select
+            city,
+            toInt64OrNull(replaceRegexpOne(toString(product_id), '^0+', '')) as product_id_int
+        from {assortment_table}
+        where is_active = 1
+          and toInt64OrNull(replaceRegexpOne(toString(product_id), '^0+', '')) is not null
+        group by city, product_id_int
+        """
+    ).rename(
+        columns={"product_id_int": PRODUCT_ID_COL}
+    )
+
+
+def _build_bakery_city_lookup(bakery_forecast: pd.DataFrame) -> pd.DataFrame:
+    if CITY_COL not in bakery_forecast.columns:
+        return pd.DataFrame(columns=[BAKERY_ID_COL, CITY_COL])
+    return (
+        bakery_forecast[[BAKERY_ID_COL, CITY_COL]]
+        .dropna(subset=[BAKERY_ID_COL, CITY_COL])
+        .drop_duplicates([BAKERY_ID_COL])
+    )
+
+
+def filter_by_active_assortment(
+    df: pd.DataFrame,
+    *,
+    allowed_pairs: pd.DataFrame,
+    bakery_city_lookup: pd.DataFrame,
+    forecast_col: str,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    if df.empty or allowed_pairs.empty:
+        return df, {"rows_removed": 0, "forecast_removed": 0.0}
+
+    original_cols = list(df.columns)
+    work = df.copy()
+    if CITY_COL not in work.columns and not bakery_city_lookup.empty:
+        work = work.merge(bakery_city_lookup, on=BAKERY_ID_COL, how="left")
+    if CITY_COL not in work.columns:
+        return df, {"rows_removed": 0, "forecast_removed": 0.0}
+
+    work["_assortment_product_id"] = pd.to_numeric(
+        work[PRODUCT_ID_COL],
+        errors="coerce",
+    ).astype("Int64")
+    allowed = allowed_pairs.rename(columns={PRODUCT_ID_COL: "_assortment_product_id"})
+    allowed["_assortment_product_id"] = pd.to_numeric(
+        allowed["_assortment_product_id"],
+        errors="coerce",
+    ).astype("Int64")
+    work = work.merge(
+        allowed.assign(_in_active_assortment=1),
+        on=[CITY_COL, "_assortment_product_id"],
+        how="left",
+    )
+    keep_mask = work["_in_active_assortment"].fillna(0).astype(int).eq(1)
+    removed = work.loc[~keep_mask]
+    forecast_removed = float(
+        pd.to_numeric(removed.get(forecast_col, 0.0), errors="coerce")
+        .fillna(0.0)
+        .sum()
+    )
+    filtered = work.loc[keep_mask, original_cols].copy()
+    return filtered, {
+        "rows_removed": int(len(removed)),
+        "forecast_removed": forecast_removed,
+    }
+
+
+def _merge_filter_stats(
+    total: dict[str, float | int],
+    stats: dict[str, float | int],
+) -> None:
+    total["rows_removed"] = int(total.get("rows_removed", 0)) + int(
+        stats.get("rows_removed", 0)
+    )
+    total["forecast_removed"] = float(total.get("forecast_removed", 0.0)) + float(
+        stats.get("forecast_removed", 0.0)
+    )
 
 
 def load_profile_lookup_frames(client, *, profile_table: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -799,6 +883,8 @@ def allocate_from_clickhouse(
     recent_correction_days: int = 30,
     recent_sales_table: str = SALES_LINE_TABLE,
     chunk_size: int = SKU_PROFILE_CHUNK_SIZE,
+    assortment_table: str = ASSORTMENT_TABLE,
+    disable_assortment_filter: bool = False,
 ) -> dict[str, Path]:
     if recent_correction_mode not in RECENT_CORRECTION_MODES:
         raise ValueError(
@@ -811,6 +897,16 @@ def allocate_from_clickhouse(
     )
     bakery_hour_profile = load_bakery_hour_profile(bakery_hour_profile_path)
     hourly_forecast = allocate_bakery_to_hour(bakery_forecast, bakery_hour_profile)
+    bakery_city_lookup = _build_bakery_city_lookup(bakery_forecast)
+    allowed_assortment_pairs = (
+        pd.DataFrame(columns=[CITY_COL, PRODUCT_ID_COL])
+        if disable_assortment_filter
+        else load_active_assortment_pairs(client, assortment_table=assortment_table)
+    )
+    assortment_filter_stats: dict[str, float | int] = {
+        "rows_removed": 0,
+        "forecast_removed": 0.0,
+    }
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -822,6 +918,8 @@ def allocate_from_clickhouse(
         hourly_path.unlink()
 
     hourly_cols = [DATE_COL, DOW_COL, HOUR_COL, BAKERY_ID_COL, BAKERY_HOUR_FORECAST_COL]
+    if CITY_COL in hourly_forecast.columns:
+        hourly_cols.append(CITY_COL)
     hourly_lookup = hourly_forecast[hourly_cols].copy()
     hourly_lookup["_row_id"] = np.arange(len(hourly_lookup))
 
@@ -880,6 +978,13 @@ def allocate_from_clickhouse(
         merged[SKU_HOUR_FORECAST_COL] = (
             merged[BAKERY_HOUR_FORECAST_COL] * merged[SKU_SHARE_COL]
         )
+        merged, filter_stats = filter_by_active_assortment(
+            merged,
+            allowed_pairs=allowed_assortment_pairs,
+            bakery_city_lookup=bakery_city_lookup,
+            forecast_col=SKU_HOUR_FORECAST_COL,
+        )
+        _merge_filter_stats(assortment_filter_stats, filter_stats)
         merged = merged[[*HOURLY_OUTPUT_COLS, "_row_id", "source"]]
         _write_hourly_chunk(merged, hourly_path, header=not wrote_header)
         wrote_header = True
@@ -929,6 +1034,13 @@ def allocate_from_clickhouse(
             "bakery_hour_fallback_thin",
             "bakery_hour_fallback",
         )
+        fallback_merged, filter_stats = filter_by_active_assortment(
+            fallback_merged,
+            allowed_pairs=allowed_assortment_pairs,
+            bakery_city_lookup=bakery_city_lookup,
+            forecast_col=SKU_HOUR_FORECAST_COL,
+        )
+        _merge_filter_stats(assortment_filter_stats, filter_stats)
         fallback_merged = fallback_merged[[*HOURLY_OUTPUT_COLS, "_row_id", "source"]]
         _write_hourly_chunk(fallback_merged, hourly_path, header=not wrote_header)
         sku_hour_rows += len(fallback_merged)
@@ -974,6 +1086,24 @@ def allocate_from_clickhouse(
             recent_days=recent_correction_days,
             sales_table=recent_sales_table,
         )
+        hourly_after_recent = pd.read_csv(hourly_path, encoding="utf-8-sig")
+        hourly_after_recent, hour_filter_stats = filter_by_active_assortment(
+            hourly_after_recent,
+            allowed_pairs=allowed_assortment_pairs,
+            bakery_city_lookup=bakery_city_lookup,
+            forecast_col=SKU_HOUR_FORECAST_COL,
+        )
+        _merge_filter_stats(assortment_filter_stats, hour_filter_stats)
+        hourly_after_recent.to_csv(hourly_path, index=False, encoding="utf-8-sig")
+        sku_daily, day_filter_stats = filter_by_active_assortment(
+            sku_daily,
+            allowed_pairs=allowed_assortment_pairs,
+            bakery_city_lookup=bakery_city_lookup,
+            forecast_col=SKU_DAY_FORECAST_COL,
+        )
+        _merge_filter_stats(assortment_filter_stats, day_filter_stats)
+        sku_daily.to_csv(daily_path, index=False, encoding="utf-8-sig")
+        sku_hour_rows = int(len(hourly_after_recent))
         products_seen = set(sku_daily[PRODUCT_ID_COL].dropna().astype(str).unique().tolist())
 
     summary = build_summary_from_daily(
@@ -990,6 +1120,13 @@ def allocate_from_clickhouse(
             "recent_days": recent_correction_days,
             "sales_table": recent_sales_table,
         }
+    summary["assortment_filter"] = {
+        "enabled": not disable_assortment_filter,
+        "assortment_table": assortment_table,
+        "allowed_pairs": int(len(allowed_assortment_pairs)),
+        "rows_removed": int(assortment_filter_stats["rows_removed"]),
+        "forecast_removed": round(float(assortment_filter_stats["forecast_removed"]), 6),
+    }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -1022,6 +1159,8 @@ def main() -> None:
     parser.add_argument("--recent-correction-days", type=int, default=30)
     parser.add_argument("--recent-sales-table", default=SALES_LINE_TABLE)
     parser.add_argument("--chunk-size", type=int, default=SKU_PROFILE_CHUNK_SIZE)
+    parser.add_argument("--assortment-table", default=ASSORTMENT_TABLE)
+    parser.add_argument("--disable-assortment-filter", action="store_true")
     args = parser.parse_args()
 
     paths = allocate_from_clickhouse(
@@ -1039,6 +1178,8 @@ def main() -> None:
         recent_correction_days=args.recent_correction_days,
         recent_sales_table=args.recent_sales_table,
         chunk_size=args.chunk_size,
+        assortment_table=args.assortment_table,
+        disable_assortment_filter=args.disable_assortment_filter,
     )
 
     print("=" * 72)

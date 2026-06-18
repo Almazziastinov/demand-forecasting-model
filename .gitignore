@@ -36,6 +36,7 @@ Demand Forecasting Bakery Data Analysis*
 # IDE
 .vscode/
 .idea/
+.codex/
 
 # OS
 ~$*
@@ -104,3 +105,5 @@ notebooks/strict_stockout_exports/
 tests/_tmp_apply_profiles/
 tests/_tmp_forecast_publish/
 tests/_tmp_smooth_profiles/
+tmp_assortment_work/
+tmp_remote_keys/

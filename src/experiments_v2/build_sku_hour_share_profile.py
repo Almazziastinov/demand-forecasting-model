@@ -30,6 +30,10 @@ from src.experiments_v2.build_bakery_hour_profile import DEFAULT_DAILY_CLEANING_
 from src.experiments_v2.build_bakery_hour_profile import add_profile_weights
 from src.experiments_v2.build_bakery_hour_profile import load_daily_profile_weights
 from src.experiments_v2.build_bakery_hour_profile import _weighted_mean
+from scripts.build_required_assortment_contract import normalize_text
+from scripts.compare_required_assortment_to_dim_products import (
+    normalize_product_for_dim_lookup,
+)
 
 RAW_DATETIME_COL = "check_datetime"
 RAW_DATE_COL = "check_date"
@@ -37,6 +41,7 @@ RAW_EVENT_COL = "cash_event_type"
 RAW_QTY_COL = "quantity"
 RAW_BAKERY_ID_COL = "bakery_id"
 RAW_BAKERY_NAME_COL = "bakery_name"
+RAW_CITY_COL = "city"
 RAW_PRODUCT_ID_COL = "product_id"
 RAW_PRODUCT_NAME_COL = "product_name"
 RAW_CATEGORY_COL = "category_name"
@@ -46,6 +51,7 @@ DOW_COL = "dow"
 HOUR_COL = "hour"
 BAKERY_ID_COL = "bakery_id"
 BAKERY_NAME_COL = "bakery_name"
+CITY_COL = "city"
 PRODUCT_ID_COL = "product_id"
 PRODUCT_NAME_COL = "product_name"
 CATEGORY_COL = "category_name"
@@ -60,6 +66,12 @@ CHUNK_SIZE = 1_000_000
 OUTPUT_NAME = "sku_hour_share_profile.csv"
 APPLIED_DAILY_OUTPUT_NAME = "sku_hour_share_profile_daily.csv"
 SUMMARY_OUTPUT_NAME = "sku_hour_share_profile_summary.json"
+DEFAULT_ASSORTMENT_PATH = (
+    ROOT / "reports" / "required_assortment" / "assortment_city_products.csv"
+)
+DEFAULT_PRODUCT_LOOKUP_PATH = (
+    ROOT / "reports" / "required_assortment" / "dim_products_lookup.csv"
+)
 
 RELIABILITY_HISTORY_SATURATION = 20.0
 LOW_RELIABILITY_THRESHOLD = 0.2
@@ -110,6 +122,7 @@ def aggregate_sku_hourly_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
                 HOUR_COL,
                 BAKERY_ID_COL,
                 BAKERY_NAME_COL,
+                CITY_COL,
                 PRODUCT_ID_COL,
                 PRODUCT_NAME_COL,
                 CATEGORY_COL,
@@ -125,6 +138,7 @@ def aggregate_sku_hourly_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
             "_dt",
             RAW_BAKERY_ID_COL,
             RAW_BAKERY_NAME_COL,
+            RAW_CITY_COL,
             RAW_PRODUCT_ID_COL,
             RAW_PRODUCT_NAME_COL,
         ]
@@ -137,6 +151,7 @@ def aggregate_sku_hourly_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
                 HOUR_COL,
                 BAKERY_ID_COL,
                 BAKERY_NAME_COL,
+                CITY_COL,
                 PRODUCT_ID_COL,
                 PRODUCT_NAME_COL,
                 CATEGORY_COL,
@@ -159,6 +174,7 @@ def aggregate_sku_hourly_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
                 HOUR_COL,
                 RAW_BAKERY_ID_COL,
                 RAW_BAKERY_NAME_COL,
+                RAW_CITY_COL,
                 RAW_PRODUCT_ID_COL,
                 RAW_PRODUCT_NAME_COL,
                 RAW_CATEGORY_COL,
@@ -170,6 +186,7 @@ def aggregate_sku_hourly_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
             columns={
                 RAW_BAKERY_ID_COL: BAKERY_ID_COL,
                 RAW_BAKERY_NAME_COL: BAKERY_NAME_COL,
+                RAW_CITY_COL: CITY_COL,
                 RAW_PRODUCT_ID_COL: PRODUCT_ID_COL,
                 RAW_PRODUCT_NAME_COL: PRODUCT_NAME_COL,
                 RAW_CATEGORY_COL: CATEGORY_COL,
@@ -192,6 +209,7 @@ def merge_hourly_parts(parts: list[pd.DataFrame]) -> pd.DataFrame:
                 HOUR_COL,
                 BAKERY_ID_COL,
                 BAKERY_NAME_COL,
+                CITY_COL,
                 PRODUCT_ID_COL,
                 PRODUCT_NAME_COL,
                 CATEGORY_COL,
@@ -212,12 +230,16 @@ def build_sku_hour_share_profile(
     recent_days: int = RECENT_SHARE_DAYS,
     recent_alpha: float = RECENT_SHARE_ALPHA,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    hourly = hourly.copy()
+    if CITY_COL not in hourly.columns:
+        hourly[CITY_COL] = "unknown"
     bakery_hour = hourly.groupby(
-        [DATE_COL, DOW_COL, HOUR_COL, BAKERY_ID_COL, BAKERY_NAME_COL], as_index=False
+        [DATE_COL, DOW_COL, HOUR_COL, BAKERY_ID_COL, BAKERY_NAME_COL, CITY_COL],
+        as_index=False,
     ).agg(bakery_hour_sales=(SKU_HOUR_SALES_COL, "sum"))
     applied = hourly.merge(
         bakery_hour,
-        on=[DATE_COL, DOW_COL, HOUR_COL, BAKERY_ID_COL, BAKERY_NAME_COL],
+        on=[DATE_COL, DOW_COL, HOUR_COL, BAKERY_ID_COL, BAKERY_NAME_COL, CITY_COL],
         how="left",
     )
     applied[SKU_SHARE_COL] = (
@@ -318,11 +340,171 @@ def build_sku_hour_share_profile(
     return profile, applied
 
 
+def load_assortment_pairs(path: str | Path) -> pd.DataFrame:
+    assortment = pd.read_csv(path, dtype={PRODUCT_ID_COL: str})
+    required = {CITY_COL, PRODUCT_ID_COL, "is_active"}
+    missing = required.difference(assortment.columns)
+    if missing:
+        raise KeyError(f"Missing columns in assortment file: {sorted(missing)}")
+
+    active = assortment[assortment["is_active"].astype(int).eq(1)].copy()
+    active[PRODUCT_ID_COL] = pd.to_numeric(
+        active[PRODUCT_ID_COL],
+        errors="coerce",
+    ).astype("Int64")
+    active = active.dropna(subset=[CITY_COL, PRODUCT_ID_COL])
+    return active[[CITY_COL, PRODUCT_ID_COL]].drop_duplicates()
+
+
+def load_bakery_lookup(path: str | Path | None) -> pd.DataFrame:
+    if path is None:
+        return pd.DataFrame(columns=["bakery_key", "_lookup_bakery_id", CITY_COL])
+    lookup = pd.read_csv(
+        path,
+        encoding="utf-8-sig",
+        usecols=lambda c: c in {BAKERY_ID_COL, BAKERY_NAME_COL, CITY_COL},
+    )
+    lookup = lookup.dropna(subset=[BAKERY_NAME_COL, BAKERY_ID_COL, CITY_COL]).copy()
+    lookup["bakery_key"] = lookup[BAKERY_NAME_COL].map(normalize_text)
+    lookup["_lookup_bakery_id"] = pd.to_numeric(
+        lookup[BAKERY_ID_COL],
+        errors="coerce",
+    ).astype("Int64")
+    lookup = lookup.dropna(subset=["_lookup_bakery_id"])
+    lookup = lookup.drop_duplicates("bakery_key", keep="first")
+    return lookup[["bakery_key", "_lookup_bakery_id", CITY_COL]]
+
+
+def load_product_lookup(path: str | Path) -> pd.DataFrame:
+    lookup = pd.read_csv(path, dtype={PRODUCT_ID_COL: str})
+    lookup = lookup[lookup["is_inactive_product"].astype(str).str.lower().ne("true")]
+    lookup["product_key_lookup"] = lookup[PRODUCT_NAME_COL].map(
+        normalize_product_for_dim_lookup
+    )
+    lookup["_lookup_product_id"] = pd.to_numeric(
+        lookup[PRODUCT_ID_COL],
+        errors="coerce",
+    ).astype("Int64")
+    lookup = lookup.dropna(subset=["product_key_lookup", "_lookup_product_id"])
+    counts = lookup.groupby("product_key_lookup")[PRODUCT_ID_COL].nunique()
+    unique_keys = counts[counts.eq(1)].index
+    lookup = lookup[lookup["product_key_lookup"].isin(unique_keys)].copy()
+    lookup = lookup.drop_duplicates("product_key_lookup", keep="first")
+    return lookup[
+        [
+            "product_key_lookup",
+            "_lookup_product_id",
+            PRODUCT_NAME_COL,
+            CATEGORY_COL,
+        ]
+    ].rename(
+        columns={
+            PRODUCT_NAME_COL: "_lookup_product_name",
+            CATEGORY_COL: "_lookup_category_name",
+        }
+    )
+
+
+def enrich_hourly_dimensions(
+    hourly: pd.DataFrame,
+    *,
+    bakery_lookup: pd.DataFrame,
+    product_lookup: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    work = hourly.copy()
+    work["bakery_key"] = work[BAKERY_NAME_COL].map(normalize_text)
+    work["product_key_lookup"] = work[PRODUCT_NAME_COL].map(
+        normalize_product_for_dim_lookup
+    )
+    work = work.merge(bakery_lookup, on="bakery_key", how="left")
+    work = work.merge(product_lookup, on="product_key_lookup", how="left")
+
+    matched_bakeries = int(work["_lookup_bakery_id"].notna().sum())
+    matched_products = int(work["_lookup_product_id"].notna().sum())
+
+    work[BAKERY_ID_COL] = work["_lookup_bakery_id"].astype(object).where(
+        work["_lookup_bakery_id"].notna(),
+        work[BAKERY_ID_COL].astype(object),
+    )
+    work[PRODUCT_ID_COL] = work["_lookup_product_id"].astype(object).where(
+        work["_lookup_product_id"].notna(),
+        work[PRODUCT_ID_COL].astype(object),
+    )
+    if f"{CITY_COL}_x" in work.columns:
+        work[CITY_COL] = work[f"{CITY_COL}_y"].fillna(work[f"{CITY_COL}_x"])
+    work[PRODUCT_NAME_COL] = work["_lookup_product_name"].fillna(
+        work[PRODUCT_NAME_COL]
+    )
+    work[CATEGORY_COL] = work["_lookup_category_name"].fillna(work[CATEGORY_COL])
+
+    drop_cols = [
+        "bakery_key",
+        "product_key_lookup",
+        "_lookup_bakery_id",
+        "_lookup_product_id",
+        "_lookup_product_name",
+        "_lookup_category_name",
+        f"{CITY_COL}_x",
+        f"{CITY_COL}_y",
+    ]
+    work = work.drop(columns=[col for col in drop_cols if col in work.columns])
+    return work, {
+        "rows": int(len(work)),
+        "matched_bakery_rows": matched_bakeries,
+        "matched_product_rows": matched_products,
+    }
+
+
+def filter_hourly_by_assortment(
+    hourly: pd.DataFrame,
+    assortment_pairs: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    if hourly.empty or assortment_pairs.empty:
+        return hourly, {"rows_removed": 0, "sales_removed": 0.0}
+
+    missing = {CITY_COL, PRODUCT_ID_COL}.difference(hourly.columns)
+    if missing:
+        raise KeyError(
+            f"Hourly data cannot be assortment-filtered; missing {sorted(missing)}"
+        )
+
+    work = hourly.copy()
+    original_cols = list(work.columns)
+    work["_assortment_product_id"] = pd.to_numeric(
+        work[PRODUCT_ID_COL],
+        errors="coerce",
+    ).astype("Int64")
+    allowed = assortment_pairs.rename(
+        columns={PRODUCT_ID_COL: "_assortment_product_id"}
+    ).copy()
+    allowed["_assortment_product_id"] = pd.to_numeric(
+        allowed["_assortment_product_id"],
+        errors="coerce",
+    ).astype("Int64")
+    work = work.merge(
+        allowed.assign(_in_active_assortment=1),
+        on=[CITY_COL, "_assortment_product_id"],
+        how="left",
+    )
+    keep = work["_in_active_assortment"].fillna(0).astype(int).eq(1)
+    removed = work.loc[~keep]
+    return work.loc[keep, original_cols].copy(), {
+        "rows_removed": int(len(removed)),
+        "sales_removed": float(
+            pd.to_numeric(removed[SKU_HOUR_SALES_COL], errors="coerce")
+            .fillna(0.0)
+            .sum()
+        ),
+    }
+
+
 def build_from_raw(
     source_path: str | Path,
     *,
     chunk_size: int = CHUNK_SIZE,
     daily_cleaning_path: str | Path | None = DEFAULT_DAILY_CLEANING_PATH,
+    assortment_path: str | Path | None = None,
+    product_lookup_path: str | Path = DEFAULT_PRODUCT_LOOKUP_PATH,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     usecols = [
         RAW_DATETIME_COL,
@@ -331,6 +513,7 @@ def build_from_raw(
         RAW_QTY_COL,
         RAW_BAKERY_ID_COL,
         RAW_BAKERY_NAME_COL,
+        RAW_CITY_COL,
         RAW_PRODUCT_ID_COL,
         RAW_PRODUCT_NAME_COL,
         RAW_CATEGORY_COL,
@@ -355,6 +538,28 @@ def build_from_raw(
             print(f"processed chunks: {i}", flush=True)
 
     hourly = merge_hourly_parts(parts)
+    if assortment_path:
+        bakery_lookup = load_bakery_lookup(daily_cleaning_path)
+        product_lookup = load_product_lookup(product_lookup_path)
+        hourly, enrich_stats = enrich_hourly_dimensions(
+            hourly,
+            bakery_lookup=bakery_lookup,
+            product_lookup=product_lookup,
+        )
+        print(
+            "dimension lookup matched rows: "
+            f"bakery={enrich_stats['matched_bakery_rows']}/{enrich_stats['rows']} "
+            f"product={enrich_stats['matched_product_rows']}/{enrich_stats['rows']}",
+            flush=True,
+        )
+        assortment_pairs = load_assortment_pairs(assortment_path)
+        hourly, filter_stats = filter_hourly_by_assortment(hourly, assortment_pairs)
+        print(
+            "assortment filter removed rows: "
+            f"{filter_stats['rows_removed']} "
+            f"sales: {filter_stats['sales_removed']:.4f}",
+            flush=True,
+        )
     daily_weights = load_daily_profile_weights(daily_cleaning_path)
     return build_sku_hour_share_profile(hourly, daily_weights=daily_weights)
 
@@ -435,12 +640,19 @@ def main() -> None:
     parser.add_argument(
         "--daily-cleaning-path", default=str(DEFAULT_DAILY_CLEANING_PATH)
     )
+    parser.add_argument("--assortment-path", default="")
+    parser.add_argument(
+        "--product-lookup-path",
+        default=str(DEFAULT_PRODUCT_LOOKUP_PATH),
+    )
     args = parser.parse_args()
 
     profile, applied = build_from_raw(
         args.source_path,
         chunk_size=args.chunk_size,
         daily_cleaning_path=args.daily_cleaning_path,
+        assortment_path=args.assortment_path or None,
+        product_lookup_path=args.product_lookup_path,
     )
     summary = build_summary(profile, applied)
     paths = save_outputs(args.output_dir, profile, applied, summary)

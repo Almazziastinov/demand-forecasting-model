@@ -161,6 +161,19 @@ def month_windows(date_from: str, date_to: str) -> Iterator[tuple[str, str]]:
         cursor = window_end + pd.Timedelta(days=1)
 
 
+def week_windows(date_from: str, date_to: str) -> Iterator[tuple[str, str]]:
+    start = pd.Timestamp(date_from).normalize()
+    end = pd.Timestamp(date_to).normalize()
+    if start > end:
+        raise ValueError("date_from must be <= date_to")
+
+    cursor = start
+    while cursor <= end:
+        window_end = min(cursor + pd.Timedelta(days=6), end)
+        yield cursor.strftime("%Y-%m-%d"), window_end.strftime("%Y-%m-%d")
+        cursor = window_end + pd.Timedelta(days=1)
+
+
 def render_sql(
     template_text: str,
     *,
@@ -212,8 +225,10 @@ def export_windows(
         windows = [(date_from, date_to)]
     elif batch_mode == "monthly":
         windows = list(month_windows(date_from, date_to))
+    elif batch_mode == "weekly":
+        windows = list(week_windows(date_from, date_to))
     else:
-        raise ValueError("batch_mode must be 'single' or 'monthly'")
+        raise ValueError("batch_mode must be 'single', 'monthly', or 'weekly'")
 
     for index, (window_from, window_to) in enumerate(windows, start=1):
         sql = render_sql(
@@ -283,7 +298,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--batch-mode",
-        choices=["single", "monthly"],
+        choices=["single", "monthly", "weekly"],
         default="monthly",
         help="How to split the export query across the date range.",
     )
