@@ -6,6 +6,9 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     RAW_SALES_LINE_TABLE,
     _build_recent_correction_targets,
     _recent_sales_source_sql,
+    fill_missing_bakery_hours,
+    filter_by_active_assortment,
+    renormalize_hourly_to_bakery_forecast,
 )
 
 
@@ -146,3 +149,126 @@ def test_recent_sales_source_deduplicates_raw_check_lines() -> None:
     assert "svezhar.fct_check_lines" in source
     assert "hex(fcl.cash_event_type)" in source
     assert "fcl.check_date between %(recent_start)s and %(recent_end)s" in source
+
+
+def test_assortment_renormalization_preserves_bakery_hour_total() -> None:
+    sku_hourly = pd.DataFrame(
+        {
+            "date": ["2026-06-01", "2026-06-01"],
+            "dow": [0, 0],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [30.0, 20.0],
+        }
+    )
+    bakery_hourly = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-06-01")],
+            "bakery_id": [1],
+            "hour": [9],
+            "bakery_hour_forecast": [100.0],
+        }
+    )
+
+    normalized, stats = renormalize_hourly_to_bakery_forecast(
+        sku_hourly,
+        bakery_hourly,
+    )
+
+    assert normalized["sku_hour_forecast"].sum() == 100.0
+    product_10_forecast = normalized.loc[
+        normalized["product_id"].eq(10), "sku_hour_forecast"
+    ].iloc[0]
+    assert product_10_forecast == 60.0
+    assert stats == {"groups_scaled": 1, "groups_without_sku": 0}
+
+
+def test_missing_hour_uses_same_day_product_shares() -> None:
+    sku_hourly = pd.DataFrame(
+        {
+            "date": ["2026-06-01", "2026-06-01"],
+            "dow": [0, 0],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [30.0, 70.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    bakery_hourly = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-06-01"), pd.Timestamp("2026-06-01")],
+            "dow": [0, 0],
+            "bakery_id": [1, 1],
+            "hour": [9, 10],
+            "bakery_hour_forecast": [100.0, 50.0],
+        }
+    )
+
+    filled, stats = fill_missing_bakery_hours(sku_hourly, bakery_hourly)
+    hour_10 = filled[filled["hour"].eq(10)].sort_values("product_id")
+
+    assert hour_10["sku_hour_forecast"].tolist() == [15.0, 35.0]
+    assert stats == {"groups_filled": 1, "groups_unfilled": 0}
+
+
+def test_missing_bakery_uses_city_hour_product_shares() -> None:
+    sku_hourly = pd.DataFrame(
+        {
+            "date": ["2026-06-01", "2026-06-01"],
+            "dow": [0, 0],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [30.0, 70.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    bakery_hourly = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-06-01"), pd.Timestamp("2026-06-01")],
+            "dow": [0, 0],
+            "bakery_id": [1, 2],
+            "hour": [9, 9],
+            "bakery_hour_forecast": [100.0, 50.0],
+        }
+    )
+    bakery_city = pd.DataFrame(
+        {"bakery_id": [1, 2], "city": ["Казань", "Казань"]}
+    )
+
+    filled, stats = fill_missing_bakery_hours(
+        sku_hourly,
+        bakery_hourly,
+        bakery_city_lookup=bakery_city,
+    )
+    bakery_2 = filled[filled["bakery_id"].eq(2)].sort_values("product_id")
+
+    assert bakery_2["sku_hour_forecast"].tolist() == [15.0, 35.0]
+    assert stats == {"groups_filled": 1, "groups_unfilled": 0}
+
+
+def test_assortment_filter_keeps_unconfigured_city() -> None:
+    hourly = pd.DataFrame(
+        {
+            "date": ["2026-06-01"],
+            "dow": [0],
+            "bakery_id": [2],
+            "hour": [9],
+            "product_id": [999],
+            "sku_hour_forecast": [10.0],
+        }
+    )
+    allowed = pd.DataFrame({"city": ["Казань"], "product_id": [1]})
+    bakery_city = pd.DataFrame({"bakery_id": [2], "city": ["Иркутск"]})
+
+    filtered, stats = filter_by_active_assortment(
+        hourly,
+        allowed_pairs=allowed,
+        bakery_city_lookup=bakery_city,
+        forecast_col="sku_hour_forecast",
+    )
+
+    assert filtered["product_id"].tolist() == [999]
+    assert stats == {"rows_removed": 0, "forecast_removed": 0.0}

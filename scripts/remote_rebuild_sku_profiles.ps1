@@ -109,7 +109,7 @@ $packageFiles = @(
 
 New-Item -ItemType Directory -Path $stageDir | Out-Null
 foreach ($dir in $packageDirs) {
-    Get-ChildItem -LiteralPath $dir -Recurse -File |
+    Get-ChildItem -LiteralPath $dir -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object {
             $_.FullName -notmatch '\\__pycache__\\' -and
             $_.FullName -notmatch '\\.pytest_cache\\' -and
@@ -177,7 +177,7 @@ fi
 
 mkdir -p data/raw data/processed reports/required_assortment
 
-if [ "`$SKIP_EXPORT" != "1" ]; then
+if [ "`$SKIP_EXPORT" != "1" ] && [ ! -s data/raw/sales_hrs_all_clickhouse.csv ]; then
   python scripts/export_clickhouse_checks.py \
     --env-file .env.dev \
     --sql-template scripts/clickhouse_export_template.sql \
@@ -185,6 +185,8 @@ if [ "`$SKIP_EXPORT" != "1" ]; then
     --date-to "`$DATE_TO" \
     --batch-mode weekly \
     --output data/raw/sales_hrs_all_clickhouse.csv
+elif [ -s data/raw/sales_hrs_all_clickhouse.csv ]; then
+  echo "Reusing existing data/raw/sales_hrs_all_clickhouse.csv"
 fi
 
 python -m src.experiments_v2.build_sku_hour_share_profile \
@@ -235,7 +237,7 @@ $runnerPath = Join-Path $tmpDir "rebuild_sku_profiles.sh"
 Copy-ToRemote $runnerPath $remoteRunner
 if ($Background) {
     $remoteLog = "$RemoteRoot/logs/rebuild_sku_profiles_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
-    Invoke-Remote "mkdir -p $RemoteRoot/logs && nohup bash $remoteRunner > $remoteLog 2>&1 & echo `$! && echo $remoteLog"
+    Invoke-Remote "mkdir -p $RemoteRoot/logs; setsid -f bash $remoteRunner </dev/null > $remoteLog 2>&1; echo $remoteLog"
 } else {
     Invoke-Remote "bash $remoteRunner"
 }

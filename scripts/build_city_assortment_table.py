@@ -40,10 +40,6 @@ MANUAL_EXCLUDED_ACTIVE_PRODUCT_KEYS = {
     normalize_text("\u0412\u0438\u0448\u043d\u0435\u0432\u044b\u0439"),
 }
 MANUAL_EXCLUDED_ACTIVE_PRODUCT_TOKEN_GROUPS = (
-    (
-        normalize_text("\u043a\u0430\u043f\u0443\u0441\u0442\u0430"),
-        normalize_text("\u043a\u0443\u0440\u0438\u0446\u0430"),
-    ),
     (normalize_text("\u0432\u0438\u0448\u043d\u0435\u0432"),),
 )
 
@@ -56,17 +52,7 @@ def is_manual_excluded_active_name(product_name: str, city: str = "") -> bool:
     product_key = normalize_text(product_name)
     if product_key in MANUAL_EXCLUDED_ACTIVE_PRODUCT_KEYS:
         return True
-    city_key = normalize_text(city)
     for tokens in MANUAL_EXCLUDED_ACTIVE_PRODUCT_TOKEN_GROUPS:
-        if (
-            city_key == normalize_text("Чебоксары")
-            and set(tokens)
-            == {
-                normalize_text("капуста"),
-                normalize_text("курица"),
-            }
-        ):
-            continue
         if all(token in product_key for token in tokens):
             return True
     return False
@@ -136,9 +122,14 @@ def read_director_tatarstan(path: Path) -> pd.DataFrame:
     return result
 
 
-def read_ocr_cheboksary(path: Path) -> pd.DataFrame:
+def read_ocr_scope(
+    path: Path,
+    *,
+    scope: str,
+    source_name: str,
+) -> pd.DataFrame:
     manual = read_manual(path)
-    source = manual[manual["market_scope"].eq(CHEBOKSARY_SCOPE)].copy()
+    source = manual[manual["market_scope"].eq(scope)].copy()
     source = source.rename(
         columns={
             "product_name": "raw_product_name",
@@ -148,11 +139,16 @@ def read_ocr_cheboksary(path: Path) -> pd.DataFrame:
     source = source.drop_duplicates(["product_key", "category_norm"])
     source["product_key_exact"] = source["raw_product_name"].map(normalize_text)
     source["source_is_inactive"] = source["raw_product_name"].map(is_inactive_name)
-    source["city"] = SCOPE_TO_CITIES[CHEBOKSARY_SCOPE][0]
-    source["source"] = "ocr_cheboksary"
+    rows = []
+    for city in SCOPE_TO_CITIES[scope]:
+        city_source = source.copy()
+        city_source["city"] = city
+        rows.append(city_source)
+    source = pd.concat(rows, ignore_index=True)
+    source["source"] = source_name
     source["source_priority"] = 20
     source["source_file"] = "OCR screenshots 2026-05-15"
-    source["source_scope"] = CHEBOKSARY_SCOPE
+    source["source_scope"] = scope
     return source[
         [
             "city",
@@ -170,6 +166,22 @@ def read_ocr_cheboksary(path: Path) -> pd.DataFrame:
             "top_rank",
         ]
     ]
+
+
+def read_ocr_tatarstan(path: Path) -> pd.DataFrame:
+    return read_ocr_scope(
+        path,
+        scope=TATARSTAN_SCOPE,
+        source_name="ocr_tatarstan",
+    )
+
+
+def read_ocr_cheboksary(path: Path) -> pd.DataFrame:
+    return read_ocr_scope(
+        path,
+        scope=CHEBOKSARY_SCOPE,
+        source_name="ocr_cheboksary",
+    )
 
 
 def match_sources(
@@ -220,7 +232,7 @@ def build_outputs(
     exact_lookup, alias_lookup = build_dim_lookup(dim)
     sources = pd.concat(
         [
-            read_director_tatarstan(director_path),
+            read_ocr_tatarstan(manual_path),
             read_ocr_cheboksary(manual_path),
         ],
         ignore_index=True,

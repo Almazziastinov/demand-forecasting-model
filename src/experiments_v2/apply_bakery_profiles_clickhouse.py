@@ -128,7 +128,11 @@ def filter_by_active_assortment(
         on=[CITY_COL, "_assortment_product_id"],
         how="left",
     )
-    keep_mask = work["_in_active_assortment"].fillna(0).astype(int).eq(1)
+    scoped_cities = set(allowed[CITY_COL].dropna().astype(str))
+    city_is_scoped = work[CITY_COL].astype(str).isin(scoped_cities)
+    keep_mask = (~city_is_scoped) | work["_in_active_assortment"].fillna(0).astype(
+        int
+    ).eq(1)
     removed = work.loc[~keep_mask]
     forecast_removed = float(
         pd.to_numeric(removed.get(forecast_col, 0.0), errors="coerce")
@@ -152,6 +156,192 @@ def _merge_filter_stats(
     total["forecast_removed"] = float(total.get("forecast_removed", 0.0)) + float(
         stats.get("forecast_removed", 0.0)
     )
+
+
+def renormalize_hourly_to_bakery_forecast(
+    sku_hourly: pd.DataFrame,
+    bakery_hourly: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    if sku_hourly.empty:
+        return sku_hourly, {"groups_scaled": 0, "groups_without_sku": 0}
+
+    keys = [DATE_COL, BAKERY_ID_COL, HOUR_COL]
+    original_cols = list(sku_hourly.columns)
+    work = sku_hourly.copy()
+    targets = bakery_hourly[[*keys, BAKERY_HOUR_FORECAST_COL]].copy()
+    work[DATE_COL] = pd.to_datetime(work[DATE_COL])
+    targets[DATE_COL] = pd.to_datetime(targets[DATE_COL])
+    targets = targets.groupby(keys, as_index=False)[BAKERY_HOUR_FORECAST_COL].sum()
+    totals = (
+        work.groupby(keys, as_index=False)[SKU_HOUR_FORECAST_COL]
+        .sum()
+        .rename(columns={SKU_HOUR_FORECAST_COL: "_sku_hour_sum"})
+    )
+    scales = targets.merge(totals, on=keys, how="left")
+    positive = scales["_sku_hour_sum"].fillna(0.0).gt(0.0)
+    scales["_assortment_scale"] = 1.0
+    scales.loc[positive, "_assortment_scale"] = (
+        scales.loc[positive, BAKERY_HOUR_FORECAST_COL]
+        / scales.loc[positive, "_sku_hour_sum"]
+    )
+    work = work.merge(scales[[*keys, "_assortment_scale"]], on=keys, how="left")
+    work[SKU_HOUR_FORECAST_COL] = (
+        work[SKU_HOUR_FORECAST_COL]
+        * work["_assortment_scale"].fillna(1.0)
+    )
+    return work[original_cols], {
+        "groups_scaled": int(positive.sum()),
+        "groups_without_sku": int((~positive).sum()),
+    }
+
+
+def fill_missing_bakery_hours(
+    sku_hourly: pd.DataFrame,
+    bakery_hourly: pd.DataFrame,
+    *,
+    bakery_city_lookup: pd.DataFrame | None = None,
+    allowed_pairs: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    if sku_hourly.empty:
+        return sku_hourly, {"groups_filled": 0, "groups_unfilled": 0}
+
+    keys = [DATE_COL, BAKERY_ID_COL, HOUR_COL]
+    work = sku_hourly.copy()
+    targets = bakery_hourly[
+        [DATE_COL, DOW_COL, BAKERY_ID_COL, HOUR_COL, BAKERY_HOUR_FORECAST_COL]
+    ].copy()
+    work[DATE_COL] = pd.to_datetime(work[DATE_COL])
+    targets[DATE_COL] = pd.to_datetime(targets[DATE_COL])
+    current = work.groupby(keys, as_index=False)[SKU_HOUR_FORECAST_COL].sum()
+    missing = targets.merge(current, on=keys, how="left")
+    missing = missing[
+        missing[SKU_HOUR_FORECAST_COL].fillna(0.0).le(0.0)
+        & missing[BAKERY_HOUR_FORECAST_COL].gt(0.0)
+    ].copy()
+    if missing.empty:
+        return work, {"groups_filled": 0, "groups_unfilled": 0}
+
+    daily_weights = (
+        work.groupby(
+            [DATE_COL, DOW_COL, BAKERY_ID_COL, PRODUCT_ID_COL],
+            as_index=False,
+        )[SKU_HOUR_FORECAST_COL]
+        .sum()
+        .rename(columns={SKU_HOUR_FORECAST_COL: "_product_day_total"})
+    )
+    daily_weights["_bakery_day_total"] = daily_weights.groupby(
+        [DATE_COL, BAKERY_ID_COL]
+    )["_product_day_total"].transform("sum")
+    daily_weights = daily_weights[daily_weights["_bakery_day_total"].gt(0.0)].copy()
+    daily_weights["_product_day_share"] = (
+        daily_weights["_product_day_total"] / daily_weights["_bakery_day_total"]
+    )
+    added = missing.merge(
+        daily_weights,
+        on=[DATE_COL, DOW_COL, BAKERY_ID_COL],
+        how="left",
+    )
+    filled_mask = added["_product_day_share"].notna()
+    added = added.loc[filled_mask].copy()
+    if not added.empty:
+        added[SKU_HOUR_FORECAST_COL] = (
+            added[BAKERY_HOUR_FORECAST_COL] * added["_product_day_share"]
+        )
+        added["source"] = "assortment_hour_gap_fallback"
+        added = added[[*HOURLY_OUTPUT_COLS, "source"]]
+    result = pd.concat([work, added], ignore_index=True)
+
+    filled_keys = added[keys].drop_duplicates()
+    remaining = missing.merge(
+        filled_keys.assign(_filled=1),
+        on=keys,
+        how="left",
+    )
+    remaining = remaining[remaining["_filled"].isna()].drop(columns=["_filled"])
+
+    city_added = pd.DataFrame(columns=[*HOURLY_OUTPUT_COLS, "source"])
+    if (
+        not remaining.empty
+        and bakery_city_lookup is not None
+        and not bakery_city_lookup.empty
+    ):
+        city_work = result.merge(bakery_city_lookup, on=BAKERY_ID_COL, how="left")
+        city_keys = [DATE_COL, DOW_COL, CITY_COL, HOUR_COL]
+        city_weights = city_work.groupby(
+            [*city_keys, PRODUCT_ID_COL],
+            as_index=False,
+        )[SKU_HOUR_FORECAST_COL].sum()
+        city_weights["_city_hour_total"] = city_weights.groupby(city_keys)[
+            SKU_HOUR_FORECAST_COL
+        ].transform("sum")
+        city_weights = city_weights[city_weights["_city_hour_total"].gt(0.0)]
+        city_weights["_city_product_share"] = (
+            city_weights[SKU_HOUR_FORECAST_COL]
+            / city_weights["_city_hour_total"]
+        )
+        city_added = remaining.merge(
+            bakery_city_lookup,
+            on=BAKERY_ID_COL,
+            how="left",
+        ).merge(
+            city_weights[[*city_keys, PRODUCT_ID_COL, "_city_product_share"]],
+            on=city_keys,
+            how="left",
+        )
+        city_added = city_added[city_added["_city_product_share"].notna()].copy()
+        if not city_added.empty:
+            city_added[SKU_HOUR_FORECAST_COL] = (
+                city_added[BAKERY_HOUR_FORECAST_COL]
+                * city_added["_city_product_share"]
+            )
+            city_added["source"] = "assortment_city_hour_fallback"
+            city_added = city_added[[*HOURLY_OUTPUT_COLS, "source"]]
+            result = pd.concat([result, city_added], ignore_index=True)
+
+    all_filled_keys = pd.concat(
+        [filled_keys, city_added[keys]],
+        ignore_index=True,
+    ).drop_duplicates()
+    remaining = missing.merge(
+        all_filled_keys.assign(_filled=1),
+        on=keys,
+        how="left",
+    )
+    remaining = remaining[remaining["_filled"].isna()].drop(columns=["_filled"])
+
+    uniform_added = pd.DataFrame(columns=[*HOURLY_OUTPUT_COLS, "source"])
+    if (
+        not remaining.empty
+        and bakery_city_lookup is not None
+        and allowed_pairs is not None
+        and not allowed_pairs.empty
+    ):
+        uniform_added = remaining.merge(
+            bakery_city_lookup,
+            on=BAKERY_ID_COL,
+            how="left",
+        ).merge(allowed_pairs, on=CITY_COL, how="left")
+        uniform_added = uniform_added.dropna(subset=[PRODUCT_ID_COL]).copy()
+        uniform_added["_allowed_count"] = uniform_added.groupby(keys)[
+            PRODUCT_ID_COL
+        ].transform("count")
+        uniform_added[SKU_HOUR_FORECAST_COL] = (
+            uniform_added[BAKERY_HOUR_FORECAST_COL]
+            / uniform_added["_allowed_count"]
+        )
+        uniform_added["source"] = "assortment_uniform_fallback"
+        uniform_added = uniform_added[[*HOURLY_OUTPUT_COLS, "source"]]
+        result = pd.concat([result, uniform_added], ignore_index=True)
+
+    all_filled_keys = pd.concat(
+        [all_filled_keys, uniform_added[keys]],
+        ignore_index=True,
+    ).drop_duplicates()
+    total_filled = int(all_filled_keys.shape[0])
+    return result, {
+        "groups_filled": total_filled,
+        "groups_unfilled": int(len(missing) - total_filled),
+    }
 
 
 def load_profile_lookup_frames(client, *, profile_table: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -1094,17 +1284,38 @@ def allocate_from_clickhouse(
             forecast_col=SKU_HOUR_FORECAST_COL,
         )
         _merge_filter_stats(assortment_filter_stats, hour_filter_stats)
+        renormalization_stats = {"groups_scaled": 0, "groups_without_sku": 0}
+        gap_fill_stats = {"groups_filled": 0, "groups_unfilled": 0}
+        if not use_raw_uplift_multiplier:
+            hourly_after_recent, gap_fill_stats = fill_missing_bakery_hours(
+                hourly_after_recent,
+                hourly_forecast,
+                bakery_city_lookup=bakery_city_lookup,
+                allowed_pairs=allowed_assortment_pairs,
+            )
+            hourly_after_recent, renormalization_stats = (
+                renormalize_hourly_to_bakery_forecast(
+                    hourly_after_recent,
+                    hourly_forecast,
+                )
+            )
         hourly_after_recent.to_csv(hourly_path, index=False, encoding="utf-8-sig")
-        sku_daily, day_filter_stats = filter_by_active_assortment(
-            sku_daily,
-            allowed_pairs=allowed_assortment_pairs,
-            bakery_city_lookup=bakery_city_lookup,
-            forecast_col=SKU_DAY_FORECAST_COL,
+        sku_daily = (
+            hourly_after_recent.groupby(
+                [DATE_COL, DOW_COL, BAKERY_ID_COL, PRODUCT_ID_COL],
+                as_index=False,
+                sort=False,
+            )
+            .agg(sku_day_forecast=(SKU_HOUR_FORECAST_COL, "sum"))
+            .sort_values([BAKERY_ID_COL, PRODUCT_ID_COL, DATE_COL])
+            .reset_index(drop=True)
         )
-        _merge_filter_stats(assortment_filter_stats, day_filter_stats)
         sku_daily.to_csv(daily_path, index=False, encoding="utf-8-sig")
         sku_hour_rows = int(len(hourly_after_recent))
         products_seen = set(sku_daily[PRODUCT_ID_COL].dropna().astype(str).unique().tolist())
+        normalized_source_stats: dict[str, dict[str, float]] = {}
+        _update_source_stats(normalized_source_stats, hourly_after_recent)
+        source_summary = _finalize_source_stats(normalized_source_stats)
 
     summary = build_summary_from_daily(
         bakery_forecast,
@@ -1127,6 +1338,9 @@ def allocate_from_clickhouse(
         "rows_removed": int(assortment_filter_stats["rows_removed"]),
         "forecast_removed": round(float(assortment_filter_stats["forecast_removed"]), 6),
     }
+    if recent_correction_mode != "none" and not use_raw_uplift_multiplier:
+        summary["assortment_filter"]["renormalization"] = renormalization_stats
+        summary["assortment_filter"]["hour_gap_fallback"] = gap_fill_stats
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",

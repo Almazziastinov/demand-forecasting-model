@@ -1,5 +1,8 @@
 from pathlib import Path
 import sys
+from io import BytesIO
+
+from openpyxl import load_workbook
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,12 +13,15 @@ from app.services.baking_plan import BakingWindow  # noqa: E402
 from app.services.baking_plan import ScheduledColumn  # noqa: E402
 from app.services.baking_plan import allocate_template_row  # noqa: E402
 from app.services.baking_plan import build_product_hour_lookup  # noqa: E402
+from app.services.baking_plan import build_baking_plan_workbook  # noqa: E402
+from app.services.baking_plan import build_assortment_lookup  # noqa: E402
 from app.services.baking_plan import coverage_hours  # noqa: E402
 from app.services.baking_plan import is_defrost_cell  # noqa: E402
 from app.services.baking_plan import normalize_sku_name  # noqa: E402
 from app.services.baking_plan import revenue_bucket  # noqa: E402
 from app.services.baking_plan import schedule_round_to  # noqa: E402
 from app.services.baking_plan import sku_match_keys  # noqa: E402
+from app.services.baking_plan import template_path_for_bakery  # noqa: E402
 
 
 # Window labels mirror the real template row 5.
@@ -201,3 +207,89 @@ def test_sku_match_keys_include_known_forecast_aliases() -> None:
     assert "треугольник курица" in sku_match_keys("Треугольник курица безд")
     assert "жар пицца оригинальная" in sku_match_keys("ЖарПицца Оригинальная")
     assert "пирожок булочка с яблоками" in sku_match_keys("Пирожок яблоко")
+
+
+def test_workbook_uses_active_assortment_and_adds_unscheduled_rows() -> None:
+    content = build_baking_plan_workbook(
+        bakery={"bakery_id": 22, "bakery_name": "Тест", "city": "Казань"},
+        forecast_date="2026-06-20",
+        sku_hour_rows=[
+            {
+                "product_id": "1",
+                "product_name": "Треугольник курица безд",
+                "category_name": "Выпечка сытная",
+                "hour": 7,
+                "forecast_qty": 12,
+            },
+            {
+                "product_id": "2",
+                "product_name": "Новая позиция",
+                "category_name": "Новая группа",
+                "hour": 8,
+                "forecast_qty": 7,
+            },
+        ],
+        assortment_rows=[
+            {
+                "product_id": "1",
+                "product_name": "Треугольник курица безд",
+                "category_name": "Выпечка сытная",
+            },
+            {
+                "product_id": "2",
+                "product_name": "Новая позиция",
+                "category_name": "Новая группа",
+            },
+        ],
+        bucket="до 1,5 млн",
+    )
+
+    sheet = load_workbook(BytesIO(content))["План выпекания"]
+    names = {
+        sheet.cell(row=row, column=2).value: row
+        for row in range(1, sheet.max_row + 1)
+        if sheet.cell(row=row, column=2).value
+    }
+
+    assert sheet.cell(row=5, column=13).value == "Итого"
+    assert sheet.column_dimensions["M"].hidden is False
+    assert sheet.cell(row=6, column=1).value == "Выпечка сытная"
+    assert "Треугольник курица безд" in names
+    assert "Новая позиция" in names
+    assert "Пирожок капуста курица" not in names
+
+    new_row = names["Новая позиция"]
+    assert all(
+        sheet.cell(row=new_row, column=column).value is None
+        for column in range(3, 13)
+    )
+    assert sheet.cell(row=new_row, column=13).value == 7
+    assert sheet.cell(row=new_row, column=2).fill.fill_type is None
+    assert all(
+        not sheet.row_dimensions[row].hidden
+        for row in range(1, sheet.max_row + 1)
+    )
+
+
+def test_assortment_lookup_prefers_regular_product_over_order_variant() -> None:
+    lookup, _ = build_assortment_lookup(
+        [
+            {
+                "product_id": "1",
+                "product_name": "Клубника и банан ЗКЗ",
+                "category_name": "Заказная продукция",
+            },
+            {
+                "product_id": "2",
+                "product_name": "Клубника и банан НОВЫЙ",
+                "category_name": "Пироги сладкие",
+            },
+        ]
+    )
+
+    assert lookup["клубника банан"]["product_id"] == "2"
+
+
+def test_pilot_bakery_uses_individual_template() -> None:
+    assert template_path_for_bakery(22).name == "22_sibirskiy_trakt_25.xlsx"
+    assert template_path_for_bakery(999999).name == "baking_plan_template.xlsx"

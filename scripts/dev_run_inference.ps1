@@ -57,6 +57,7 @@ $prefixValue = if ($RunPrefix) { $RunPrefix } elseif ($env:FORECAST_RUN_PREFIX) 
 $horizonValue = if ($HorizonDays -gt 0) { $HorizonDays } elseif ($env:FORECAST_HORIZON_DAYS) { [int]$env:FORECAST_HORIZON_DAYS } else { 14 }
 $profileTable = "sku_hour_share_profile_smoothed_embedded$($env:FORECAST_TABLE_SUFFIX)"
 $upliftTable = "sku_hour_uplift_multiplier_embedded$($env:FORECAST_TABLE_SUFFIX)"
+$assortmentTable = "assortment_city_products$($env:FORECAST_TABLE_SUFFIX)"
 
 $args = @(
     "-m", "pipelines.forecast_publish.run_production_inference",
@@ -68,6 +69,7 @@ $args = @(
     "--summary-path", "reports\dev_production_inference_summary.json",
     "--profile-table", $profileTable,
     "--uplift-table", $upliftTable,
+    "--assortment-table", $assortmentTable,
     "--require-nonprod-tables"
 )
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -12,6 +13,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.experiments_v2.build_sku_hour_share_profile import aggregate_sku_hourly_chunk  # noqa: E402
 from src.experiments_v2.build_sku_hour_share_profile import build_sku_hour_share_profile  # noqa: E402
 from src.experiments_v2.build_sku_hour_share_profile import filter_hourly_by_assortment  # noqa: E402
+from src.experiments_v2.build_sku_hour_share_profile import load_bakery_lookup  # noqa: E402
+
+
+def test_load_bakery_lookup_allows_missing_optional_file():
+    lookup = load_bakery_lookup(Path("definitely_missing_bakery_lookup.csv"))
+
+    assert lookup.empty
+    assert list(lookup.columns) == ["bakery_key", "_lookup_bakery_id", "city"]
 
 
 def _hourly() -> pd.DataFrame:
@@ -97,6 +106,18 @@ def test_assortment_filter_removes_sku_before_share_normalization():
     assert set(profile["product_id"]) == {"1"}
     assert round(float(profile["mean_sku_share_in_hour_norm"].iloc[0]), 4) == 1.0
     assert round(float(applied["sku_share_in_hour"].iloc[0]), 4) == 1.0
+
+
+def test_assortment_filter_preserves_cities_outside_configured_scope():
+    hourly = _hourly().iloc[[0]].copy()
+    hourly["city"] = "Иркутск"
+    hourly["product_id"] = "999"
+    assortment = pd.DataFrame([{"city": "Казань", "product_id": "1"}])
+
+    filtered, stats = filter_hourly_by_assortment(hourly, assortment)
+
+    assert filtered["product_id"].tolist() == ["999"]
+    assert stats == {"rows_removed": 0, "sales_removed": 0.0}
 
 
 def test_build_sku_hour_share_profile_uses_daily_profile_weights():

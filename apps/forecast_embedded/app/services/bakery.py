@@ -18,6 +18,8 @@ SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
 ACCESS_TABLE = table_name("bitrix_user_bakery_access_embedded")
 MANAGEMENT_TABLE = "dim_management"
 MONTH_REVENUE_TABLE = table_name("bakery_month_revenue_embedded")
+ASSORTMENT_TABLE = table_name("assortment_city_products")
+ASSORTMENT_AUDIT_TABLE = table_name("assortment_source_audit")
 CLOSED_BAKERY_STATUS = "\u0417\u0430\u043a\u0440\u044b\u0442\u0430"
 ACTIVE_ROW_SORT_KEY = "tuple(2, toDateTime64('2100-01-01 00:00:00', 3))"
 SNAPSHOT_ROW_SORT_KEY = "tuple(1, generated_at)"
@@ -726,6 +728,37 @@ def get_sku_hour_forecast(
             **access_params,
         },
     )
+    return _records(df)
+
+
+def get_city_assortment(city: str | None) -> list[dict]:
+    if not city:
+        return []
+    client = get_client()
+    query = """
+        select product_id, any(product_name) as product_name,
+               any(category_name) as category_name
+        from (
+            select product_id, product_name, category_name
+            from {table}
+            where city = %(city)s
+              and is_active = 1
+            union all
+            select
+                concat('unmatched:', hex(raw_product_name)) as product_id,
+                raw_product_name as product_name,
+                raw_category_name as category_name
+            from {audit_table}
+            where city = %(city)s
+              and match_status = 'not_found'
+        )
+        group by product_id
+        order by category_name, product_name, product_id
+        """.format(
+        table=ASSORTMENT_TABLE,
+        audit_table=ASSORTMENT_AUDIT_TABLE,
+    )
+    df = client.query_df(query, parameters={"city": city})
     return _records(df)
 
 

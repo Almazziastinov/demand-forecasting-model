@@ -28,9 +28,20 @@ ALIASES: dict[str, str] = {
     "булочка с яблоками": "пирожок яблоко",
     "пирожок с яблоками тесто ночное": "пирожок яблоко",
     "пирожок с яблоками": "пирожок яблоко",
-    "пирожок капуста курица": "капуста и курица",
+    "пирожок капуста курица": "пирожок капуста и курица",
     "пирог капуста курица": "капуста и курица",
     "капуста курица": "капуста и курица",
+    "конвертик с курицей": "конвертик курица",
+    "пирог капустный": "капустный",
+    "пирог капуста мясо": "капуста и мясо",
+    "пирог горбуша саго": "горбуша саго",
+    "жар киш с курицей": "жар киш курица",
+    "киш с курицей": "киш курица",
+    "треугольник курица": "треугольник курица безд",
+    "элеш": "элеш с курицей",
+    "трехслойник": "трехслойник новый",
+    "клубника банан": "клубника и банан новый",
+    "кыстыбый": "кыстыбый п",
     "хуплу чебоксары": "хуплу",
     "пирог хуплу чебоксары": "пирог хуплу",
     "пирог картофель мсо чебоксары": "картофель и мясо",
@@ -155,6 +166,8 @@ def classify(
     active_pairs: set[tuple[str, str]],
     known_cities: set[str],
 ) -> str:
+    if row["is_service_row"]:
+        return "Служебная строка"
     if row["match_method"] == "not_found":
         return "Нет в dim_products"
     if str(row["is_inactive_product"]).lower() in {"true", "1"}:
@@ -166,6 +179,12 @@ def classify(
     if (row["inferred_city"], row["matched_product_id"]) not in active_pairs:
         return "Нет в актуальном ассортименте города"
     return "OK"
+
+
+def is_service_row(source: pd.Series) -> bool:
+    role = str(source.get("table_role", "")).strip()
+    quantity = pd.to_numeric(source.get("qty_sum_in_template", 0), errors="coerce")
+    return not role and (pd.isna(quantity) or float(quantity) == 0.0)
 
 
 def build_audit(
@@ -198,6 +217,7 @@ def build_audit(
             "is_inactive_product": matched["is_inactive_product"],
             "match_method": matched["match_method"],
             "match_score": matched["match_score"],
+            "is_service_row": is_service_row(source),
         }
         record["is_active_in_city_assortment"] = (
             bool(inferred_city)
@@ -216,6 +236,7 @@ def build_audit(
     audit["recommendation"] = audit["problem"].map(
         {
             "OK": "Оставить",
+            "Служебная строка": "Оставить без изменения",
             "Нет в dim_products": "Нужно ручное соответствие или удаление из шаблона",
             "В dim_products выведено": (
                 "Удалить из шаблона или заменить на актуальную номенклатуру"

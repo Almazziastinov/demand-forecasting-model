@@ -357,7 +357,7 @@ def load_assortment_pairs(path: str | Path) -> pd.DataFrame:
 
 
 def load_bakery_lookup(path: str | Path | None) -> pd.DataFrame:
-    if path is None:
+    if path is None or not Path(path).exists():
         return pd.DataFrame(columns=["bakery_key", "_lookup_bakery_id", CITY_COL])
     lookup = pd.read_csv(
         path,
@@ -486,7 +486,11 @@ def filter_hourly_by_assortment(
         on=[CITY_COL, "_assortment_product_id"],
         how="left",
     )
-    keep = work["_in_active_assortment"].fillna(0).astype(int).eq(1)
+    scoped_cities = set(allowed[CITY_COL].dropna().astype(str))
+    city_is_scoped = work[CITY_COL].astype(str).isin(scoped_cities)
+    keep = (~city_is_scoped) | work["_in_active_assortment"].fillna(0).astype(
+        int
+    ).eq(1)
     removed = work.loc[~keep]
     return work.loc[keep, original_cols].copy(), {
         "rows_removed": int(len(removed)),

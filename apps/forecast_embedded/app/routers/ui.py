@@ -369,12 +369,15 @@ def download_baking_plan(
 
     revenue_info = bakery_service.get_month_revenue_bucket(date, bakery_id)
     selected_bucket = bucket or (revenue_info or {}).get("revenue_bucket")
+    assortment_rows = bakery_service.get_city_assortment(bakery_day.get("city"))
     content = baking_plan_service.build_baking_plan_workbook(
         bakery=bakery_day,
         forecast_date=date,
         sku_hour_rows=sku_hour,
         next_day_sku_hour_rows=next_day_sku_hour,
+        assortment_rows=assortment_rows,
         bucket=selected_bucket,
+        template_path=baking_plan_service.template_path_for_bakery(bakery_id),
     )
     bakery_name = _safe_filename_part(bakery_day.get("bakery_name") or bakery_id)
     filename = f"План выпекания - {bakery_name} - {date}.xlsx"
