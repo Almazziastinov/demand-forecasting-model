@@ -201,6 +201,7 @@ def fill_missing_bakery_hours(
     *,
     bakery_city_lookup: pd.DataFrame | None = None,
     allowed_pairs: pd.DataFrame | None = None,
+    recent_product_weights: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     if sku_hourly.empty:
         return sku_hourly, {"groups_filled": 0, "groups_unfilled": 0}
@@ -249,7 +250,7 @@ def fill_missing_bakery_hours(
         )
         added["source"] = "assortment_hour_gap_fallback"
         added = added[[*HOURLY_OUTPUT_COLS, "source"]]
-    result = pd.concat([work, added], ignore_index=True)
+    result = work if added.empty else pd.concat([work, added], ignore_index=True)
 
     filled_keys = added[keys].drop_duplicates()
     remaining = missing.merge(
@@ -298,10 +299,147 @@ def fill_missing_bakery_hours(
             city_added = city_added[[*HOURLY_OUTPUT_COLS, "source"]]
             result = pd.concat([result, city_added], ignore_index=True)
 
-    all_filled_keys = pd.concat(
-        [filled_keys, city_added[keys]],
-        ignore_index=True,
-    ).drop_duplicates()
+    filled_key_parts = [frame for frame in [filled_keys, city_added[keys]] if not frame.empty]
+    all_filled_keys = (
+        pd.concat(filled_key_parts, ignore_index=True).drop_duplicates()
+        if filled_key_parts
+        else pd.DataFrame(columns=keys)
+    )
+    remaining = missing.merge(
+        all_filled_keys.assign(_filled=1),
+        on=keys,
+        how="left",
+    )
+    remaining = remaining[remaining["_filled"].isna()].drop(columns=["_filled"])
+
+    recent_added = pd.DataFrame(columns=[*HOURLY_OUTPUT_COLS, "source"])
+    if (
+        not remaining.empty
+        and recent_product_weights is not None
+        and not recent_product_weights.empty
+    ):
+        weight_col = "recent_share"
+        recent_weights = recent_product_weights[
+            [BAKERY_ID_COL, PRODUCT_ID_COL, weight_col]
+        ].copy()
+        recent_weights[weight_col] = pd.to_numeric(
+            recent_weights[weight_col], errors="coerce"
+        ).fillna(0.0)
+        recent_weights = recent_weights[recent_weights[weight_col].gt(0.0)]
+        recent_added = remaining.merge(
+            recent_weights,
+            on=BAKERY_ID_COL,
+            how="inner",
+        )
+        if not recent_added.empty:
+            recent_added, _ = filter_by_active_assortment(
+                recent_added,
+                allowed_pairs=(
+                    allowed_pairs
+                    if allowed_pairs is not None
+                    else pd.DataFrame(columns=[CITY_COL, PRODUCT_ID_COL])
+                ),
+                bakery_city_lookup=(
+                    bakery_city_lookup
+                    if bakery_city_lookup is not None
+                    else pd.DataFrame(columns=[BAKERY_ID_COL, CITY_COL])
+                ),
+                forecast_col=weight_col,
+            )
+            recent_added["_recent_weight_sum"] = recent_added.groupby(keys)[
+                weight_col
+            ].transform("sum")
+            recent_added = recent_added[recent_added["_recent_weight_sum"].gt(0.0)]
+            recent_added[SKU_HOUR_FORECAST_COL] = (
+                recent_added[BAKERY_HOUR_FORECAST_COL]
+                * recent_added[weight_col]
+                / recent_added["_recent_weight_sum"]
+            )
+            recent_added["source"] = "assortment_recent_bakery_fallback"
+            recent_added = recent_added[[*HOURLY_OUTPUT_COLS, "source"]]
+            result = pd.concat([result, recent_added], ignore_index=True)
+
+    if not recent_added.empty:
+        recent_filled_keys = recent_added[keys].drop_duplicates()
+        all_filled_keys = (
+            recent_filled_keys
+            if all_filled_keys.empty
+            else pd.concat(
+                [all_filled_keys, recent_filled_keys], ignore_index=True
+            ).drop_duplicates()
+        )
+    remaining = missing.merge(
+        all_filled_keys.assign(_filled=1),
+        on=keys,
+        how="left",
+    )
+    remaining = remaining[remaining["_filled"].isna()].drop(columns=["_filled"])
+
+    network_added = pd.DataFrame(columns=[*HOURLY_OUTPUT_COLS, "source"])
+    if not remaining.empty and not result.empty:
+        network_keys = [DATE_COL, DOW_COL, HOUR_COL]
+        network_weights = result.groupby(
+            [*network_keys, PRODUCT_ID_COL], as_index=False
+        )[SKU_HOUR_FORECAST_COL].sum()
+        network_weights["_network_hour_total"] = network_weights.groupby(
+            network_keys
+        )[SKU_HOUR_FORECAST_COL].transform("sum")
+        network_weights = network_weights[
+            network_weights["_network_hour_total"].gt(0.0)
+        ].copy()
+        network_weights["_network_product_share"] = (
+            network_weights[SKU_HOUR_FORECAST_COL]
+            / network_weights["_network_hour_total"]
+        )
+        network_added = remaining.merge(
+            network_weights[
+                [*network_keys, PRODUCT_ID_COL, "_network_product_share"]
+            ],
+            on=network_keys,
+            how="left",
+        )
+        network_added = network_added[
+            network_added["_network_product_share"].notna()
+        ].copy()
+        if not network_added.empty:
+            network_added, _ = filter_by_active_assortment(
+                network_added,
+                allowed_pairs=(
+                    allowed_pairs
+                    if allowed_pairs is not None
+                    else pd.DataFrame(columns=[CITY_COL, PRODUCT_ID_COL])
+                ),
+                bakery_city_lookup=(
+                    bakery_city_lookup
+                    if bakery_city_lookup is not None
+                    else pd.DataFrame(columns=[BAKERY_ID_COL, CITY_COL])
+                ),
+                forecast_col="_network_product_share",
+            )
+            network_added["_network_weight_sum"] = network_added.groupby(keys)[
+                "_network_product_share"
+            ].transform("sum")
+            network_added = network_added[
+                network_added["_network_weight_sum"].gt(0.0)
+            ]
+            network_added[SKU_HOUR_FORECAST_COL] = (
+                network_added[BAKERY_HOUR_FORECAST_COL]
+                * network_added["_network_product_share"]
+                / network_added["_network_weight_sum"]
+            )
+            network_added["source"] = "assortment_network_hour_fallback"
+            network_added = network_added[[*HOURLY_OUTPUT_COLS, "source"]]
+            result = pd.concat([result, network_added], ignore_index=True)
+
+    if not network_added.empty:
+        network_filled_keys = network_added[keys].drop_duplicates()
+        all_filled_keys = (
+            network_filled_keys
+            if all_filled_keys.empty
+            else pd.concat(
+                [all_filled_keys, network_filled_keys], ignore_index=True
+            ).drop_duplicates()
+        )
     remaining = missing.merge(
         all_filled_keys.assign(_filled=1),
         on=keys,
@@ -333,10 +471,11 @@ def fill_missing_bakery_hours(
         uniform_added = uniform_added[[*HOURLY_OUTPUT_COLS, "source"]]
         result = pd.concat([result, uniform_added], ignore_index=True)
 
-    all_filled_keys = pd.concat(
-        [all_filled_keys, uniform_added[keys]],
-        ignore_index=True,
-    ).drop_duplicates()
+    if not uniform_added.empty:
+        all_filled_keys = pd.concat(
+            [all_filled_keys, uniform_added[keys]],
+            ignore_index=True,
+        ).drop_duplicates()
     total_filled = int(all_filled_keys.shape[0])
     return result, {
         "groups_filled": total_filled,
@@ -942,12 +1081,17 @@ def apply_recent_sku_hour_correction(
     mode: str,
     recent_days: int,
     sales_table: str,
-) -> tuple[pd.DataFrame, int, list[dict]]:
+) -> tuple[pd.DataFrame, int, list[dict], pd.DataFrame]:
     hourly = pd.read_csv(hourly_path, encoding="utf-8-sig", parse_dates=[DATE_COL])
     hourly[DATE_COL] = pd.to_datetime(hourly[DATE_COL], errors="coerce")
     forecast_start = hourly[DATE_COL].min()
     if pd.isna(forecast_start):
-        return pd.read_csv(daily_path, encoding="utf-8-sig"), len(hourly), []
+        return (
+            pd.read_csv(daily_path, encoding="utf-8-sig"),
+            len(hourly),
+            [],
+            pd.DataFrame(),
+        )
 
     recent = load_recent_assortment_stats(
         client,
@@ -956,7 +1100,12 @@ def apply_recent_sku_hour_correction(
         sales_table=sales_table,
     )
     if recent.empty:
-        return pd.read_csv(daily_path, encoding="utf-8-sig"), len(hourly), []
+        return (
+            pd.read_csv(daily_path, encoding="utf-8-sig"),
+            len(hourly),
+            [],
+            recent,
+        )
 
     recent_daily = pd.DataFrame()
     if mode == "runner_city_prior_soft_weekpart":
@@ -1054,7 +1203,7 @@ def apply_recent_sku_hour_correction(
     source_stats: dict[str, dict[str, float | int]] = {}
     _update_source_stats(source_stats, corrected_hourly.rename(columns={"sku_hour_forecast": SKU_HOUR_FORECAST_COL}))
     source_summary = _finalize_source_stats(source_stats)
-    return sku_daily, len(corrected_hourly), source_summary
+    return sku_daily, len(corrected_hourly), source_summary, recent
 
 
 def allocate_from_clickhouse(
@@ -1075,6 +1224,7 @@ def allocate_from_clickhouse(
     chunk_size: int = SKU_PROFILE_CHUNK_SIZE,
     assortment_table: str = ASSORTMENT_TABLE,
     disable_assortment_filter: bool = False,
+    disable_assortment_renormalization: bool = False,
 ) -> dict[str, Path]:
     if recent_correction_mode not in RECENT_CORRECTION_MODES:
         raise ValueError(
@@ -1268,13 +1418,15 @@ def allocate_from_clickhouse(
 
     source_summary = _finalize_source_stats(source_stats)
     if recent_correction_mode != "none":
-        sku_daily, sku_hour_rows, source_summary = apply_recent_sku_hour_correction(
+        sku_daily, sku_hour_rows, source_summary, recent_product_weights = (
+            apply_recent_sku_hour_correction(
             hourly_path=hourly_path,
             daily_path=daily_path,
             client=client,
             mode=recent_correction_mode,
             recent_days=recent_correction_days,
             sales_table=recent_sales_table,
+            )
         )
         hourly_after_recent = pd.read_csv(hourly_path, encoding="utf-8-sig")
         hourly_after_recent, hour_filter_stats = filter_by_active_assortment(
@@ -1286,12 +1438,13 @@ def allocate_from_clickhouse(
         _merge_filter_stats(assortment_filter_stats, hour_filter_stats)
         renormalization_stats = {"groups_scaled": 0, "groups_without_sku": 0}
         gap_fill_stats = {"groups_filled": 0, "groups_unfilled": 0}
-        if not use_raw_uplift_multiplier:
+        if not use_raw_uplift_multiplier and not disable_assortment_renormalization:
             hourly_after_recent, gap_fill_stats = fill_missing_bakery_hours(
                 hourly_after_recent,
                 hourly_forecast,
                 bakery_city_lookup=bakery_city_lookup,
                 allowed_pairs=allowed_assortment_pairs,
+                recent_product_weights=recent_product_weights,
             )
             hourly_after_recent, renormalization_stats = (
                 renormalize_hourly_to_bakery_forecast(
@@ -1333,6 +1486,7 @@ def allocate_from_clickhouse(
         }
     summary["assortment_filter"] = {
         "enabled": not disable_assortment_filter,
+        "renormalization_enabled": not disable_assortment_renormalization,
         "assortment_table": assortment_table,
         "allowed_pairs": int(len(allowed_assortment_pairs)),
         "rows_removed": int(assortment_filter_stats["rows_removed"]),
@@ -1375,6 +1529,7 @@ def main() -> None:
     parser.add_argument("--chunk-size", type=int, default=SKU_PROFILE_CHUNK_SIZE)
     parser.add_argument("--assortment-table", default=ASSORTMENT_TABLE)
     parser.add_argument("--disable-assortment-filter", action="store_true")
+    parser.add_argument("--disable-assortment-renormalization", action="store_true")
     args = parser.parse_args()
 
     paths = allocate_from_clickhouse(
@@ -1394,6 +1549,7 @@ def main() -> None:
         chunk_size=args.chunk_size,
         assortment_table=args.assortment_table,
         disable_assortment_filter=args.disable_assortment_filter,
+        disable_assortment_renormalization=args.disable_assortment_renormalization,
     )
 
     print("=" * 72)

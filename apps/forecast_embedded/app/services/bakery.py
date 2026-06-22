@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 # ruff: noqa: E501
+import logging
+
 from app.auth import AuthContext
 from app.db import get_client
 from app.table_names import table_name
@@ -20,6 +22,8 @@ MANAGEMENT_TABLE = "dim_management"
 MONTH_REVENUE_TABLE = table_name("bakery_month_revenue_embedded")
 ASSORTMENT_TABLE = table_name("assortment_city_products")
 ASSORTMENT_AUDIT_TABLE = table_name("assortment_source_audit")
+BAKEABLE_TABLE = table_name("bakeable_products")
+logger = logging.getLogger(__name__)
 CLOSED_BAKERY_STATUS = "\u0417\u0430\u043a\u0440\u044b\u0442\u0430"
 ACTIVE_ROW_SORT_KEY = "tuple(2, toDateTime64('2100-01-01 00:00:00', 3))"
 SNAPSHOT_ROW_SORT_KEY = "tuple(1, generated_at)"
@@ -760,6 +764,44 @@ def get_city_assortment(city: str | None) -> list[dict]:
     )
     df = client.query_df(query, parameters={"city": city})
     return _records(df)
+
+
+def get_bakeable_products(city: str, effective_date: str) -> list[dict]:
+    """Return the city's bakeable assortment effective on the forecast date.
+
+    Missing or empty data is an error: silently disabling this filter would put
+    bought-in products back into the baking plan.
+    """
+    client = get_client()
+    query = """
+        select product_id, any(product_name) as product_name,
+               any(category_name) as category_name
+        from {table} final
+        where city = %(city)s
+          and is_bakeable = 1
+          and is_active = 1
+          and valid_from = (
+              select max(valid_from)
+              from {table} final
+              where city = %(city)s
+                and valid_from <= toDate(%(effective_date)s)
+          )
+          and (valid_to is null or valid_to >= toDate(%(effective_date)s))
+        group by product_id
+        order by category_name, product_name, product_id
+        """.format(table=BAKEABLE_TABLE)
+    try:
+        df = client.query_df(
+            query,
+            parameters={"city": city, "effective_date": effective_date},
+        )
+    except Exception:
+        logger.exception("Failed to load bakeable products for city %s", city)
+        raise
+    records = _records(df)
+    if not records:
+        raise RuntimeError(f"Bakeable-products allowlist is empty for city {city!r}")
+    return records
 
 
 def get_sku_day(

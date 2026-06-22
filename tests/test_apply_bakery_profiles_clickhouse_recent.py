@@ -249,6 +249,81 @@ def test_missing_bakery_uses_city_hour_product_shares() -> None:
     assert stats == {"groups_filled": 1, "groups_unfilled": 0}
 
 
+def test_missing_bakery_uses_own_recent_product_shares() -> None:
+    sku_hourly = pd.DataFrame(
+        {
+            "date": ["2026-06-01"],
+            "dow": [0],
+            "bakery_id": [1],
+            "hour": [9],
+            "product_id": [10],
+            "sku_hour_forecast": [100.0],
+            "source": ["exact"],
+        }
+    )
+    bakery_hourly = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-06-01"), pd.Timestamp("2026-06-01")],
+            "dow": [0, 0],
+            "bakery_id": [1, 2],
+            "hour": [9, 9],
+            "bakery_hour_forecast": [100.0, 50.0],
+        }
+    )
+    recent = pd.DataFrame(
+        {
+            "bakery_id": [2, 2],
+            "product_id": [30, 40],
+            "recent_share": [0.25, 0.75],
+        }
+    )
+
+    filled, stats = fill_missing_bakery_hours(
+        sku_hourly,
+        bakery_hourly,
+        recent_product_weights=recent,
+    )
+    bakery_2 = filled[filled["bakery_id"].eq(2)].sort_values("product_id")
+
+    assert bakery_2["sku_hour_forecast"].tolist() == [12.5, 37.5]
+    assert bakery_2["source"].unique().tolist() == [
+        "assortment_recent_bakery_fallback"
+    ]
+    assert stats == {"groups_filled": 1, "groups_unfilled": 0}
+
+
+def test_missing_bakery_uses_network_hour_product_shares_as_last_resort() -> None:
+    sku_hourly = pd.DataFrame(
+        {
+            "date": ["2026-06-01", "2026-06-01"],
+            "dow": [0, 0],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [30.0, 70.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    bakery_hourly = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-06-01"), pd.Timestamp("2026-06-01")],
+            "dow": [0, 0],
+            "bakery_id": [1, 2],
+            "hour": [9, 9],
+            "bakery_hour_forecast": [100.0, 50.0],
+        }
+    )
+
+    filled, stats = fill_missing_bakery_hours(sku_hourly, bakery_hourly)
+    bakery_2 = filled[filled["bakery_id"].eq(2)].sort_values("product_id")
+
+    assert bakery_2["sku_hour_forecast"].tolist() == [15.0, 35.0]
+    assert bakery_2["source"].unique().tolist() == [
+        "assortment_network_hour_fallback"
+    ]
+    assert stats == {"groups_filled": 1, "groups_unfilled": 0}
+
+
 def test_assortment_filter_keeps_unconfigured_city() -> None:
     hourly = pd.DataFrame(
         {

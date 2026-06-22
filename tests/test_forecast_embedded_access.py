@@ -56,6 +56,56 @@ class _FakeRunsClient:
         )
 
 
+class _FakeBakeableClient:
+    def __init__(self, product_ids: list[str] | None = None, error=None):
+        self.product_ids = product_ids or []
+        self.error = error
+        self.queries: list[tuple[str, dict]] = []
+
+    def query_df(self, query: str, parameters: dict | None = None):
+        self.queries.append((query, parameters or {}))
+        if self.error is not None:
+            raise self.error
+        return pd.DataFrame(
+            {
+                "product_id": self.product_ids,
+                "product_name": [f"Product {value}" for value in self.product_ids],
+                "category_name": ["Выпечка"] * len(self.product_ids),
+            }
+        )
+
+
+def test_bakeable_allowlist_uses_latest_effective_snapshot(monkeypatch):
+    fake = _FakeBakeableClient(["000011471", "000011472"])
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+
+    products = bakery_service.get_bakeable_products("Казань", "2026-06-20")
+
+    assert {row["product_id"] for row in products} == {"000011471", "000011472"}
+    query, parameters = fake.queries[0]
+    assert "from bakeable_products final" in query
+    assert "select max(valid_from)" in query
+    assert "where city = %(city)s" in query
+    assert "valid_from <= toDate(%(effective_date)s)" in query
+    assert parameters == {"city": "Казань", "effective_date": "2026-06-20"}
+
+
+def test_empty_bakeable_allowlist_is_an_error(monkeypatch):
+    fake = _FakeBakeableClient()
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+
+    with pytest.raises(RuntimeError, match="allowlist is empty"):
+        bakery_service.get_bakeable_products("Казань", "2026-06-20")
+
+
+def test_bakeable_allowlist_query_error_is_not_silenced(monkeypatch):
+    fake = _FakeBakeableClient(error=ConnectionError("ClickHouse unavailable"))
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+
+    with pytest.raises(ConnectionError, match="ClickHouse unavailable"):
+        bakery_service.get_bakeable_products("Казань", "2026-06-20")
+
+
 def test_partner_bakery_list_is_filtered_by_access_table(monkeypatch):
     fake = _FakeClient()
     monkeypatch.setattr(bakery_service, "get_client", lambda: fake)

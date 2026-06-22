@@ -369,13 +369,23 @@ def download_baking_plan(
 
     revenue_info = bakery_service.get_month_revenue_bucket(date, bakery_id)
     selected_bucket = bucket or (revenue_info or {}).get("revenue_bucket")
-    assortment_rows = bakery_service.get_city_assortment(bakery_day.get("city"))
+    city = str(bakery_day.get("city") or "").strip()
+    if not city:
+        raise HTTPException(status_code=503, detail="Bakery city is unavailable")
+    try:
+        bakeable_products = bakery_service.get_bakeable_products(city, date)
+    except Exception as exc:
+        logger.error("baking_plan: bakeable allowlist unavailable", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="Bakeable-products allowlist is unavailable",
+        ) from exc
     content = baking_plan_service.build_baking_plan_workbook(
         bakery=bakery_day,
         forecast_date=date,
         sku_hour_rows=sku_hour,
         next_day_sku_hour_rows=next_day_sku_hour,
-        assortment_rows=assortment_rows,
+        assortment_rows=bakeable_products,
         bucket=selected_bucket,
         template_path=baking_plan_service.template_path_for_bakery(bakery_id),
     )

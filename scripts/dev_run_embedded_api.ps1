@@ -1,6 +1,7 @@
 param(
     [string]$EnvFile = ".env.dev",
-    [int]$Port = 0
+    [int]$Port = 0,
+    [switch]$NoReload
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,4 +54,8 @@ if (-not (Test-Path -LiteralPath $python)) {
 }
 
 $portValue = if ($env:PORT) { $env:PORT } else { "3001" }
-& $python -m uvicorn app.main:app --host 127.0.0.1 --port $portValue --reload
+$uvicornArgs = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", $portValue)
+if (-not $NoReload) {
+    $uvicornArgs += "--reload"
+}
+& $python @uvicornArgs

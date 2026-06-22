@@ -38,3 +38,20 @@ create table if not exists assortment_source_audit (
 )
 engine = MergeTree
 order by (source, city, raw_product_name, loaded_at);
+
+create table if not exists bakeable_products (
+  city LowCardinality(String),
+  product_id String,
+  product_name String,
+  category_name String,
+  is_bakeable UInt8,
+  source LowCardinality(String),
+  source_file String,
+  valid_from Date,
+  valid_to Nullable(Date),
+  is_active UInt8,
+  loaded_at DateTime64(3),
+  comment String
+)
+engine = ReplacingMergeTree(loaded_at)
+order by (city, product_id, valid_from);

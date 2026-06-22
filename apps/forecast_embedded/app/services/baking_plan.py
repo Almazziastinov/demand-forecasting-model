@@ -697,6 +697,11 @@ def build_baking_plan_workbook(
     sheet.cell(row=5, column=TOTAL_COLUMN)._style = copy(
         sheet.cell(row=5, column=12)._style
     )
+    if sheet.max_column > TOTAL_COLUMN:
+        sheet.delete_cols(
+            TOTAL_COLUMN + 1,
+            sheet.max_column - TOTAL_COLUMN,
+        )
     sheet.column_dimensions["M"].width = 14
     sheet.column_dimensions["M"].hidden = False
 

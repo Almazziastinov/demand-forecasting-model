@@ -252,6 +252,7 @@ def test_workbook_uses_active_assortment_and_adds_unscheduled_rows() -> None:
     }
 
     assert sheet.cell(row=5, column=13).value == "Итого"
+    assert sheet.max_column == 13
     assert sheet.column_dimensions["M"].hidden is False
     assert sheet.cell(row=6, column=1).value == "Выпечка сытная"
     assert "Треугольник курица безд" in names

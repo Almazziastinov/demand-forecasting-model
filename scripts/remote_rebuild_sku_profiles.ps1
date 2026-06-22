@@ -8,6 +8,7 @@ param(
     [string]$ProfileVersion = "dev_assortment_20260618",
     [string]$ProfileTable = "sku_hour_share_profile_smoothed_embedded_dev",
     [string]$UpliftTable = "sku_hour_uplift_multiplier_embedded_dev",
+    [switch]$DisableAssortmentFilter,
     [switch]$SkipExport,
     [switch]$SkipInstall,
     [switch]$Background
@@ -140,6 +141,7 @@ Copy-ToRemote "reports\required_assortment\dim_products_lookup.csv" "$RemoteRoot
 
 $skipExportValue = if ($SkipExport) { "1" } else { "0" }
 $skipInstallValue = if ($SkipInstall) { "1" } else { "0" }
+$disableAssortmentFilterValue = if ($DisableAssortmentFilter) { "1" } else { "0" }
 $remoteScript = @"
 set -euo pipefail
 
@@ -152,6 +154,7 @@ PROFILE_TABLE="$ProfileTable"
 UPLIFT_TABLE="$UpliftTable"
 SKIP_EXPORT="$skipExportValue"
 SKIP_INSTALL="$skipInstallValue"
+DISABLE_ASSORTMENT_FILTER="$disableAssortmentFilterValue"
 
 mkdir -p "`$REMOTE_ROOT"
 cd "`$REMOTE_ROOT"
@@ -189,11 +192,15 @@ elif [ -s data/raw/sales_hrs_all_clickhouse.csv ]; then
   echo "Reusing existing data/raw/sales_hrs_all_clickhouse.csv"
 fi
 
-python -m src.experiments_v2.build_sku_hour_share_profile \
-  --source-path data/raw/sales_hrs_all_clickhouse.csv \
-  --output-dir data/processed \
-  --assortment-path reports/required_assortment/assortment_city_products.csv \
+PROFILE_ARGS=(
+  --source-path data/raw/sales_hrs_all_clickhouse.csv
+  --output-dir data/processed
   --product-lookup-path reports/required_assortment/dim_products_lookup.csv
+)
+if [ "`$DISABLE_ASSORTMENT_FILTER" != "1" ]; then
+  PROFILE_ARGS+=(--assortment-path reports/required_assortment/assortment_city_products.csv)
+fi
+python -m src.experiments_v2.build_sku_hour_share_profile "`${PROFILE_ARGS[@]}"
 
 python -m src.experiments_v2.smooth_sku_hour_share_profile \
   --profile-path data/processed/sku_hour_share_profile.csv \
