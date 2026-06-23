@@ -82,6 +82,95 @@ def test_blend_recent_50_can_add_recent_sku_absent_from_profile() -> None:
     assert targets["corrected_daily_forecast"].sum() == 100.0
 
 
+def test_costly_pie_category_recent_correction_cannot_lift_above_base() -> None:
+    pie_category = (
+        "\u041f\u0438\u0440\u043e\u0433\u0438 "
+        "\u0441\u044b\u0442\u043d\u044b\u0435"
+    )
+    savory_category = (
+        "\u0412\u044b\u043f\u0435\u0447\u043a\u0430 "
+        "\u0441\u044b\u0442\u043d\u0430\u044f"
+    )
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-05-02", "2026-05-02"]),
+            "dow": [5, 5],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [20.0, 80.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    recent = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "category_name": [pie_category, savory_category],
+            "recent_qty": [80.0, 20.0],
+            "recent_days_sold": [10, 10],
+            "recent_share": [0.8, 0.2],
+        }
+    )
+
+    targets = _build_recent_correction_targets(
+        hourly,
+        recent,
+        mode="blend_recent_50",
+    )
+
+    pie = targets[targets["product_id"] == 10].iloc[0]
+    other = targets[targets["product_id"] == 20].iloc[0]
+    assert pie["corrected_daily_forecast"] == 20.0
+    assert other["corrected_daily_forecast"] == 80.0
+    assert targets["corrected_daily_forecast"].sum() == 100.0
+
+
+def test_costly_pie_category_can_fallback_to_recent_absolute_cap() -> None:
+    pie_category = (
+        "\u041f\u0438\u0440\u043e\u0433\u0438 "
+        "\u0441\u044b\u0442\u043d\u044b\u0435"
+    )
+    savory_category = (
+        "\u0412\u044b\u043f\u0435\u0447\u043a\u0430 "
+        "\u0441\u044b\u0442\u043d\u0430\u044f"
+    )
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-05-02", "2026-05-02"]),
+            "dow": [5, 5],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [20.0, 80.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    recent = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "category_name": [pie_category, savory_category],
+            "recent_qty": [80.0, 20.0],
+            "recent_days_sold": [10, 10],
+            "recent_share": [0.8, 0.2],
+        }
+    )
+
+    targets = _build_recent_correction_targets(
+        hourly,
+        recent,
+        mode="blend_recent_50",
+        category_recent_absolute_cap_days=10,
+    )
+
+    pie = targets[targets["product_id"] == 10].iloc[0]
+    other = targets[targets["product_id"] == 20].iloc[0]
+    assert pie["corrected_daily_forecast"] == 8.0
+    assert other["corrected_daily_forecast"] == 92.0
+    assert targets["corrected_daily_forecast"].sum() == 100.0
+
+
 def test_runner_city_prior_soft_weekpart_lifts_city_top_runner() -> None:
     hourly = pd.DataFrame(
         {

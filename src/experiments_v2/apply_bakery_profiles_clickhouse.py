@@ -63,6 +63,13 @@ RECENT_CORRECTION_MODES = (
     "core_recent_70",
     "runner_city_prior_soft_weekpart",
 )
+DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN = (
+    "\u043f\u0438\u0440\u043e\u0433\u0438 \u0441\u044b\u0442\u043d\u044b\u0435"
+    "|"
+    "\u043f\u0438\u0440\u043e\u0433\u0438 \u0441\u043b\u0430\u0434\u043a\u0438\u0435"
+)
+DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER = 1.0
+DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER = 1.0
 ECLAIR_PATTERN = "эклер"
 SERVICE_CATEGORY_PATTERN = "прочие|заказ"
 
@@ -866,12 +873,114 @@ def _contains_pattern(series: pd.Series, pattern: str, *, regex: bool) -> pd.Ser
     )
 
 
+def _apply_category_upward_cap(
+    candidates: pd.DataFrame,
+    *,
+    category_pattern: str | None,
+    max_multiplier: float,
+    recent_window_days: int | None = None,
+    recent_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+) -> pd.DataFrame:
+    if not category_pattern:
+        return candidates
+    if max_multiplier < 0:
+        raise ValueError("max_multiplier must be non-negative")
+    if candidates.empty or CATEGORY_COL not in candidates.columns:
+        return candidates
+
+    work = candidates.copy()
+    protected = _contains_pattern(work[CATEGORY_COL], category_pattern, regex=True)
+    if not protected.any():
+        return work
+
+    corrected = pd.to_numeric(
+        work["corrected_daily_forecast"],
+        errors="coerce",
+    ).fillna(0.0)
+    base = pd.to_numeric(work["base_daily_forecast"], errors="coerce").fillna(0.0)
+    cap = (base * max_multiplier).clip(lower=0.0)
+    if recent_window_days and recent_window_days > 0 and "recent_qty" in work.columns:
+        recent_avg_cap = (
+            pd.to_numeric(work["recent_qty"], errors="coerce")
+            / float(recent_window_days)
+            * recent_absolute_cap_multiplier
+        ).clip(lower=0.0)
+        has_recent_cap = recent_avg_cap.notna()
+        cap = np.where(
+            has_recent_cap & base.gt(0.0),
+            np.minimum(cap, recent_avg_cap),
+            cap,
+        )
+        cap = np.where(
+            has_recent_cap & base.le(0.0),
+            recent_avg_cap,
+            cap,
+        )
+        cap = pd.Series(cap, index=work.index)
+    work["_capped_corrected_daily_forecast"] = corrected
+    work.loc[protected, "_capped_corrected_daily_forecast"] = np.minimum(
+        corrected.loc[protected],
+        cap.loc[protected],
+    )
+
+    keys = [DATE_COL, BAKERY_ID_COL]
+    protected_totals = (
+        work.loc[protected]
+        .groupby(keys, as_index=False)["_capped_corrected_daily_forecast"]
+        .sum()
+        .rename(columns={"_capped_corrected_daily_forecast": "_protected_total"})
+    )
+    nonprotected_totals = (
+        work.loc[~protected]
+        .groupby(keys, as_index=False)["corrected_daily_forecast"]
+        .sum()
+        .rename(columns={"corrected_daily_forecast": "_nonprotected_total"})
+    )
+    group_targets = (
+        work[keys + [BAKERY_FORECAST_COL]]
+        .drop_duplicates(keys)
+        .merge(protected_totals, on=keys, how="left")
+        .merge(nonprotected_totals, on=keys, how="left")
+    )
+    group_targets[["_protected_total", "_nonprotected_total"]] = group_targets[
+        ["_protected_total", "_nonprotected_total"]
+    ].fillna(0.0)
+    group_targets["_nonprotected_target"] = (
+        pd.to_numeric(group_targets[BAKERY_FORECAST_COL], errors="coerce").fillna(0.0)
+        - group_targets["_protected_total"]
+    ).clip(lower=0.0)
+    group_targets["_nonprotected_scale"] = np.where(
+        group_targets["_nonprotected_total"] > 0,
+        group_targets["_nonprotected_target"] / group_targets["_nonprotected_total"],
+        1.0,
+    )
+    work = work.merge(
+        group_targets[keys + ["_nonprotected_scale"]],
+        on=keys,
+        how="left",
+        validate="many_to_one",
+    )
+    work.loc[~protected, "_capped_corrected_daily_forecast"] = (
+        corrected.loc[~protected]
+        * work.loc[~protected, "_nonprotected_scale"].fillna(1.0)
+    )
+    work["corrected_daily_forecast"] = work["_capped_corrected_daily_forecast"]
+    return work.drop(
+        columns=["_capped_corrected_daily_forecast", "_nonprotected_scale"],
+        errors="ignore",
+    )
+
+
 def _build_recent_correction_targets(
     hourly: pd.DataFrame,
     recent: pd.DataFrame,
     *,
     mode: str,
     recent_daily: pd.DataFrame | None = None,
+    category_upward_cap_pattern: str | None = DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
+    category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
+    category_recent_absolute_cap_days: int | None = None,
+    category_recent_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
 ) -> pd.DataFrame:
     base_daily = (
         hourly.groupby([DATE_COL, DOW_COL, BAKERY_ID_COL, PRODUCT_ID_COL], as_index=False)
@@ -1070,6 +1179,13 @@ def _build_recent_correction_targets(
         candidates["raw_share"] / candidates["raw_share_sum"] * candidates[BAKERY_FORECAST_COL],
         candidates["base_daily_forecast"],
     )
+    candidates = _apply_category_upward_cap(
+        candidates,
+        category_pattern=category_upward_cap_pattern,
+        max_multiplier=category_upward_cap_multiplier,
+        recent_window_days=category_recent_absolute_cap_days,
+        recent_absolute_cap_multiplier=category_recent_absolute_cap_multiplier,
+    )
     return candidates
 
 
@@ -1081,6 +1197,10 @@ def apply_recent_sku_hour_correction(
     mode: str,
     recent_days: int,
     sales_table: str,
+    category_upward_cap_pattern: str | None = DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
+    category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
+    category_recent_absolute_cap_days: int | None = None,
+    category_recent_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
 ) -> tuple[pd.DataFrame, int, list[dict], pd.DataFrame]:
     hourly = pd.read_csv(hourly_path, encoding="utf-8-sig", parse_dates=[DATE_COL])
     hourly[DATE_COL] = pd.to_datetime(hourly[DATE_COL], errors="coerce")
@@ -1121,6 +1241,10 @@ def apply_recent_sku_hour_correction(
         recent,
         mode=mode,
         recent_daily=recent_daily,
+        category_upward_cap_pattern=category_upward_cap_pattern,
+        category_upward_cap_multiplier=category_upward_cap_multiplier,
+        category_recent_absolute_cap_days=category_recent_absolute_cap_days,
+        category_recent_absolute_cap_multiplier=category_recent_absolute_cap_multiplier,
     )
     bakery_hour = (
         hourly.groupby([DATE_COL, DOW_COL, BAKERY_ID_COL, HOUR_COL], as_index=False)
@@ -1225,6 +1349,10 @@ def allocate_from_clickhouse(
     assortment_table: str = ASSORTMENT_TABLE,
     disable_assortment_filter: bool = False,
     disable_assortment_renormalization: bool = False,
+    recent_category_upward_cap_pattern: str | None = DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
+    recent_category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
+    recent_category_absolute_cap_days: int | None = None,
+    recent_category_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
 ) -> dict[str, Path]:
     if recent_correction_mode not in RECENT_CORRECTION_MODES:
         raise ValueError(
@@ -1426,6 +1554,12 @@ def allocate_from_clickhouse(
             mode=recent_correction_mode,
             recent_days=recent_correction_days,
             sales_table=recent_sales_table,
+            category_upward_cap_pattern=recent_category_upward_cap_pattern,
+            category_upward_cap_multiplier=recent_category_upward_cap_multiplier,
+            category_recent_absolute_cap_days=(
+                recent_category_absolute_cap_days or recent_correction_days
+            ),
+            category_recent_absolute_cap_multiplier=recent_category_absolute_cap_multiplier,
             )
         )
         hourly_after_recent = pd.read_csv(hourly_path, encoding="utf-8-sig")
@@ -1483,6 +1617,12 @@ def allocate_from_clickhouse(
             "mode": recent_correction_mode,
             "recent_days": recent_correction_days,
             "sales_table": recent_sales_table,
+            "category_upward_cap_pattern": recent_category_upward_cap_pattern,
+            "category_upward_cap_multiplier": recent_category_upward_cap_multiplier,
+            "category_absolute_cap_days": (
+                recent_category_absolute_cap_days or recent_correction_days
+            ),
+            "category_absolute_cap_multiplier": recent_category_absolute_cap_multiplier,
         }
     summary["assortment_filter"] = {
         "enabled": not disable_assortment_filter,
@@ -1530,6 +1670,33 @@ def main() -> None:
     parser.add_argument("--assortment-table", default=ASSORTMENT_TABLE)
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument(
+        "--recent-category-upward-cap-pattern",
+        default=DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
+        help=(
+            "Regex over category_name for costly categories that recent correction "
+            "may not lift above base profile forecast. Empty string disables."
+        ),
+    )
+    parser.add_argument(
+        "--recent-category-upward-cap-multiplier",
+        type=float,
+        default=DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
+    )
+    parser.add_argument(
+        "--recent-category-absolute-cap-days",
+        type=int,
+        default=0,
+        help=(
+            "Calendar-day window for recent absolute cap. 0 means use "
+            "--recent-correction-days."
+        ),
+    )
+    parser.add_argument(
+        "--recent-category-absolute-cap-multiplier",
+        type=float,
+        default=DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+    )
     args = parser.parse_args()
 
     paths = allocate_from_clickhouse(
@@ -1550,6 +1717,14 @@ def main() -> None:
         assortment_table=args.assortment_table,
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
+        recent_category_upward_cap_pattern=(
+            args.recent_category_upward_cap_pattern or None
+        ),
+        recent_category_upward_cap_multiplier=args.recent_category_upward_cap_multiplier,
+        recent_category_absolute_cap_days=(
+            args.recent_category_absolute_cap_days or None
+        ),
+        recent_category_absolute_cap_multiplier=args.recent_category_absolute_cap_multiplier,
     )
 
     print("=" * 72)

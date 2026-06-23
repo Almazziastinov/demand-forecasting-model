@@ -33,7 +33,12 @@ from pipelines.forecast_publish.sku_hour_profile_store import (
 )
 from pipelines.forecast_publish.table_names import get_table_suffix_from_env_file
 from src.experiments_v2.apply_bakery_profiles import DEFAULT_BAKERY_HOUR_PROFILE_PATH
-from src.experiments_v2.apply_bakery_profiles_clickhouse import allocate_from_clickhouse
+from src.experiments_v2.apply_bakery_profiles_clickhouse import (
+    DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+    DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
+    DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
+    allocate_from_clickhouse,
+)
 from src.experiments_v2.bakery_day_forecast import (
     DEFAULT_HORIZON_DAYS,
     FORECAST_BIAS_ADJ_COL,
@@ -155,6 +160,14 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         assortment_table=args.assortment_table,
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
+        recent_category_upward_cap_pattern=(
+            args.recent_category_upward_cap_pattern or None
+        ),
+        recent_category_upward_cap_multiplier=args.recent_category_upward_cap_multiplier,
+        recent_category_absolute_cap_days=(
+            args.recent_category_absolute_cap_days or None
+        ),
+        recent_category_absolute_cap_multiplier=args.recent_category_absolute_cap_multiplier,
     )
 
     run_id = _build_run_id(args.run_prefix, scenario, bakery_path, args.horizon_days)
@@ -237,6 +250,33 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--assortment-table", default="assortment_city_products")
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument(
+        "--recent-category-upward-cap-pattern",
+        default=DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
+        help=(
+            "Regex over category_name for costly categories that recent correction "
+            "may not lift above base profile forecast. Empty string disables."
+        ),
+    )
+    parser.add_argument(
+        "--recent-category-upward-cap-multiplier",
+        type=float,
+        default=DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
+    )
+    parser.add_argument(
+        "--recent-category-absolute-cap-days",
+        type=int,
+        default=0,
+        help=(
+            "Calendar-day window for recent absolute cap. 0 means use "
+            "--recent-correction-days."
+        ),
+    )
+    parser.add_argument(
+        "--recent-category-absolute-cap-multiplier",
+        type=float,
+        default=DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+    )
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--summary-path", default=str(DEFAULT_SUMMARY_PATH))
     parser.add_argument("--weather-path", default=str(DEFAULT_WEATHER_PATH))
@@ -323,6 +363,11 @@ def main() -> None:
         "recent_correction_mode": args.recent_correction_mode,
         "recent_correction_days": args.recent_correction_days,
         "recent_sales_table": args.recent_sales_table,
+        "recent_category_upward_cap_pattern": args.recent_category_upward_cap_pattern,
+        "recent_category_upward_cap_multiplier": args.recent_category_upward_cap_multiplier,
+        "recent_category_absolute_cap_days": args.recent_category_absolute_cap_days
+        or args.recent_correction_days,
+        "recent_category_absolute_cap_multiplier": args.recent_category_absolute_cap_multiplier,
         "dataset_refresh": dataset_refresh_result,
         "scenarios": results,
     }
