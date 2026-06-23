@@ -18,6 +18,7 @@ from pipelines.forecast_publish.production_dataset_refresh import (
 from pipelines.forecast_publish.production_dataset_refresh import (
     resolve_default_refresh_dates,
 )
+from src.experiments_v2.build_bakery_weather_features import _enrich_weather
 
 
 def test_resolve_default_refresh_dates_uses_moscow_business_day() -> None:
@@ -164,3 +165,27 @@ def test_refresh_weather_features_falls_back_to_existing_file(monkeypatch):
     assert "openmeteo timeout" in str(result["weather_error"])
     weather_path.unlink()
     dataset_path.unlink()
+
+
+def test_enrich_weather_flags_heavy_precipitation_as_bad_weather() -> None:
+    city = "\u041a\u0430\u0437\u0430\u043d\u044c"
+    weather = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-23"]),
+            "city": [city],
+            "temp_max": [21.5],
+            "temp_min": [17.1],
+            "temp_mean": [19.4],
+            "precipitation": [13.6],
+            "rain": [0.0],
+            "snowfall": [0.0],
+            "windspeed_max": [12.1],
+            "weathercode": [95],
+        }
+    )
+
+    enriched = _enrich_weather(weather)
+
+    assert int(enriched.loc[0, "weather_cat_code"]) == 5
+    assert int(enriched.loc[0, "is_rainy"]) == 1
+    assert int(enriched.loc[0, "is_bad_weather"]) == 1

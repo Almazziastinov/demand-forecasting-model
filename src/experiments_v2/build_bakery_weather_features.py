@@ -101,20 +101,28 @@ def _enrich_weather(df: pd.DataFrame) -> pd.DataFrame:
     temp_max = pd.to_numeric(work["temp_max"], errors="coerce")
     temp_min = pd.to_numeric(work["temp_min"], errors="coerce")
     temp_mean = pd.to_numeric(work["temp_mean"], errors="coerce").fillna(10.0)
+    precipitation = pd.to_numeric(work["precipitation"], errors="coerce").fillna(0.0)
     rain = pd.to_numeric(work["rain"], errors="coerce").fillna(0.0)
     snowfall = pd.to_numeric(work["snowfall"], errors="coerce").fillna(0.0)
     windspeed = pd.to_numeric(work["windspeed_max"], errors="coerce").fillna(0.0)
+    categories = work["weathercode"].apply(_weather_category)
 
     work["temp_range"] = temp_max - temp_min
-    work["is_rainy"] = (rain > 1.0).astype(int)
+    work["is_rainy"] = (
+        (rain > 1.0)
+        | ((precipitation > 1.0) & categories.isin(["rain", "storm"]))
+    ).astype(int)
     work["is_snowy"] = (snowfall > 0.5).astype(int)
     work["is_cold"] = (temp_mean < 0.0).astype(int)
     work["is_warm"] = (temp_mean >= 15.0).astype(int)
     work["is_windy"] = (windspeed > 30.0).astype(int)
     work["is_bad_weather"] = (
-        (work["is_rainy"] == 1) | (work["is_snowy"] == 1) | (work["is_windy"] == 1)
+        (work["is_rainy"] == 1)
+        | (work["is_snowy"] == 1)
+        | (work["is_windy"] == 1)
+        | (precipitation > 10.0)
+        | categories.eq("storm")
     ).astype(int)
-    categories = work["weathercode"].apply(_weather_category)
     work["weather_cat_code"] = categories.map(
         {"clear": 0, "cloudy": 1, "fog": 2, "rain": 3, "snow": 4, "storm": 5}
     ).fillna(0)
