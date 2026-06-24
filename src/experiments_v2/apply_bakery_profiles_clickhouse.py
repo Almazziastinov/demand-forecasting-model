@@ -813,6 +813,7 @@ def load_recent_daily_share_stats(
         .agg(
             recent_share_dow_winsor=("daily_share", _winsor_mean),
             recent_dow_obs=("daily_share", "size"),
+            recent_dow_avg_qty=("recent_day_qty", "mean"),
         )
     )
     return overall.merge(weekpart, on=[BAKERY_ID_COL, PRODUCT_ID_COL], how="left").merge(
@@ -880,6 +881,7 @@ def _apply_category_upward_cap(
     max_multiplier: float,
     recent_window_days: int | None = None,
     recent_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+    recent_daily: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     if not category_pattern:
         return candidates
@@ -899,7 +901,31 @@ def _apply_category_upward_cap(
     ).fillna(0.0)
     base = pd.to_numeric(work["base_daily_forecast"], errors="coerce").fillna(0.0)
     cap = (base * max_multiplier).clip(lower=0.0)
-    if recent_window_days and recent_window_days > 0 and "recent_qty" in work.columns:
+
+    # DOW-aware recent avg cap: prefer recent_dow_avg_qty from recent_daily if available
+    if (
+        recent_daily is not None
+        and not recent_daily.empty
+        and "recent_dow_avg_qty" in recent_daily.columns
+        and DOW_COL in work.columns
+    ):
+        dow_avg = recent_daily[[BAKERY_ID_COL, PRODUCT_ID_COL, DOW_COL, "recent_dow_avg_qty"]].copy()
+        dow_avg["recent_dow_avg_qty"] = pd.to_numeric(
+            dow_avg["recent_dow_avg_qty"], errors="coerce"
+        ).fillna(0.0)
+        work = work.merge(dow_avg, on=[BAKERY_ID_COL, PRODUCT_ID_COL, DOW_COL], how="left")
+        recent_avg_cap = (
+            pd.to_numeric(work["recent_dow_avg_qty"], errors="coerce").fillna(0.0)
+            * recent_absolute_cap_multiplier
+        ).clip(lower=0.0)
+        has_recent_cap = recent_avg_cap.gt(0.0)
+        cap = pd.Series(
+            np.where(has_recent_cap, np.minimum(cap, recent_avg_cap), cap),
+            index=work.index,
+        )
+        work = work.drop(columns=["recent_dow_avg_qty"], errors="ignore")
+    elif recent_window_days and recent_window_days > 0 and "recent_qty" in work.columns:
+        # fallback: flat avg over the whole window
         recent_avg_cap = (
             pd.to_numeric(work["recent_qty"], errors="coerce")
             / float(recent_window_days)
@@ -1185,6 +1211,7 @@ def _build_recent_correction_targets(
         max_multiplier=category_upward_cap_multiplier,
         recent_window_days=category_recent_absolute_cap_days,
         recent_absolute_cap_multiplier=category_recent_absolute_cap_multiplier,
+        recent_daily=recent_daily,
     )
     return candidates
 

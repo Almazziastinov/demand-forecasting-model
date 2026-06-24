@@ -171,6 +171,56 @@ def test_costly_pie_category_can_fallback_to_recent_absolute_cap() -> None:
     assert targets["corrected_daily_forecast"].sum() == 100.0
 
 
+def test_costly_pie_category_capped_by_dow_recent_avg() -> None:
+    pie_category = "Пироги сытные"
+    savory_category = "Выпечка сытная"
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-05-02", "2026-05-02"]),
+            "dow": [5, 5],
+            "bakery_id": [1, 1],
+            "hour": [9, 9],
+            "product_id": [10, 20],
+            "sku_hour_forecast": [20.0, 80.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    recent = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "category_name": [pie_category, savory_category],
+            "recent_qty": [80.0, 20.0],
+            "recent_days_sold": [10, 10],
+            "recent_share": [0.8, 0.2],
+        }
+    )
+    # DOW=5 (суббота): среднее за последние 2 субботы = 8 шт для пирога
+    recent_daily = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "dow": [5, 5],
+            "recent_dow_avg_qty": [8.0, 12.0],
+        }
+    )
+
+    targets = _build_recent_correction_targets(
+        hourly,
+        recent,
+        mode="blend_recent_50",
+        recent_daily=recent_daily,
+    )
+
+    pie = targets[targets["product_id"] == 10].iloc[0]
+    other = targets[targets["product_id"] == 20].iloc[0]
+    # пирог capped по DOW avg: min(20, 8) = 8
+    assert pie["corrected_daily_forecast"] == 8.0
+    # другая категория не трогается
+    assert other["corrected_daily_forecast"] == 92.0
+    assert targets["corrected_daily_forecast"].sum() == 100.0
+
+
 def test_runner_city_prior_soft_weekpart_lifts_city_top_runner() -> None:
     hourly = pd.DataFrame(
         {
