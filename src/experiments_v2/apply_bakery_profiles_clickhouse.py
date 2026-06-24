@@ -923,8 +923,14 @@ def _apply_category_upward_cap(
             * recent_absolute_cap_multiplier
         ).clip(lower=0.0)
         has_recent_cap = recent_avg_cap.gt(0.0)
+        # For base=0 rows (product not in profile), base*multiplier=0 wrongly clamps
+        # the cap to 0. Use recent_avg_cap directly when base=0, same as the elif branch.
         cap = pd.Series(
-            np.where(has_recent_cap, np.minimum(cap, recent_avg_cap), cap),
+            np.where(
+                has_recent_cap & base.gt(0),
+                np.minimum(cap, recent_avg_cap),
+                np.where(has_recent_cap, recent_avg_cap, cap),
+            ),
             index=work.index,
         )
         work = work.drop(columns=["recent_dow_avg_qty"], errors="ignore")
