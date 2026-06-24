@@ -1255,7 +1255,7 @@ def apply_recent_sku_hour_correction(
         )
 
     recent_daily = pd.DataFrame()
-    if mode == "runner_city_prior_soft_weekpart":
+    if mode == "runner_city_prior_soft_weekpart" or category_upward_cap_pattern:
         recent_daily = load_recent_daily_share_stats(
             client,
             forecast_start=forecast_start,
