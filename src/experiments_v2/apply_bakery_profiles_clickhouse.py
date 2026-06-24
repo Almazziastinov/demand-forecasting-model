@@ -1131,6 +1131,14 @@ def _build_recent_correction_targets(
         modeled_recent_share = pd.to_numeric(modeled_recent_share, errors="coerce").fillna(
             candidates["recent_share"]
         ).clip(lower=0.0)
+        # Winsorized share collapses to 0 for intermittent products (most days = 0 share,
+        # 90th pct = 0 → _winsor_mean clips everything to 0). Fall back to flat recent_share
+        # so products with real but infrequent sales still get a non-zero correction signal.
+        flat_recent = pd.to_numeric(candidates["recent_share"], errors="coerce").fillna(0.0)
+        modeled_recent_share = pd.Series(
+            np.where((modeled_recent_share == 0) & flat_recent.gt(0), flat_recent, modeled_recent_share),
+            index=candidates.index,
+        )
 
         is_service = _contains_pattern(candidates[CATEGORY_COL], SERVICE_CATEGORY_PATTERN, regex=True)
         is_eclair = _contains_pattern(candidates[PRODUCT_NAME_COL], ECLAIR_PATTERN, regex=False)
