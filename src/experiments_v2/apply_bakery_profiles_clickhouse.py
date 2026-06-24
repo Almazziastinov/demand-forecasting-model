@@ -895,10 +895,7 @@ def _apply_category_upward_cap(
     if not protected.any():
         return work
 
-    corrected = pd.to_numeric(
-        work["corrected_daily_forecast"],
-        errors="coerce",
-    ).fillna(0.0)
+    corrected = pd.to_numeric(work["corrected_daily_forecast"], errors="coerce").fillna(0.0)
     base = pd.to_numeric(work["base_daily_forecast"], errors="coerce").fillna(0.0)
     cap = (base * max_multiplier).clip(lower=0.0)
 
@@ -909,11 +906,18 @@ def _apply_category_upward_cap(
         and "recent_dow_avg_qty" in recent_daily.columns
         and DOW_COL in work.columns
     ):
-        dow_avg = recent_daily[[BAKERY_ID_COL, PRODUCT_ID_COL, DOW_COL, "recent_dow_avg_qty"]].copy()
+        dow_avg = recent_daily[[BAKERY_ID_COL, PRODUCT_ID_COL, DOW_COL, "recent_dow_avg_qty"]].drop_duplicates(
+            subset=[BAKERY_ID_COL, PRODUCT_ID_COL, DOW_COL]
+        ).copy()
         dow_avg["recent_dow_avg_qty"] = pd.to_numeric(
             dow_avg["recent_dow_avg_qty"], errors="coerce"
         ).fillna(0.0)
         work = work.merge(dow_avg, on=[BAKERY_ID_COL, PRODUCT_ID_COL, DOW_COL], how="left")
+        # recompute after merge so all series share the same (potentially expanded) index
+        corrected = pd.to_numeric(work["corrected_daily_forecast"], errors="coerce").fillna(0.0)
+        base = pd.to_numeric(work["base_daily_forecast"], errors="coerce").fillna(0.0)
+        cap = (base * max_multiplier).clip(lower=0.0)
+        protected = _contains_pattern(work[CATEGORY_COL], category_pattern, regex=True)
         recent_avg_cap = (
             pd.to_numeric(work["recent_dow_avg_qty"], errors="coerce").fillna(0.0)
             * recent_absolute_cap_multiplier
