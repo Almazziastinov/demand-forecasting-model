@@ -1317,16 +1317,6 @@ def apply_recent_sku_hour_correction(
         (targets["base_daily_forecast"] <= 0)
         & (targets["corrected_daily_forecast"] > 0)
     ].copy()
-    _dbg = targets[targets[PRODUCT_ID_COL] == 11473].drop_duplicates([BAKERY_ID_COL, PRODUCT_ID_COL])
-    if len(_dbg):
-        print(
-            f"[DEBUG 11473] bakeries_in_targets={_dbg[BAKERY_ID_COL].nunique()} "
-            f"base_zero={(_dbg['base_daily_forecast'] <= 0).sum()} "
-            f"corrected_pos={(_dbg['corrected_daily_forecast'] > 0).sum()} "
-            f"new_daily_bakeries={(new_daily[new_daily[PRODUCT_ID_COL]==11473][BAKERY_ID_COL].nunique())} "
-            f"raw_share_nonzero={(_dbg['raw_share'] > 0).sum() if 'raw_share' in _dbg.columns else 'n/a'}",
-            flush=True,
-        )
     new_rows = pd.DataFrame()
     if len(new_daily):
         new_rows = new_daily.merge(
