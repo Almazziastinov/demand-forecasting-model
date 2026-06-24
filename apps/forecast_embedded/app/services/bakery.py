@@ -239,7 +239,7 @@ def _raw_sales_source(filter_sql: str) -> str:
               and {filter_sql}
         )
         """.format(
-        raw_sales_line_table=RAW_SALES_LINE_TABLE,
+        raw_sales_line_table=SALES_LINE_TABLE,
         filter_sql=filter_sql,
     )
 
