@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import argparse
+import time
 from pathlib import Path
 
 import clickhouse_connect
@@ -82,6 +83,26 @@ def fetch_run(client, run_id: str, table_suffix: str = "") -> dict | None:
     return df.iloc[0].to_dict()
 
 
+def _wait_for_active_cleared(
+    client,
+    runs_table: str,
+    *,
+    timeout_seconds: int = 120,
+    poll_seconds: float = 2.0,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        result = client.query(f"select count() from {runs_table} where status = 'active'")
+        count = result.result_rows[0][0] if result.result_rows else 0
+        if count == 0:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Timed out waiting for status='active' rows to be cleared in {runs_table}"
+            )
+        time.sleep(poll_seconds)
+
+
 def archive_current_active_runs(client, table_suffix: str = "") -> None:
     runs_table = table_name(RUNS_TABLE, table_suffix)
     active = client.query_df(
@@ -99,6 +120,10 @@ def archive_current_active_runs(client, table_suffix: str = "") -> None:
     archived["status"] = "archived"
     client.insert_df(runs_table, archived)
     client.command(f"alter table {runs_table} delete where status = 'active'")
+    # Wait for the async mutation to complete before returning so that the
+    # caller's subsequent INSERT of a new 'active' row is not deleted by the
+    # still-running mutation (ClickHouse applies pending mutations to new parts).
+    _wait_for_active_cleared(client, runs_table)
 
 
 def activate_run(client, run_id: str, table_suffix: str = "") -> None:
