@@ -25,6 +25,7 @@ from pipelines.forecast_publish.production_dataset_refresh import (
     DEFAULT_SQL_TEMPLATE,
     DEFAULT_TIMEZONE,
     refresh_production_datasets,
+    refresh_weather_features_with_fallback,
     resolve_default_refresh_dates,
 )
 from pipelines.forecast_publish.sku_hour_profile_store import (
@@ -64,6 +65,7 @@ DEFAULT_RECENT_CORRECTION_MODE = os.getenv(
 DEFAULT_RECENT_CORRECTION_DAYS = int(os.getenv("FORECAST_RECENT_CORRECTION_DAYS", "30"))
 DEFAULT_RECENT_SALES_TABLE = os.getenv("FORECAST_RECENT_SALES_TABLE", "mart_sales_60d")
 DEFAULT_REFRESH_DATASETS = os.getenv("FORECAST_REFRESH_DATASETS", "").strip().lower() in {"1", "true", "yes", "on"}
+DEFAULT_REFRESH_WEATHER = os.getenv("FORECAST_REFRESH_WEATHER", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 SCENARIOS = {
@@ -215,6 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH))
     parser.add_argument("--schema-path", default=str(DEFAULT_SCHEMA_PATH))
     parser.add_argument("--refresh-datasets", action="store_true", default=DEFAULT_REFRESH_DATASETS)
+    parser.add_argument("--refresh-weather", action="store_true", default=DEFAULT_REFRESH_WEATHER)
     parser.add_argument("--refresh-timezone", default=DEFAULT_TIMEZONE)
     parser.add_argument("--history-start-date", default=DEFAULT_HISTORY_START_DATE)
     parser.add_argument("--history-end-date", default=None)
@@ -347,6 +350,24 @@ def main() -> None:
         refresh_summary_path.write_text(
             json.dumps(dataset_refresh_result, ensure_ascii=False, indent=2),
             encoding="utf-8",
+        )
+
+    if args.refresh_weather and not args.refresh_datasets:
+        # Refresh weather independently when full dataset refresh is disabled.
+        # fetch_weather_features only calls Open-Meteo API — no ClickHouse dependency.
+        weather_result = refresh_weather_features_with_fallback(
+            dataset_paths=[
+                Path(args.uplifted_dataset_path),
+                Path(args.base_dataset_path),
+            ],
+            horizon_days=args.horizon_days,
+            weather_path=args.weather_path,
+        )
+        print(
+            f"weather refresh: {weather_result['weather_status']}"
+            f" rows={weather_result['weather_rows']}"
+            f" {weather_result['weather_start_date']} → {weather_result['weather_end_date']}",
+            flush=True,
         )
 
     scenario_names = list(SCENARIOS) if args.scenario == "both" else [args.scenario]
