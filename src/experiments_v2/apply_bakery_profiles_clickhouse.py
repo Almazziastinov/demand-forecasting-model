@@ -985,9 +985,15 @@ def _apply_category_upward_cap(
         pd.to_numeric(group_targets[BAKERY_FORECAST_COL], errors="coerce").fillna(0.0)
         - group_targets["_protected_total"]
     ).clip(lower=0.0)
+    # Cap scale at 1.0: when pies are capped down, do NOT redistribute the
+    # freed budget upward to other SKUs — just let the bakery total decrease.
+    # Scaling non-pies up inflates high-volume SKUs that were already correct.
     group_targets["_nonprotected_scale"] = np.where(
         group_targets["_nonprotected_total"] > 0,
-        group_targets["_nonprotected_target"] / group_targets["_nonprotected_total"],
+        np.minimum(
+            1.0,
+            group_targets["_nonprotected_target"] / group_targets["_nonprotected_total"],
+        ),
         1.0,
     )
     work = work.merge(
