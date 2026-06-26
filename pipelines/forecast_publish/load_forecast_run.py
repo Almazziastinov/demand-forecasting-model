@@ -147,7 +147,7 @@ def wait_for_run_deleted(
     run_id: str,
     *,
     table_suffix: str = "",
-    timeout_seconds: int = 120,
+    timeout_seconds: int = 600,
     poll_seconds: float = 2.0,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
