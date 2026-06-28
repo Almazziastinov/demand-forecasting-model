@@ -1,5 +1,15 @@
 # AGENTS.md - Development Guidelines for Demand Forecasting Model
 
+## Mandatory Operational Context
+
+Before changing code or production state, read `docs/ops/CURRENT_STATE.md`.
+For production or deployment work, also read `docs/ops/SERVICES.md`,
+`docs/ops/RUNBOOK.md`, and `docs/ops/LLM_WORKFLOW.md`.
+
+`docs/ops/` is the current operational source of truth. Files in `handoffs/`
+are historical session logs and must not override `docs/ops/` without fresh
+verification.
+
 ## Overview
 This is a Python-based demand forecasting project for bakery products using LightGBM. The codebase is primarily in Russian (data columns, comments), but code follows Python conventions.
 
