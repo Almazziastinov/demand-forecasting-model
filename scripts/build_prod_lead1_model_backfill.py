@@ -32,6 +32,11 @@ DEFAULT_DATASET_PATH = ROOT / "data" / "processed" / "bakery_daily_sales_uplifte
 DEFAULT_MODEL_PATH = ROOT / "models" / "bakery_day_model_uplifted.joblib"
 DEFAULT_META_PATH = ROOT / "models" / "bakery_day_meta_uplifted.joblib"
 DEFAULT_BIAS_PATH = ROOT / "models" / "bakery_day_bias_uplifted.json"
+
+BASE_DATASET_PATH = ROOT / "data" / "processed" / "bakery_daily_sales.csv"
+BASE_MODEL_PATH = ROOT / "models" / "bakery_day_model.joblib"
+BASE_META_PATH = ROOT / "models" / "bakery_day_meta.joblib"
+BASE_BIAS_PATH = ROOT / "models" / "bakery_day_bias.json"
 FALLBACK_BIAS_PATH = ROOT / "reports" / "bakery_day_model_bias_by_bakery.csv"
 DEFAULT_WEATHER_PATH = ROOT / "data" / "processed" / "bakery_weather_features.csv"
 DEFAULT_BAKERY_HOUR_PROFILE_PATH = (
@@ -120,6 +125,7 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         )
     )
 
+    use_raw = getattr(args, "use_raw_uplift_multiplier", False)
     allocated = allocate_from_clickhouse(
         bakery_forecast_path=bakery_path,
         bakery_hour_profile_path=args.bakery_hour_profile_path,
@@ -136,9 +142,16 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         assortment_table=table_name(args.assortment_table, args.table_suffix),
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
+        use_raw_uplift_multiplier=use_raw,
     )
 
-    run_id = f"backfill_uplifted_bakery_norm_uplift_sku_{date_part}_h1"
+    if use_raw:
+        run_id = f"backfill_base_bakery_raw_uplift_sku_{date_part}_h1"
+        model_version = "bakery_day_lgbm_base_lead1_backfill"
+    else:
+        run_id = f"backfill_uplifted_bakery_norm_uplift_sku_{date_part}_h1"
+        model_version = "bakery_day_lgbm_uplifted_lead1_backfill"
+
     loaded = load_forecast_run(
         env_file=args.env_file,
         bakery_path=bakery_path,
@@ -147,7 +160,7 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         profile_table=table_name(args.profile_table, args.table_suffix),
         lookup_source="clickhouse",
         run_id=run_id,
-        model_version="bakery_day_lgbm_uplifted_lead1_backfill",
+        model_version=model_version,
         profile_version=args.uplift_profile_version,
         notes=f"Lead-1 model backfill for {forecast_date}",
         replace_existing=True,
@@ -197,7 +210,18 @@ def main() -> None:
     parser.add_argument("--replace-existing", action="store_true")
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument("--use-raw-uplift-multiplier", action="store_true",
+                        help="Use base model + raw uplift (base_raw_uplift scenario)")
     args = parser.parse_args()
+
+    # When using base_raw scenario, default paths to base model unless overridden
+    if args.use_raw_uplift_multiplier:
+        if args.dataset_path == str(DEFAULT_DATASET_PATH):
+            args.dataset_path = str(BASE_DATASET_PATH)
+        if args.model_path == str(DEFAULT_MODEL_PATH):
+            args.model_path = str(BASE_MODEL_PATH)
+        if args.meta_path == str(DEFAULT_META_PATH):
+            args.meta_path = str(BASE_META_PATH)
 
     client = create_client(args.env_file)
     existing = (
