@@ -423,7 +423,8 @@ def get_bakery_day(
         select b.bakery_id as bakery_id, b.bakery_name as bakery_name, b.city as city,
                b.forecast_base as forecast_base,
                coalesce(sku.forecast_sku_total, b.forecast_final) as forecast_final,
-               sales.actual_qty, sales.actual_revenue
+               sales.actual_qty as actual_qty,
+               sales.actual_revenue as actual_revenue
         from {source} b
         left join {sku_total_source} sku
           on sku.forecast_date = b.forecast_date
