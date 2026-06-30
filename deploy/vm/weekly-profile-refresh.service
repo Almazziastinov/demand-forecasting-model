@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly SKU hour share profile refresh
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/demand-forecasting-model
+ExecStart=/opt/demand-forecasting-model/.venv/bin/python scripts/weekly_profile_refresh.py --env-file .env
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=7200

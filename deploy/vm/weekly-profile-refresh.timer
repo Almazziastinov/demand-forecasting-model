@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly SKU hour share profile refresh timer
+
+[Timer]
+# Every Sunday at 02:00 UTC (05:00 Moscow time)
+OnCalendar=Sun *-*-* 02:00:00
+AccuracySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
