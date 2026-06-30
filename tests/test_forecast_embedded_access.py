@@ -121,8 +121,8 @@ def test_partner_bakery_list_is_filtered_by_access_table(monkeypatch):
     query, params = fake.queries[0]
     assert rows[0]["bakery_id"] == 1
     assert "bitrix_user_bakery_access_embedded" in query
-    assert "dim_management" in query
-    assert "coalesce(status, '') !=" in query
+    assert "dim_bakeries" in query
+    assert "toInt64OrNull(toString(bakery_id)) is not null" in query
     assert "b.bakery_id in" in query
     assert "bitrix_portal_id" in query
     assert params["closed_bakery_status"] == "Закрыта"
@@ -141,7 +141,7 @@ def test_admin_bakery_list_is_not_filtered_by_access_table(monkeypatch):
     query, params = fake.queries[0]
     assert "bitrix_user_bakery_access_embedded" not in query
     assert "bitrix_user_id" not in params
-    assert "dim_management" in query
+    assert "dim_bakeries" in query
     assert params["closed_bakery_status"] == "Закрыта"
 
 
@@ -203,6 +203,7 @@ def test_run_dates_include_lead_one_snapshots(monkeypatch):
     assert "bakery_forecast_day_embedded" in query
     assert "bakery_forecast_day_snapshots" in query
     assert "lead_days = 1" in query
+    assert "source_run_id = %(run_id)s" in query
     assert params["run_id"] == "active_run"
 
 

@@ -490,7 +490,19 @@ def fill_missing_bakery_hours(
     }
 
 
-def load_profile_lookup_frames(client, *, profile_table: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_profile_lookup_frames(
+    client,
+    *,
+    profile_table: str,
+    bakery_ids: list | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    # Optional bakery filter keeps queries fast when only a subset is needed.
+    # Without it the full-table GROUP BY can hit LB connection timeouts (~70s).
+    bak_filter = ""
+    if bakery_ids:
+        ids_str = ", ".join(str(int(b)) for b in bakery_ids)
+        bak_filter = f"and toInt64(bakery_id) in ({ids_str})"
+
     tier1_sums = client.query_df(
         f"""
         select
@@ -500,6 +512,7 @@ def load_profile_lookup_frames(client, *, profile_table: str) -> tuple[pd.DataFr
             sum(mean_sku_share_in_hour_norm) as tier1_share_sum
         from {profile_table}
         where n_days >= {MIN_TIER1_N_DAYS}
+          {bak_filter}
         group by bakery_id, dow, hour
         """
     )
@@ -511,6 +524,8 @@ def load_profile_lookup_frames(client, *, profile_table: str) -> tuple[pd.DataFr
             product_id,
             avg(mean_sku_share_in_hour_norm) as mean_sku_share_in_hour_norm
         from {profile_table}
+        where 1=1
+          {bak_filter}
         group by bakery_id, hour, product_id
         """
     )
@@ -532,6 +547,7 @@ def load_profile_lookup_frames(client, *, profile_table: str) -> tuple[pd.DataFr
         select distinct bakery_id, dow, hour, 1 as is_thin
         from {profile_table}
         where n_days < {MIN_TIER1_N_DAYS}
+          {bak_filter}
         """
     )
     return tier1_sums, fallback, thin_triples
@@ -627,7 +643,17 @@ def _finalize_source_stats(stats: dict[str, dict[str, float | int]]) -> list[dic
     return result
 
 
-def stream_profile_chunks(client, *, profile_table: str, chunk_size: int):
+def stream_profile_chunks(
+    client,
+    *,
+    profile_table: str,
+    chunk_size: int,
+    bakery_ids: list | None = None,
+):
+    bak_filter = ""
+    if bakery_ids:
+        ids_str = ", ".join(str(int(b)) for b in bakery_ids)
+        bak_filter = f"and toInt64(bakery_id) in ({ids_str})"
     query = f"""
         select
             bakery_id,
@@ -638,6 +664,7 @@ def stream_profile_chunks(client, *, profile_table: str, chunk_size: int):
             mean_sku_share_in_hour_norm
         from {profile_table}
         where n_days >= {MIN_TIER1_N_DAYS}
+          {bak_filter}
         order by bakery_id, dow, hour, product_id
     """
     with client.query_df_stream(query, settings={"max_block_size": chunk_size}) as stream:
@@ -1387,6 +1414,7 @@ def allocate_from_clickhouse(
     bakery_hour_profile_path: str | Path,
     output_dir: str | Path,
     env_file: str | Path = DEFAULT_ENV_PATH,
+    client=None,
     profile_table: str = PROFILE_TABLE,
     uplift_table: str = UPLIFT_MULTIPLIER_TABLE,
     forecast_col: str = BAKERY_FORECAST_COL,
@@ -1409,7 +1437,8 @@ def allocate_from_clickhouse(
         raise ValueError(
             f"recent_correction_mode must be one of {RECENT_CORRECTION_MODES}"
         )
-    client = create_client(env_file)
+    if client is None:
+        client = create_client(env_file)
     bakery_forecast = load_bakery_day_forecast(
         bakery_forecast_path,
         forecast_col=forecast_col,
@@ -1442,9 +1471,17 @@ def allocate_from_clickhouse(
     hourly_lookup = hourly_forecast[hourly_cols].copy()
     hourly_lookup["_row_id"] = np.arange(len(hourly_lookup))
 
+    # Pass bakery_ids so profile queries are filtered — avoids full-table scans
+    # that hit load-balancer connection timeouts on large remote CH clusters.
+    bakery_ids_for_filter = (
+        hourly_lookup[BAKERY_ID_COL].dropna().astype(str).unique().tolist()
+        if BAKERY_ID_COL in hourly_lookup.columns
+        else None
+    )
     tier1_sums, fallback, thin_triples = load_profile_lookup_frames(
         client,
         profile_table=profile_table,
+        bakery_ids=bakery_ids_for_filter,
     )
     exact_keys = tier1_sums[[BAKERY_ID_COL, DOW_COL, HOUR_COL]].drop_duplicates()
     exact_keys["has_exact"] = 1
@@ -1465,7 +1502,12 @@ def allocate_from_clickhouse(
     wrote_header = False
 
     for i, sku_chunk in enumerate(
-        stream_profile_chunks(client, profile_table=profile_table, chunk_size=chunk_size),
+        stream_profile_chunks(
+            client,
+            profile_table=profile_table,
+            chunk_size=chunk_size,
+            bakery_ids=bakery_ids_for_filter,
+        ),
         start=1,
     ):
         sku_chunk = sku_chunk.merge(

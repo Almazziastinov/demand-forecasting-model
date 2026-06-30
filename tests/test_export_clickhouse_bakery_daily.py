@@ -95,6 +95,28 @@ def test_normalize_columns_accepts_clickhouse_expression_names():
     ]
 
 
+def test_export_daily_windows_skips_empty_columnless_window():
+    work_dir = Path("tests") / "_tmp_export_clickhouse_bakery_daily"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    output = work_dir / "empty_bakery_daily.csv"
+
+    result = export_daily_windows(
+        client=_FakeClient(pd.DataFrame()),
+        sql_template_text=(
+            "select * where d between '{date_from}' and '{date_to}' "
+            "{limit_clause}"
+        ),
+        output_path=output,
+        date_from="2025-01-01",
+        date_to="2025-01-01",
+        batch_mode="single",
+        limit=None,
+    )
+
+    assert result["rows"] == 0
+    assert not output.exists()
+
+
 def test_bakery_daily_template_deduplicates_check_lines_before_aggregation():
     template = (ROOT / "scripts" / "clickhouse_bakery_daily_template.sql").read_text(
         encoding="utf-8"

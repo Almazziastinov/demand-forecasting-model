@@ -97,6 +97,56 @@ Known stale writer from the 2026-06-28 incident:
 - ClickHouse client IP: `84.201.174.223`
 - stale run id: `prod_uplifted_bakery_norm_uplift_sku_20260601_h14`
 
+## Build Missing Lead-1 Backfill
+
+Use this when facts exist for historical dates, but `lead_days = 1` snapshots
+are missing for fact-vs-forecast comparison.
+
+Run on the production VM only:
+
+```bash
+cd /opt/demand-forecasting-model
+.venv/bin/python scripts/build_prod_lead1_model_backfill.py \
+  --env-file .env \
+  --date-from YYYY-MM-DD \
+  --date-to YYYY-MM-DD \
+  --uplift-profile-version prod_allowlist_22_222_old_else_20260617 \
+  --replace-existing
+```
+
+The script creates draft runs named:
+
+```text
+backfill_uplifted_bakery_norm_uplift_sku_YYYYMMDD_h1
+```
+
+Do not activate these runs. The active production forecast remains the current
+`prod_uplifted_bakery_norm_uplift_sku_YYYYMMDD_h14` run.
+
+Verification query:
+
+```bash
+.venv/bin/python - <<'PY'
+from pipelines.forecast_publish.load_forecast_run import create_client
+c = create_client(".env")
+for table in [
+    "bakery_forecast_day_snapshots",
+    "sku_forecast_day_snapshots",
+    "sku_forecast_hour_snapshots",
+]:
+    df = c.query_df(f"""
+    select forecast_date, count() rows, uniqExact(source_run_id) runs
+    from {table}
+    where lead_days = 1
+      and forecast_date between 'YYYY-MM-DD' and 'YYYY-MM-DD'
+    group by forecast_date
+    order by forecast_date
+    """)
+    print("\\n" + table)
+    print(df.to_string(index=False))
+PY
+```
+
 ## Update Ops Docs After Incidents
 
 After any production incident:

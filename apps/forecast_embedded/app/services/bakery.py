@@ -18,7 +18,7 @@ SALES_LINE_TABLE = "mart_sales_60d"
 RAW_SALES_LINE_TABLE = "Svezhar.fct_check_lines"
 SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
 ACCESS_TABLE = table_name("bitrix_user_bakery_access_embedded")
-MANAGEMENT_TABLE = "dim_management"
+BAKERIES_DIM_TABLE = "dim_bakeries"
 MONTH_REVENUE_TABLE = table_name("bakery_month_revenue_embedded")
 ASSORTMENT_TABLE = table_name("assortment_city_products")
 ASSORTMENT_AUDIT_TABLE = table_name("assortment_source_audit")
@@ -70,10 +70,9 @@ def _access_filter(auth: AuthContext, bakery_expr: str) -> tuple[str, dict]:
 def _open_bakery_filter(bakery_expr: str) -> str:
     return f"""
           and {bakery_expr} in (
-            select toInt64OrNull(toString(bakery_id))
-            from {MANAGEMENT_TABLE}
-            where coalesce(status, '') != %(closed_bakery_status)s
-              and toInt64OrNull(toString(bakery_id)) is not null
+            select distinct toInt64OrNull(toString(bakery_id))
+            from {BAKERIES_DIM_TABLE}
+            where toInt64OrNull(toString(bakery_id)) is not null
           )
         """
 

@@ -104,6 +104,8 @@ def export_daily_windows(
         )
         df = client.query_df(sql)
         df = normalize_columns(df)
+        if df.empty and len(df.columns) == 0:
+            df = pd.DataFrame(columns=REQUIRED_COLUMNS)
         validate_columns(df)
         df = reorder_columns(df)
         rows = len(df)

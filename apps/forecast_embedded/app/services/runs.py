@@ -138,6 +138,7 @@ def get_run_dates(run_id: str) -> list[str]:
             select forecast_date
             from {bakery_day_snapshot_table}
             where lead_days = 1
+              and source_run_id = %(run_id)s
         )
         order by forecast_date
         """.format(
