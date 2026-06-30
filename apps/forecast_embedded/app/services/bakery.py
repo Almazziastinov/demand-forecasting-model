@@ -126,6 +126,22 @@ def _bakery_day_source(date_filter_sql: str) -> str:
     )
 
 
+def _sku_bakery_total_source(date_filter_sql: str) -> str:
+    """Sum of SKU-level forecasts aggregated to bakery-day — used as forecast_final."""
+    return """
+        (
+            select
+                forecast_date,
+                bakery_id,
+                sum(forecast_qty) as forecast_sku_total
+            from {sku_source}
+            group by forecast_date, bakery_id
+        )
+        """.format(
+        sku_source=_sku_day_source(date_filter_sql),
+    )
+
+
 def _sku_day_source(date_filter_sql: str) -> str:
     return """
         (
@@ -260,7 +276,7 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
             b.bakery_id as bakery_id,
             b.bakery_name as bakery_name,
             b.city as city,
-            b.forecast_final as forecast_final,
+            coalesce(sku.forecast_sku_total, b.forecast_final) as forecast_final,
             sales.actual_qty as actual_qty,
             sales.actual_revenue as actual_revenue,
             c.temp_mean as temp_mean,
@@ -273,6 +289,9 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
             c.is_post_holiday as is_post_holiday,
             c.event_window_type as event_window_type
         from {source} b
+        left join {sku_total_source} sku
+          on sku.forecast_date = b.forecast_date
+         and sku.bakery_id = b.bakery_id
         left join {context_table} c
           on c.run_id = b.run_id
          and c.forecast_date = b.forecast_date
@@ -285,6 +304,7 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
         order by forecast_final desc, bakery_name asc
         """.format(
         source=_bakery_day_source("forecast_date = %(forecast_date)s"),
+        sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s"),
         sales_source=_raw_sales_source("fcl.check_date = toDate(%(forecast_date)s)"),
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
@@ -329,7 +349,7 @@ def get_bakery_week(
             b.city as city,
             b.forecast_date as forecast_date,
             b.forecast_base as forecast_base,
-            b.forecast_final as forecast_final,
+            coalesce(sku.forecast_sku_total, b.forecast_final) as forecast_final,
             sales.actual_qty as actual_qty,
             sales.actual_revenue as actual_revenue,
             c.temp_mean as temp_mean,
@@ -344,6 +364,9 @@ def get_bakery_week(
             c.is_post_holiday as is_post_holiday,
             c.event_window_type as event_window_type
         from {source} b
+        left join {sku_total_source} sku
+          on sku.forecast_date = b.forecast_date
+         and sku.bakery_id = b.bakery_id
         left join {context_table} c
           on c.run_id = b.run_id
          and c.forecast_date = b.forecast_date
@@ -358,6 +381,7 @@ def get_bakery_week(
         order by b.forecast_date
         """.format(
         source=_bakery_day_source("forecast_date between %(start_date)s and %(end_date)s"),
+        sku_total_source=_sku_bakery_total_source("forecast_date between %(start_date)s and %(end_date)s"),
         sales_source=_raw_sales_source("fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s)"),
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
@@ -397,9 +421,13 @@ def get_bakery_day(
             group by sales_bakery_id
         )
         select b.bakery_id as bakery_id, b.bakery_name as bakery_name, b.city as city,
-               b.forecast_base as forecast_base, b.forecast_final as forecast_final,
+               b.forecast_base as forecast_base,
+               coalesce(sku.forecast_sku_total, b.forecast_final) as forecast_final,
                sales.actual_qty, sales.actual_revenue
         from {source} b
+        left join {sku_total_source} sku
+          on sku.forecast_date = b.forecast_date
+         and sku.bakery_id = b.bakery_id
         left join sales on sales.sales_bakery_id = b.bakery_id
         where b.forecast_date = %(forecast_date)s
           and b.bakery_id = %(bakery_id)s
@@ -408,6 +436,7 @@ def get_bakery_day(
         limit 1
         """.format(
         source=_bakery_day_source("forecast_date = %(forecast_date)s"),
+        sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s"),
         sales_source=_raw_sales_source("fcl.check_date = toDate(%(forecast_date)s)"),
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
