@@ -95,6 +95,19 @@ SCENARIOS = {
         "profile_version": "clickhouse_norm_uplift_sku",
         "use_raw_uplift_multiplier": False,
     },
+    "base_no_sku_uplift": {
+        "description": "base bakery forecast + raw SKU-hour profile allocation, no SKU-hour uplift multiplier",
+        "run_id_suffix": "base_bakery_no_sku_uplift",
+        "dataset_attr": "base_dataset_path",
+        "model_attr": "base_model_path",
+        "meta_attr": "base_meta_path",
+        "bias_attr": "base_bias_path",
+        "forecast_name": "bakery_day_forecast_prod_base_no_sku_uplift.csv",
+        "output_suffix": "prod_base_bakery_no_sku_uplift",
+        "model_version": "bakery_day_lgbm_base",
+        "profile_version": "clickhouse_no_sku_uplift",
+        "use_raw_uplift_multiplier": False,
+    },
 }
 
 
