@@ -253,7 +253,6 @@ def build_sku_hour_share_profile(
         if pd.notna(max_date)
         else pd.NaT
     )
-    profile_parts = []
     group_cols = [
         BAKERY_ID_COL,
         BAKERY_NAME_COL,
@@ -263,62 +262,61 @@ def build_sku_hour_share_profile(
         DOW_COL,
         HOUR_COL,
     ]
-    for key, group in applied.groupby(group_cols, dropna=False):
-        n_days = int(len(group))
-        long_share = _weighted_mean(group[SKU_SHARE_COL], group["profile_weight"])
-        recent_group = (
-            group[group[DATE_COL] >= recent_start]
-            if pd.notna(recent_start)
-            else group.iloc[0:0]
-        )
-        recent_n_days = int(len(recent_group))
-        recent_share = (
-            _weighted_mean(recent_group[SKU_SHARE_COL], recent_group["profile_weight"])
-            if recent_n_days
-            else np.nan
-        )
-        if recent_n_days:
-            mean_share = (1.0 - recent_alpha) * long_share + recent_alpha * recent_share
-            blend_alpha = recent_alpha
-        else:
-            mean_share = long_share
-            blend_alpha = 0.0
-        std_share = float(group[SKU_SHARE_COL].std()) if n_days > 1 else 0.0
-        if not np.isfinite(std_share):
-            std_share = 0.0
-        zero_share_rate = (
-            float((group[SKU_HOUR_SALES_COL] <= 0).mean()) if n_days else 0.0
-        )
-        anomaly_share = (
-            float((group["profile_weight"] < 1.0).mean()) if n_days else 0.0
-        )
-        profile_parts.append(
-            {
-                BAKERY_ID_COL: key[0],
-                BAKERY_NAME_COL: key[1],
-                PRODUCT_ID_COL: key[2],
-                PRODUCT_NAME_COL: key[3],
-                CATEGORY_COL: key[4],
-                DOW_COL: key[5],
-                HOUR_COL: key[6],
-                "n_days": n_days,
-                "recent_n_days": recent_n_days,
-                "effective_weight": float(group["profile_weight"].sum()),
-                "long_sku_share_in_hour": long_share,
-                "recent_sku_share_in_hour": recent_share,
-                "share_recent_alpha": blend_alpha,
-                "mean_sku_share_in_hour": mean_share,
-                "median_sku_share_in_hour": float(group[SKU_SHARE_COL].median()),
-                "std_sku_share_in_hour": std_share,
-                "mean_sku_hour_sales": _weighted_mean(
-                    group[SKU_HOUR_SALES_COL], group["profile_weight"]
-                ),
-                "zero_share_rate": zero_share_rate,
-                "anomaly_share": anomaly_share,
-            }
-        )
-    profile = pd.DataFrame(profile_parts)
-    profile["std_sku_share_in_hour"] = profile["std_sku_share_in_hour"].fillna(0.0)
+
+    work = applied.copy()
+    w = pd.to_numeric(work["profile_weight"], errors="coerce").fillna(0.0)
+    work["_w_eff"] = np.where(w > 0, w, 0.0)
+    work["_sw_eff"] = work[SKU_SHARE_COL] * work["_w_eff"]
+    work["_sales_w_eff"] = work[SKU_HOUR_SALES_COL] * work["_w_eff"]
+    work["_is_zero_sales"] = (work[SKU_HOUR_SALES_COL] <= 0).astype(float)
+    work["_is_anomaly"] = (work["profile_weight"] < 1.0).astype(float)
+
+    grouped = work.groupby(group_cols, dropna=False, sort=False)
+    base = grouped.agg(
+        n_days=(SKU_SHARE_COL, "size"),
+        _w_sum=("_w_eff", "sum"),
+        _sw_sum=("_sw_eff", "sum"),
+        _sales_w_sum=("_sales_w_eff", "sum"),
+        median_sku_share_in_hour=(SKU_SHARE_COL, "median"),
+        std_sku_share_in_hour=(SKU_SHARE_COL, "std"),
+        zero_share_rate=("_is_zero_sales", "mean"),
+        anomaly_share=("_is_anomaly", "mean"),
+        effective_weight=("profile_weight", "sum"),
+    ).reset_index()
+    base["long_sku_share_in_hour"] = np.where(
+        base["_w_sum"] > 0, base["_sw_sum"] / base["_w_sum"], 0.0
+    )
+    base["mean_sku_hour_sales"] = np.where(
+        base["_w_sum"] > 0, base["_sales_w_sum"] / base["_w_sum"], 0.0
+    )
+    base["std_sku_share_in_hour"] = base["std_sku_share_in_hour"].fillna(0.0)
+    base = base.drop(columns=["_w_sum", "_sw_sum", "_sales_w_sum"])
+
+    if pd.notna(recent_start):
+        recent_work = work[work[DATE_COL] >= recent_start]
+    else:
+        recent_work = work.iloc[0:0]
+    recent_grouped = recent_work.groupby(group_cols, dropna=False, sort=False)
+    recent = recent_grouped.agg(
+        recent_n_days=(SKU_SHARE_COL, "size"),
+        _rw_sum=("_w_eff", "sum"),
+        _rsw_sum=("_sw_eff", "sum"),
+    ).reset_index()
+    recent["recent_sku_share_in_hour"] = np.where(
+        recent["_rw_sum"] > 0, recent["_rsw_sum"] / recent["_rw_sum"], np.nan
+    )
+    recent = recent.drop(columns=["_rw_sum", "_rsw_sum"])
+
+    profile = base.merge(recent, on=group_cols, how="left")
+    profile["recent_n_days"] = profile["recent_n_days"].fillna(0).astype(int)
+    has_recent = profile["recent_n_days"] > 0
+    profile["mean_sku_share_in_hour"] = np.where(
+        has_recent,
+        (1.0 - recent_alpha) * profile["long_sku_share_in_hour"]
+        + recent_alpha * profile["recent_sku_share_in_hour"],
+        profile["long_sku_share_in_hour"],
+    )
+    profile["share_recent_alpha"] = np.where(has_recent, recent_alpha, 0.0)
     profile = _add_reliability_score(profile)
 
     totals = (
@@ -536,10 +534,14 @@ def build_from_raw(
         usecols=lambda c: c in usecols,
         chunksize=chunk_size,
     )
+    FLUSH_EVERY = 10
     for i, chunk in enumerate(reader, start=1):
         parts.append(aggregate_sku_hourly_chunk(chunk))
         if i % 5 == 0:
             print(f"processed chunks: {i}", flush=True)
+        if len(parts) >= FLUSH_EVERY:
+            parts = [merge_hourly_parts(parts)]
+            print(f"flushed parts after chunk {i}", flush=True)
 
     hourly = merge_hourly_parts(parts)
     if assortment_path:

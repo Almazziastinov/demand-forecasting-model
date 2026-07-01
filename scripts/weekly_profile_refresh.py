@@ -91,6 +91,7 @@ def main() -> None:
     raw_output = Path(args.raw_output)
     profile_smoothed = output_dir / "sku_hour_share_profile_smoothed.csv"
     profile_applied = output_dir / "sku_hour_share_profile_daily.csv"
+    profile_applied_smoothed = output_dir / "sku_hour_share_profile_daily_smoothed.csv"
 
     log.info("weekly_profile_refresh start")
     log.info("date_from=%s date_to=%s profile_version=%s", date_from, date_to, profile_version)
@@ -133,10 +134,10 @@ def main() -> None:
     # 5. Load uplift multipliers to ClickHouse
     run([
         PYTHON, "-m", "pipelines.forecast_publish.sku_hour_profile_store",
-        "--mode", "load-uplift",
+        "--mode", "load-uplift-multipliers",
         "--env-file", args.env_file,
         "--schema-path", str(DEFAULT_SCHEMA_PATH),
-        "--applied-path", str(profile_applied),
+        "--applied-path", str(profile_applied_smoothed),
         "--profile-version", profile_version,
         "--truncate",
     ], step="5/5 load_uplift_multipliers_to_clickhouse", dry_run=args.dry_run)
