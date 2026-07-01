@@ -145,8 +145,12 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         use_raw_uplift_multiplier=use_raw,
     )
 
+    model_is_base = Path(args.model_path).resolve() == BASE_MODEL_PATH.resolve()
     if use_raw:
         run_id = f"backfill_base_bakery_raw_uplift_sku_{date_part}_h1"
+        model_version = "bakery_day_lgbm_base_lead1_backfill"
+    elif model_is_base:
+        run_id = f"backfill_base_bakery_no_sku_uplift_{date_part}_h1"
         model_version = "bakery_day_lgbm_base_lead1_backfill"
     else:
         run_id = f"backfill_uplifted_bakery_norm_uplift_sku_{date_part}_h1"
