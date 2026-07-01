@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-06-30
+Last updated: 2026-07-01
 
 ## Summary
 
@@ -28,15 +28,24 @@ read-only embedded UI/API over ClickHouse and must not run forecast generation.
 
 ## Active Forecast
 
-- Active run on 2026-06-29: `prod_uplifted_bakery_norm_uplift_sku_20260629_h14`
-- Horizon: `2026-06-29` through `2026-07-12`
-- Scenario: `uplifted_norm`
+- Active run on 2026-07-01: `prod_base_bakery_no_sku_uplift_20260701_h14`
+- Scenario: `base_no_sku_uplift` (new scenario, added 2026-07-01)
+  - Bakery-day model: **base** (`bakery_day_model.joblib`, no bakery-level uplift)
+  - SKU-hour allocation: raw `sku_hour_share_profile_smoothed_embedded`
+    (no floor-uplift, see below)
+  - SKU-hour uplift multiplier: **disabled** (`use_raw_uplift_multiplier=False`)
+- `.env` on the VM updated: `FORECAST_SCENARIO=base_no_sku_uplift`,
+  `FORECAST_ACTIVATE_RUN=base_no_sku_uplift` (nightly timer will keep using
+  this scenario going forward)
 - Horizon days: `14`
 - Recent correction mode: `runner_city_prior_soft_weekpart`
 - Recent correction days: `30`
 - Recent sales table: `mart_sales_60d`
 - Dataset refresh: enabled on the VM (`FORECAST_REFRESH_DATASETS=1`)
 - Weather refresh: enabled on the VM (`FORECAST_REFRESH_WEATHER=1`)
+
+Previous scenario (`uplifted_norm`, active through 2026-06-29..2026-06-30) is
+still defined in `SCENARIOS` for rollback if needed.
 
 Observed active snapshot rows after the 2026-06-29 refresh:
 
@@ -171,7 +180,7 @@ Expected final line:
 VERIFY OK: env, summary, and active run are consistent
 ```
 
-## Base-Raw Variant Evaluation (2026-06-30)
+## Base-Raw Variant Evaluation (2026-06-30) — Resolved 2026-07-01
 
 A lead-1 dev backfill (`dev_base_raw_YYYYMMDD_h1`) was run for pilot bakeries
 `[20, 21, 22, 28, 80, 89, 107, 221, 222, 257]` using scenario `base_raw_uplift`
@@ -184,28 +193,58 @@ Initial 7-day results (2026-06-22..2026-06-28, 10 pilot bakeries):
 | bias% | +11.9% | +6.6% |
 | wMAPE% | 72.2% | 35.2% |
 
-An extended backfill (2026-06-01..2026-06-21) is running locally (PID 30544,
-log `%TEMP%\backfill_base_raw_extended.log`). After it finishes, run:
+The extended 21-day backfill (2026-06-01..2026-06-21) completed successfully
+(21/21 days). The follow-up 28-day comparison
+(`analyze_variants_comparison.py --start 2026-06-01 --end 2026-06-28`) produced
+numbers that look broken (bias% swings to +216.7% for prod / -73.3% for
+base_raw, far outside the 7-day pilot range, with base_raw row counts ~4x
+lower than expected) — **do not trust that specific run's output**; the
+discrepancy was not root-caused before the decision below was made.
 
-```bash
-.venv/Scripts/python.exe analyze_variants_comparison.py --start 2026-06-01 --end 2026-06-28 --variants base_raw
-```
-
-If the 28-day results confirm base_raw_uplift superiority, deploy to prod with:
-
-```bash
-# On the VM: /opt/demand-forecasting-model
-.venv/bin/python -m pipelines.forecast_publish.run_production_inference \
-  --env-file .env \
-  --scenario base_raw_uplift \
-  --activate-run base_raw_uplift \
-  --refresh-datasets \
-  --history-start-date 2025-12-01 \
-  --notes 'switch to base_raw_uplift after pilot validation 2026-06-30'
-```
+**Decision (2026-07-01):** based on the 7-day pilot signal and separate
+manual review, switched prod to base bakery-day model. However, the
+SKU-hour uplift multiplier itself was independently rejected the same day
+(see "SKU-Hour Share Profile Floor Removed" below) as unjustified, so
+`base_raw_uplift` (which bundles base model + raw uplift multiplier) was not
+deployed as-is. Instead, added a new scenario `base_no_sku_uplift` (base
+bakery model, raw SKU-hour profile, no SKU-hour uplift multiplier) and
+deployed that. See `DECISIONS.md` for the full rationale.
 
 This replaces the active run for ALL bakeries. There is currently no
 per-bakery override mechanism in the embedded app.
+
+## SKU-Hour Share Profile Floor Removed (2026-07-01)
+
+`smooth_sku_hour_share_profile.py` previously applied
+`adjusted_share = max(raw_share, mean_share)` — a floor that lifted any
+hourly share below the historical mean up to the mean. Investigation this
+session (censoring/dip-depth/intraday signal analysis, category-floor
+formula attempts) could not establish that low hourly shares reflect
+shelf-absence (stockout) rather than genuine low demand — the floor was
+therefore an unjustified upward distortion.
+
+Action taken:
+
+- Removed the floor; `smooth_sku_hour_share_profile.py` now passes raw
+  shares through unchanged (still does the chunked renormalize/rebuild).
+- The per-group Python `for` loop in `build_sku_hour_share_profile()` was
+  vectorized into `groupby().agg()` — the old loop was OOM-killing the VM
+  (16GB RAM) when building the profile over the full ~10-month/61M-row
+  history; the vectorized version completes the same step in ~10 minutes
+  instead of hanging for hours.
+- Fixed two `weekly_profile_refresh.py` bugs found during the first
+  successful end-to-end run: wrong `--mode` value for the uplift-multiplier
+  load step, and wrong `--applied-path` (was pointing at the raw daily file
+  instead of the smoothed daily file that has the `sku_share_in_hour_adj*`
+  columns).
+- Reloaded ClickHouse tables `sku_hour_share_profile_smoothed_embedded`
+  (3,291,510 rows) and `sku_hour_uplift_multiplier_embedded`
+  (`profile_version=weekly_20260701`, 26,937 rows) with `--truncate`.
+- `median_sku_share_in_hour` in the profile table is still overwritten with
+  `mean_sku_share_in_hour` during the smoothing rebuild (pre-existing,
+  unrelated bug) — this column is dead weight; only
+  `mean_sku_share_in_hour_norm` is actually consumed downstream
+  (`apply_bakery_profiles.py`), so it was left as-is.
 
 ## Do Not Do
 
