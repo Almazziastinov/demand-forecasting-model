@@ -164,6 +164,11 @@ def load_uplift_multipliers_from_clickhouse(
         group by bakery_id, hour
         """
     )
+    # clickhouse-connect can return a columnless empty DataFrame for GROUP BY on 0 rows
+    if BAKERY_ID_COL not in exact.columns:
+        exact = pd.DataFrame(columns=[BAKERY_ID_COL, DOW_COL, HOUR_COL, "sku_uplift_multiplier"])
+    if BAKERY_ID_COL not in fallback.columns:
+        fallback = pd.DataFrame(columns=[BAKERY_ID_COL, HOUR_COL, "sku_uplift_multiplier"])
     exact = _normalize_key_columns(exact, [BAKERY_ID_COL, DOW_COL, HOUR_COL])
     fallback = _normalize_key_columns(fallback, [BAKERY_ID_COL, HOUR_COL])
     return exact, fallback

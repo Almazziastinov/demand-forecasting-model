@@ -39,14 +39,18 @@ TOP5_SKU_IDS = [1071, 10340, 205, 1076, 57]
 PIE_PATTERN  = "пироги сытные"
 
 _parser = _ap.ArgumentParser(add_help=False)
-_parser.add_argument("--start",    default="2026-06-01")
-_parser.add_argument("--end",      default="2026-06-28")
-_parser.add_argument("--variants", nargs="+", default=["base_raw"])
+_parser.add_argument("--start",            default="2026-06-01")
+_parser.add_argument("--end",              default="2026-06-28")
+_parser.add_argument("--variants",         nargs="+", default=["base_raw"])
+_parser.add_argument("--prod-run-prefix",  default=None,
+                     help="SQL LIKE-паттерн для продового run_id, напр. 'backfill_base_bakery_no_sku_uplift_%%_h1'. "
+                          "По умолчанию берётся лексически максимальный non-dev run per date.")
 _cli, _ = _parser.parse_known_args()
 
-START_DATE = _cli.start
-END_DATE   = _cli.end
-VARIANTS   = _cli.variants
+START_DATE      = _cli.start
+END_DATE        = _cli.end
+VARIANTS        = _cli.variants
+PROD_RUN_PREFIX = _cli.prod_run_prefix
 
 
 def connect():
@@ -90,25 +94,63 @@ def load_variant_forecast(client, variant: str) -> pd.DataFrame:
 
 
 def load_prod_forecast(client) -> pd.DataFrame:
-    """Берём продовый прогноз — последний non-dev run_id для каждой даты."""
-    df = client.query_df(
-        """
-        select
-            forecast_date,
-            toInt64(bakery_id)  as bakery_id,
-            toInt64(product_id) as product_id,
-            any(product_name)   as product_name,
-            any(category_name)  as category_name,
-            sum(forecast_qty)   as forecast_qty
-        from sku_forecast_day_snapshots
-        where lead_days = 1
-          and toInt64(bakery_id) in %(pilot)s
-          and forecast_date between %(start)s and %(end)s
-          and source_run_id not like 'dev_%%'
-        group by forecast_date, bakery_id, product_id
-        """,
-        parameters={"pilot": PILOT_IDS, "start": START_DATE, "end": END_DATE},
-    )
+    """Берём продовый прогноз.
+
+    Если задан --prod-run-prefix, фильтруем по нему.
+    Иначе для каждой forecast_date берём лексически максимальный non-dev run_id
+    (исключает задвоение когда за одну дату есть несколько бэкфилл-ранов).
+    """
+    if PROD_RUN_PREFIX:
+        df = client.query_df(
+            """
+            select
+                forecast_date,
+                toInt64(bakery_id)  as bakery_id,
+                toInt64(product_id) as product_id,
+                any(product_name)   as product_name,
+                any(category_name)  as category_name,
+                sum(forecast_qty)   as forecast_qty
+            from sku_forecast_day_snapshots
+            where lead_days = 1
+              and toInt64(bakery_id) in %(pilot)s
+              and forecast_date between %(start)s and %(end)s
+              and source_run_id like %(prefix)s
+            group by forecast_date, bakery_id, product_id
+            """,
+            parameters={"pilot": PILOT_IDS, "start": START_DATE, "end": END_DATE,
+                        "prefix": PROD_RUN_PREFIX},
+        )
+    else:
+        # Берём только лексически максимальный non-dev run per forecast_date,
+        # чтобы не суммировать несколько бэкфилл-ранов за одну дату.
+        df = client.query_df(
+            """
+            with latest_run as (
+                select forecast_date, max(source_run_id) as run_id
+                from sku_forecast_day_snapshots
+                where lead_days = 1
+                  and toInt64(bakery_id) in %(pilot)s
+                  and forecast_date between %(start)s and %(end)s
+                  and source_run_id not like 'dev_%%'
+                group by forecast_date
+            )
+            select
+                s.forecast_date,
+                toInt64(s.bakery_id)  as bakery_id,
+                toInt64(s.product_id) as product_id,
+                any(s.product_name)   as product_name,
+                any(s.category_name)  as category_name,
+                sum(s.forecast_qty)   as forecast_qty
+            from sku_forecast_day_snapshots s
+            inner join latest_run l
+                on s.forecast_date = l.forecast_date
+               and s.source_run_id = l.run_id
+            where s.lead_days = 1
+              and toInt64(s.bakery_id) in %(pilot)s
+            group by s.forecast_date, bakery_id, product_id
+            """,
+            parameters={"pilot": PILOT_IDS, "start": START_DATE, "end": END_DATE},
+        )
     return df
 
 
