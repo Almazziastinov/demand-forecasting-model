@@ -373,7 +373,7 @@ def download_baking_plan(
     if not city:
         raise HTTPException(status_code=503, detail="Bakery city is unavailable")
     try:
-        bakeable_products = bakery_service.get_bakeable_products(city, date)
+        bakeable_products = bakery_service.get_bakeable_products(city, date, bakery_id=bakery_id)
     except Exception as exc:
         logger.error("baking_plan: bakeable allowlist unavailable", exc_info=True)
         raise HTTPException(

@@ -47,6 +47,8 @@ create table if not exists bakeable_products (
   is_bakeable UInt8,
   source LowCardinality(String),
   source_file String,
+  scope LowCardinality(String),      -- 'city' or 'bakery'
+  bakery_id Nullable(Int64),         -- NULL for city-scope rows
   valid_from Date,
   valid_to Nullable(Date),
   is_active UInt8,
@@ -54,4 +56,4 @@ create table if not exists bakeable_products (
   comment String
 )
 engine = ReplacingMergeTree(loaded_at)
-order by (city, product_id, valid_from);
+order by (city, product_id, scope, coalesce(bakery_id, -1), valid_from);

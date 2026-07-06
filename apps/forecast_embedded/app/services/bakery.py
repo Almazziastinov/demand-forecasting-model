@@ -795,17 +795,47 @@ def get_city_assortment(city: str | None) -> list[dict]:
     return _records(df)
 
 
-def get_bakeable_products(city: str, effective_date: str) -> list[dict]:
-    """Return the city's bakeable assortment effective on the forecast date.
+def get_bakeable_products(
+    city: str,
+    effective_date: str,
+    bakery_id: int | None = None,
+) -> list[dict]:
+    """Return the bakeable assortment effective on the forecast date.
+
+    When bakery_id is provided, returns the union of:
+    - scope='city'   rows for the city (products sold across >=80% of bakeries)
+    - scope='bakery' rows specific to this bakery
+
+    When bakery_id is None (legacy / city-level callers), returns all rows for
+    the city regardless of scope, matching the old behaviour.
 
     Missing or empty data is an error: silently disabling this filter would put
     bought-in products back into the baking plan.
     """
     client = get_client()
+
+    # Rows from new sales-window source have scope column; rows from old
+    # forecast_category_filter source do not.  We use UNION to support both
+    # simultaneously during rollover.
+    if bakery_id is not None:
+        scope_filter = """
+          and (
+              (ifNull(scope, 'city') = 'city')
+              or (ifNull(scope, '') = 'bakery' and toInt64OrNull(toString(b.bakery_id)) = %(bakery_id)s)
+          )"""
+        params: dict = {
+            "city": city,
+            "effective_date": effective_date,
+            "bakery_id": bakery_id,
+        }
+    else:
+        scope_filter = ""
+        params = {"city": city, "effective_date": effective_date}
+
     query = """
         select product_id, any(product_name) as product_name,
                any(category_name) as category_name
-        from {table} final
+        from {table} as b final
         where city = %(city)s
           and is_bakeable = 1
           and is_active = 1
@@ -816,14 +846,12 @@ def get_bakeable_products(city: str, effective_date: str) -> list[dict]:
                 and valid_from <= toDate(%(effective_date)s)
           )
           and (valid_to is null or valid_to >= toDate(%(effective_date)s))
+          {scope_filter}
         group by product_id
         order by category_name, product_name, product_id
-        """.format(table=BAKEABLE_TABLE)
+        """.format(table=BAKEABLE_TABLE, scope_filter=scope_filter)
     try:
-        df = client.query_df(
-            query,
-            parameters={"city": city, "effective_date": effective_date},
-        )
+        df = client.query_df(query, parameters=params)
     except Exception:
         logger.exception("Failed to load bakeable products for city %s", city)
         raise

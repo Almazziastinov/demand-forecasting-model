@@ -11,6 +11,19 @@ import pandas as pd
 from pipelines.forecast_publish.load_forecast_run import DEFAULT_ENV_PATH
 from pipelines.forecast_publish.load_forecast_run import create_client
 from pipelines.forecast_publish.sku_hour_profile_store import UPLIFT_MULTIPLIER_TABLE
+from pipelines.forecast_publish.table_names import (
+    get_table_suffix_from_env_file,
+    table_name,
+)
+from scripts.build_city_assortment_from_sales import build_layers
+from scripts.build_city_assortment_from_sales import insert_to_clickhouse as insert_assortment
+from scripts.build_city_assortment_from_sales import (
+    DEFAULT_WINDOW_DAYS as ASSORTMENT_WINDOW_DAYS,
+    DEFAULT_CITY_THRESHOLD as ASSORTMENT_CITY_THRESHOLD,
+    DEFAULT_BAKEABLE_CATEGORY_PATTERNS as ASSORTMENT_CATEGORY_PATTERNS,
+    _query_recent_sales,
+    _query_bakery_count_per_city,
+)
 from scripts.export_clickhouse_bakery_daily import (
     DEFAULT_OUTPUT as DEFAULT_DAILY_AGGREGATE_OUTPUT,
 )
@@ -444,6 +457,56 @@ def refresh_production_datasets(
             weather_path=weather_path,
         )
 
+    # Refresh bakeable assortment from recent sales facts (city + bakery layers)
+    assortment_result: dict[str, object] = {
+        "assortment_city_rows": None,
+        "assortment_bakery_rows": None,
+        "assortment_status": "skipped",
+        "assortment_error": None,
+    }
+    try:
+        assortment_client = create_client_with_retry(create_client, env_file)
+        suffix = get_table_suffix_from_env_file(env_file)
+        bakery_tbl = table_name("bakery_forecast_day_embedded", suffix=suffix)
+        sku_day_tbl = table_name("sku_forecast_day_embedded", suffix=suffix)
+        bakeable_tbl = table_name("bakeable_products", suffix=suffix)
+        sales = _query_recent_sales(
+            assortment_client,
+            window_days=ASSORTMENT_WINDOW_DAYS,
+            bakery_table=bakery_tbl,
+            sku_day_table=sku_day_tbl,
+            sales_table="mart_sales_60d",
+        )
+        bakery_counts = _query_bakery_count_per_city(
+            assortment_client, bakery_table=bakery_tbl
+        )
+        valid_from = history_end_date
+        assortment_df = build_layers(
+            sales,
+            bakery_counts,
+            city_threshold=ASSORTMENT_CITY_THRESHOLD,
+            category_patterns=ASSORTMENT_CATEGORY_PATTERNS,
+            valid_from=valid_from,
+        )
+        inserted = insert_assortment(assortment_client, assortment_df, target_table=bakeable_tbl)
+        city_rows = int((assortment_df["scope"] == "city").sum()) if not assortment_df.empty else 0
+        bakery_rows = int((assortment_df["scope"] == "bakery").sum()) if not assortment_df.empty else 0
+        assortment_result = {
+            "assortment_city_rows": city_rows,
+            "assortment_bakery_rows": bakery_rows,
+            "assortment_status": "refreshed",
+            "assortment_error": None,
+        }
+        print(
+            f"Assortment refresh: city={city_rows} bakery={bakery_rows} "
+            f"inserted={inserted} valid_from={valid_from}",
+            flush=True,
+        )
+    except Exception as exc:
+        assortment_result["assortment_error"] = str(exc)
+        assortment_result["assortment_status"] = "failed"
+        print(f"Assortment refresh FAILED: {exc}", flush=True)
+
     return {
         "history_start_date": history_start_date,
         "history_end_date": history_end_date,
@@ -455,6 +518,7 @@ def refresh_production_datasets(
         "uplifted_summary_path": str(uplifted_summary_output),
         "weather_path": str(Path(weather_path)),
         **weather_result,
+        **assortment_result,
         "daily_summary": daily_summary,
         "uplifted_summary": uplifted_summary,
     }
