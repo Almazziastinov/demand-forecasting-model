@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-07-01
+Last updated: 2026-07-06
 
 ## Summary
 
@@ -245,6 +245,37 @@ Action taken:
   unrelated bug) — this column is dead weight; only
   `mean_sku_share_in_hour_norm` is actually consumed downstream
   (`apply_bakery_profiles.py`), so it was left as-is.
+
+## Bakery-Day Model Retrain (2026-07-06)
+
+New model trained on `data/processed/stg_daily_v1/bakery_daily_sales.csv`
+(stg_check_lines, Jan 2025 – Jul 2026, 94 456 rows, 219 bakeries).
+
+Key change: added `bakery_sales_lag365` as a feature — YoY signal that
+captures same-bakery sales ~1 year ago. CV showed consistent MAE improvement
+(delta ≈ −0.003, importance 2–3% gain). Three files modified:
+- `src/experiments_v2/build_bakery_daily_dataset.py` — lag list `[1,2,3,7,14,30,365]`
+- `src/experiments_v2/bakery_day_forecast.py` — BASE_FEATURES, numeric_fill_cols, recursive_forecast
+- `pipelines/forecast_publish/production_dataset_refresh.py` — DEFAULT_HISTORY_START_DATE `2025-12-01` → `2025-06-01`
+
+History start extended to 2025-06-01 so VM dataset covers ≥13 months;
+lag365 coverage will be ~50–60% for July 2026 rows, growing over time.
+
+Model metrics on holdout (Jun 2026):
+- MAE: 67.2, WMAPE: 7.4%, Bias: −22.2 (overforecast, −2.7%)
+- 160/188 bakeries overforecast (desired), 28 underforecast
+
+Deployed artifacts:
+- `models/bakery_day_model.joblib` — SCP'd to VM 2026-07-06
+- `models/bakery_day_meta.joblib` — SCP'd to VM 2026-07-06
+- `models/bakery_day_bias.json` — updated from new holdout, SCP'd to VM 2026-07-06
+- Code: git `2c38e80` pulled to VM via `deploy.sh --no-run`
+
+Status: code and model files on VM; service will run tomorrow (2026-07-07)
+when nightly timer fires with a fresh run_id. Today's run_id
+`prod_base_bakery_no_sku_uplift_20260706_h14` was already consumed by the
+morning timer (03:30 UTC), causing a ClickHouse delete-timeout on the
+afternoon redeploy. The morning run (old model) remains active today.
 
 ## Do Not Do
 

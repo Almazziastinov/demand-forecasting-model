@@ -26,6 +26,29 @@ Implication:
 - Any future production writer migration must update `CURRENT_STATE.md`,
   `SERVICES.md`, this decision log, and the runbook before or during rollout.
 
+## 2026-07-06 - bakery_sales_lag365 Added To Bakery-Day Model
+
+Decision: add `bakery_sales_lag365` (same bakery, same day last year) as a
+permanent feature in the bakery-day forecast model.
+
+Context:
+- CV (3 folds, Apr/May/Jun 2026) showed consistent MAE improvement:
+  delta ≈ −0.003 avg, importance 2–3% gain.
+- Seasonal transitions (May→Jun) cause systematic overforecast because
+  lag30/roll_mean30 reflect higher May values. lag365 gives the model a
+  direct YoY anchor to prior-year June, which is closer to current June.
+- Tested three additional YoY variants (lag364, roll_mean4w_yoy,
+  yoy_month_mean) — all negative/neutral due to only 27–29% dataset
+  coverage (dataset starts Jan 2025, so Jun 2025 lags are not available
+  for most training rows). Revisit in autumn 2026 when coverage reaches
+  ~65%+.
+
+Implication:
+- Production dataset refresh history must start ≥ 13 months back so that
+  lag365 is populated. `DEFAULT_HISTORY_START_DATE` set to `2025-06-01`.
+- On VM the lag365 column will initially have ~50–60% coverage for
+  Jul 2026 rows; coverage grows as the timer accumulates months.
+
 ## 2026-06-28 - Ops Docs Are The Current State Layer
 
 Decision:
