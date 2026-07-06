@@ -36,6 +36,8 @@ PLAN_START_ROW = 6
 GROUP_SORT_ORDER = {
     "Выпечка сытная": 0,
     "Выпечка сладкая": 1,
+    "Пироги сытные": 2,
+    "Фастфуд": 3,
 }
 FIRST_SALES_HOUR = 6
 LAST_SALES_HOUR = 23
@@ -74,6 +76,22 @@ class BakingWindow:
     label: str
     start_hour: int
     end_hour: int
+
+
+_PEAK_MERGE_HOURS = 3
+_PEAK_MIN_SHARE = 0.05
+_PEAK_MIN_PROMINENCE = 1.2
+_FORECAST_HOURS = list(range(6, 23))
+
+
+@dataclass(frozen=True)
+class SkuMeta:
+    """Metadata for a SKU parsed from the template 'комментарии' sheet."""
+
+    dough_group: str
+    kratnost: int
+    is_two_day: bool
+    is_on_demand: bool
 
 
 @dataclass(frozen=True)
@@ -455,6 +473,199 @@ def _with_midday_split_window(
     return [early_window, split_window]
 
 
+def parse_comments_sheet(workbook: Any) -> dict[str, SkuMeta]:
+    """Parse 'комментарии' sheet → normalized_sku_name → SkuMeta."""
+    if "комментарии" not in workbook.sheetnames:
+        return {}
+    ws = workbook["комментарии"]
+
+    def _is_qty(v: object) -> bool:
+        if v is None:
+            return False
+        try:
+            float(str(v).replace(",", "."))
+            return True
+        except ValueError:
+            pass
+        return str(v).strip().lower() == "по запросу"
+
+    result: dict[str, SkuMeta] = {}
+    current_group: str | None = None
+    for row in ws.iter_rows(values_only=True):
+        b = row[1] if len(row) > 1 else None
+        c = row[2] if len(row) > 2 else None
+        d = row[3] if len(row) > 3 else None
+        b_str = str(b).strip() if b is not None else ""
+        c_str = str(c).strip() if c is not None else ""
+
+        if _is_qty(c):
+            if b_str and b_str not in ("кратность", "кратность выпуска") and current_group:
+                is_on_demand = str(c).strip().lower() == "по запросу"
+                try:
+                    kratnost = max(1, int(float(str(c).replace(",", "."))))
+                except (ValueError, TypeError):
+                    kratnost = 1
+                is_two_day = str(d or "").strip().lower() == "двухдневка"
+                norm = normalize_sku_name(b_str)
+                if norm:
+                    result[norm] = SkuMeta(
+                        dough_group=current_group,
+                        kratnost=kratnost,
+                        is_two_day=is_two_day,
+                        is_on_demand=is_on_demand,
+                    )
+        elif b_str and c_str in ("", "None", "кратность выпуска"):
+            current_group = b_str
+    return result
+
+
+def _resolve_sku_meta(
+    template_sku_name: object,
+    sku_meta: dict[str, SkuMeta],
+) -> SkuMeta | None:
+    for key in sku_match_keys(template_sku_name):
+        meta = sku_meta.get(key)
+        if meta:
+            return meta
+    return None
+
+
+def _detect_peaks(hourly: dict[int, float]) -> list[int]:
+    vol = [hourly.get(h, 0.0) for h in _FORECAST_HOURS]
+    total = sum(vol)
+    if total == 0:
+        return [_FORECAST_HOURS[0]]
+    norm = [v / total for v in vol]
+    peaks: list[int] = []
+    for i in range(1, len(norm) - 1):
+        if norm[i] > norm[i - 1] and norm[i] > norm[i + 1]:
+            lt = min(norm[max(0, i - 2):i] or [norm[i]])
+            rt = min(norm[i + 1:min(len(norm), i + 3)] or [norm[i]])
+            prom = norm[i] / max(lt, rt, 0.001)
+            if prom >= _PEAK_MIN_PROMINENCE and norm[i] >= _PEAK_MIN_SHARE:
+                peaks.append(_FORECAST_HOURS[i])
+    if not peaks:
+        peaks = [_FORECAST_HOURS[int(max(range(len(norm)), key=lambda idx: norm[idx]))]]
+    return peaks
+
+
+def _cluster_peaks(peaks: list[int]) -> list[int]:
+    if not peaks:
+        return []
+    sorted_h = sorted(peaks)
+    clusters: list[list[int]] = [[sorted_h[0]]]
+    for h in sorted_h[1:]:
+        if h - clusters[-1][-1] <= _PEAK_MERGE_HOURS:
+            clusters[-1].append(h)
+        else:
+            clusters.append([h])
+    return [int(round(sum(c) / len(c))) for c in clusters]
+
+
+def _centroid_to_window(
+    centroid: int,
+    sheet_windows: dict[int, BakingWindow],
+) -> BakingWindow | None:
+    # Prefer a window whose end_hour <= centroid (batch ready before demand peak)
+    candidates = [w for w in sheet_windows.values() if w.end_hour <= centroid]
+    if candidates:
+        return max(candidates, key=lambda w: w.end_hour)
+    # All windows end after centroid — fall back to earliest window
+    if sheet_windows:
+        return min(sheet_windows.values(), key=lambda w: w.end_hour)
+    return None
+
+
+def _build_group_hourly(
+    sku_hour_rows: list[dict[str, Any]],
+    sku_meta: dict[str, SkuMeta],
+) -> dict[str, dict[int, float]]:
+    group_hourly: dict[str, dict[int, float]] = {}
+    for row in sku_hour_rows:
+        meta = _resolve_sku_meta(row.get("product_name"), sku_meta)
+        if meta is None:
+            continue
+        hour = row.get("hour")
+        if hour is None:
+            continue
+        qty = float(row.get("forecast_qty") or 0.0)
+        bucket = group_hourly.setdefault(meta.dough_group, {})
+        bucket[int(hour)] = bucket.get(int(hour), 0.0) + qty
+    return group_hourly
+
+
+def _compute_group_windows(
+    group_hourly: dict[str, dict[int, float]],
+    sheet_windows: dict[int, BakingWindow],
+) -> dict[str, list[BakingWindow]]:
+    result: dict[str, list[BakingWindow]] = {}
+    for group, hourly in group_hourly.items():
+        if not hourly or sum(hourly.values()) == 0:
+            continue
+        peaks = _detect_peaks(hourly)
+        centroids = _cluster_peaks(peaks)
+        windows: list[BakingWindow] = []
+        seen_cols: set[int] = set()
+        for centroid in centroids:
+            w = _centroid_to_window(centroid, sheet_windows)
+            if w and w.column not in seen_cols:
+                windows.append(w)
+                seen_cols.add(w.column)
+        if windows:
+            result[group] = sorted(windows, key=lambda w: w.column)
+    return result
+
+
+def _build_sku_schedule(
+    sku_name: object,
+    sku_meta: dict[str, SkuMeta],
+    group_windows: dict[str, list[BakingWindow]],
+    sheet_windows: dict[int, BakingWindow],
+    has_next_day: bool = False,
+) -> list[ScheduledColumn] | None:
+    """Build a data-driven schedule for a SKU from group windows.
+
+    Returns None when the SKU is not in the template metadata — caller
+    should fall back to reading the pre-filled template schedule.
+
+    For two-day SKUs the baker preps the defrost batch at the END of the
+    current shift (last available window).  The quantity is sized from the
+    next day's early-morning forecast by ``allocate_template_row``.  That
+    window is therefore reserved for defrost and excluded from today's bake
+    coverage so the second-to-last bake window absorbs the remaining hours.
+    """
+    meta = _resolve_sku_meta(sku_name, sku_meta)
+    if meta is None:
+        return None
+
+    bake_windows = group_windows.get(meta.dough_group)
+    if not bake_windows:
+        return None
+
+    schedule: list[ScheduledColumn] = []
+    defrost_col: int | None = None
+
+    if meta.is_two_day and has_next_day and sheet_windows:
+        last_window = max(sheet_windows.values(), key=lambda w: w.column)
+        schedule.append(
+            ScheduledColumn(
+                window=last_window,
+                is_defrost=True,
+                note="(ночная дефр)",
+            )
+        )
+        defrost_col = last_window.column
+
+    for window in bake_windows:
+        if window.column == defrost_col:
+            continue  # last window reserved for defrost
+        schedule.append(
+            ScheduledColumn(window=window, is_defrost=False, note=None)
+        )
+
+    return schedule or None
+
+
 def allocate_template_row(
     *,
     template_sku_name: object,
@@ -589,6 +800,9 @@ def build_baking_plan_workbook(
     selected_sheet_name = _select_sheet_name(bucket, workbook.sheetnames)
     sheet = workbook[selected_sheet_name]
 
+    # Parse metadata from комментарии BEFORE removing other sheets.
+    sku_meta = parse_comments_sheet(workbook)
+
     for worksheet in list(workbook.worksheets):
         if worksheet.title != selected_sheet_name:
             workbook.remove(worksheet)
@@ -604,6 +818,8 @@ def build_baking_plan_workbook(
     )
 
     sheet_windows = _sheet_windows(sheet)
+    group_hourly = _build_group_hourly(sku_hour_rows, sku_meta)
+    group_windows = _compute_group_windows(group_hourly, sheet_windows)
     product_hour_lookup = build_product_hour_lookup(sku_hour_rows)
     product_total_lookup = build_product_total_lookup(sku_hour_rows)
     assortment_lookup, assortment_products = build_assortment_lookup(
@@ -625,9 +841,17 @@ def build_baking_plan_workbook(
         if not sku_name:
             continue
 
-        # The pre-filled C:L cells ARE the per-SKU baking schedule. Rows without
-        # any scheduled cell are section headers / sub-items — skip, don't fill.
-        schedule = read_row_schedule(sheet, row_index, sheet_windows)
+        # Build schedule from data-driven group windows; fall back to template
+        # pre-filled C:L cells for SKUs not in the комментарии sheet.
+        schedule = _build_sku_schedule(
+            sku_name,
+            sku_meta,
+            group_windows,
+            sheet_windows,
+            has_next_day=next_day_sku_hour_rows is not None,
+        )
+        if schedule is None:
+            schedule = read_row_schedule(sheet, row_index, sheet_windows)
         if not schedule:
             continue
 
@@ -639,11 +863,15 @@ def build_baking_plan_workbook(
         if assortment_rows is not None and assortment_product is None:
             continue
 
+        sku_meta_entry = _resolve_sku_meta(sku_name, sku_meta)
+        round_to = sku_meta_entry.kratnost if sku_meta_entry else None
+
         allocated = allocate_template_row(
             template_sku_name=sku_name,
             schedule=schedule,
             product_hour_lookup=product_hour_lookup,
             next_day_hour_lookup=next_day_hour_lookup,
+            round_to=round_to,
             first_sales_hour=first_sales_hour,
             last_sales_hour=last_sales_hour,
             available_windows=sheet_windows,
