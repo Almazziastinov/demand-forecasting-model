@@ -246,6 +246,26 @@ Action taken:
   `mean_sku_share_in_hour_norm` is actually consumed downstream
   (`apply_bakery_profiles.py`), so it was left as-is.
 
+## Baking Plan + Assortment Deploy (2026-07-06)
+
+Задеплоено на Blackhole (`82bb03a8`, `/opt/app`):
+
+- `baking_plan.py` — data-driven алгоритм окон по профилю пекарни (parse_comments_sheet, peak detection, cluster→window)
+- `bakery.py` — `get_bakeable_products()` принимает `bakery_id`, возвращает city + bakery слои
+- `ui.py` — передаёт `bakery_id` в `get_bakeable_products`
+- `baking_plan_template.xlsx` + индивидуальные шаблоны 20, 21, 22 — добавлен лист "комментарии"
+
+ClickHouse:
+- `bakeable_products` — мигрирована: добавлены колонки `scope`, `bakery_id`, ORDER BY обновлён
+- Бэкап старой таблицы: `bakeable_products_backup_20260706_165145`
+
+Новый скрипт: `scripts/build_city_assortment_from_sales.py` (city + bakery слои из `mart_sales_60d`)
+Миграция: `scripts/migrate_bakeable_products_add_scope.py`
+Пересчёт ассортимента встроен в `production_dataset_refresh.refresh_production_datasets()`
+
+Документация: `docs/baking_plan_implementation.md`
+Коммиты: `c087857` (план выпекания), `71465a1` (ассортимент)
+
 ## Bakery-Day Model Retrain (2026-07-06)
 
 New model trained on `data/processed/stg_daily_v1/bakery_daily_sales.csv`
