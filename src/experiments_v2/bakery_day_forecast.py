@@ -72,6 +72,7 @@ BASE_FEATURES = [
     "bakery_sales_lag7",
     "bakery_sales_lag14",
     "bakery_sales_lag30",
+    "bakery_sales_lag365",
     "bakery_sales_roll_mean3",
     "bakery_sales_roll_mean7",
     "bakery_sales_roll_mean14",
@@ -625,6 +626,7 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         "bakery_sales_lag7",
         "bakery_sales_lag14",
         "bakery_sales_lag30",
+        "bakery_sales_lag365",
     ]
     for col in numeric_fill_cols:
         if col in work.columns:
@@ -797,6 +799,7 @@ def build_future_feature_rows(
                 "bakery_sales_lag7": _safe_tail_value(sales, 7),
                 "bakery_sales_lag14": _safe_tail_value(sales, 14),
                 "bakery_sales_lag30": _safe_tail_value(sales, 30),
+                "bakery_sales_lag365": _safe_tail_value(sales, 365),
                 "bakery_sales_roll_mean3": _safe_rolling_mean(sales, 3, min_periods=1),
                 "bakery_sales_roll_mean7": _safe_rolling_mean(sales, 7, min_periods=1),
                 "bakery_sales_roll_mean14": _safe_rolling_mean(sales, 14, min_periods=7),

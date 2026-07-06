@@ -328,7 +328,7 @@ def add_price_features(df: pd.DataFrame) -> pd.DataFrame:
 def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     work = df.sort_values([BAKERY_ID_COL, DATE_COL]).copy()
     grouped = work.groupby(BAKERY_ID_COL)[TARGET_COL]
-    for lag in [1, 2, 3, 7, 14, 30]:
+    for lag in [1, 2, 3, 7, 14, 30, 365]:
         work[f"bakery_sales_lag{lag}"] = grouped.shift(lag)
 
     for window, min_periods in [(3, 1), (7, 1), (14, 7), (30, 14)]:
