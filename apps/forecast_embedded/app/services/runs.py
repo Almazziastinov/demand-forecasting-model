@@ -9,6 +9,13 @@ from app.table_names import table_name
 RUNS_TABLE = table_name("forecast_runs_embedded")
 BAKERY_DAY_TABLE = table_name("bakery_forecast_day_embedded")
 BAKERY_DAY_SNAPSHOT_TABLE = table_name("bakery_forecast_day_snapshots")
+SKU_DAY_SNAPSHOT_TABLE = table_name("sku_forecast_day_snapshots")
+
+SCENARIO_DEFINITIONS = [
+    {"key": "base_no_sku_uplift", "label": "base_no_sku_uplift", "pattern": "%_no_sku_uplift_%"},
+    {"key": "base_raw_uplift",    "label": "base_raw_uplift",    "pattern": "%_raw_uplift_%"},
+    {"key": "uplifted_norm",      "label": "uplifted_norm",      "pattern": "%uplifted_bakery%"},
+]
 
 
 def _format_short_date(value: object) -> str | None:
@@ -124,6 +131,22 @@ def list_runs(limit: int = 50) -> list[dict]:
         normalized["is_active"] = bool(normalized.get("is_active"))
         rows.append(normalized)
     return rows
+
+
+def get_available_scenarios() -> list[dict]:
+    """Return scenario definitions that have at least one lead-1 snapshot."""
+    client = get_client()
+    result = []
+    for defn in SCENARIO_DEFINITIONS:
+        df = client.query_df(
+            "SELECT count() AS cnt FROM {table} WHERE lead_days = 1 AND source_run_id LIKE %(pattern)s LIMIT 1".format(
+                table=SKU_DAY_SNAPSHOT_TABLE
+            ),
+            parameters={"pattern": defn["pattern"]},
+        )
+        if not df.empty and int(df.iloc[0]["cnt"]) > 0:
+            result.append({"key": defn["key"], "label": defn["label"]})
+    return result
 
 
 def get_run_dates(run_id: str) -> list[str]:

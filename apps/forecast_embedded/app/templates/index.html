@@ -52,6 +52,17 @@
           {% endfor %}
         </select>
       </label>
+      {% if available_scenarios %}
+      <label>
+        Сценарий
+        <select name="scenario" onchange="this.form.submit()">
+          <option value="" {% if not scenario %}selected{% endif %}>активный ран</option>
+          {% for s in available_scenarios %}
+          <option value="{{ s.key }}" {% if scenario == s.key %}selected{% endif %}>{{ s.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
       {% endif %}
     </form>
   </div>

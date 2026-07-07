@@ -43,6 +43,11 @@ EVENT_LABELS_RU = {
 }
 
 FILENAME_SAFE_RE = re.compile(r'[\\/:*?"<>|\r\n]+')
+CRITICAL_HOUR_ABS_DELTA = 40.0
+CRITICAL_HOUR_PCT_DELTA = 0.25
+CRITICAL_HOUR_TOP_N = 3
+CRITICAL_HOUR_TOP_MIN_DELTA = 20.0
+DISCREPANCY_PCT_BASE = 20.0
 
 
 def _parse_date(value: str | None) -> date_type | None:
@@ -151,16 +156,49 @@ def _prepare_week_rows(raw_rows: list[dict], week: list[date_type]) -> list[dict
     return rows
 
 
-def _prepare_hour_chart(rows: list[dict]) -> dict:
+def _prepare_hour_chart(rows: list[dict], *, mark_discrepancies: bool = False) -> dict:
     by_hour = {int(row["hour"]): row for row in rows if row.get("hour") is not None}
     points = []
     max_value = 1.0
+    has_actual_data = any(float(row.get("actual_qty") or 0) > 0 for row in rows)
     for hour in range(24):
         row = by_hour.get(hour, {})
         forecast = float(row.get("forecast_qty") or 0)
         actual = float(row.get("actual_qty") or 0)
+        delta = forecast - actual
+        abs_delta = abs(delta)
+        pct_base = max(actual, forecast, DISCREPANCY_PCT_BASE)
+        delta_pct = abs_delta / pct_base if pct_base else 0.0
         max_value = max(max_value, forecast, actual)
-        points.append({"hour": hour, "forecast": forecast, "actual": actual})
+        points.append(
+            {
+                "hour": hour,
+                "forecast": forecast,
+                "actual": actual,
+                "delta": delta,
+                "abs_delta": abs_delta,
+                "delta_pct": delta_pct,
+                "delta_label": f"{delta:+.0f}",
+                "direction": "over" if delta > 0 else "under" if delta < 0 else "flat",
+                "severity": "normal",
+                "is_critical": False,
+            }
+        )
+
+    top_hours = {
+        point["hour"]
+        for point in sorted(points, key=lambda item: item["abs_delta"], reverse=True)[:CRITICAL_HOUR_TOP_N]
+        if point["abs_delta"] >= CRITICAL_HOUR_TOP_MIN_DELTA
+    }
+    if mark_discrepancies and has_actual_data:
+        for point in points:
+            is_critical = (
+                point["abs_delta"] >= CRITICAL_HOUR_ABS_DELTA
+                or point["delta_pct"] >= CRITICAL_HOUR_PCT_DELTA
+                or point["hour"] in top_hours
+            )
+            point["is_critical"] = is_critical
+            point["severity"] = "critical" if is_critical else "normal"
 
     width = 920
     height = 260
@@ -170,9 +208,14 @@ def _prepare_hour_chart(rows: list[dict]) -> dict:
     bottom = 34
     plot_width = width - left - right
     plot_height = height - top - bottom
+    hour_step = plot_width / 23
 
     for point in points:
         point["x"] = left + (plot_width * point["hour"] / 23)
+        point["band_x"] = max(left, point["x"] - (hour_step / 2))
+        point["band_width"] = min(width - right, point["x"] + (hour_step / 2)) - point["band_x"]
+        point["band_y"] = top
+        point["band_height"] = plot_height
         point["forecast_y"] = top + plot_height - (plot_height * point["forecast"] / max_value)
         point["actual_y"] = top + plot_height - (plot_height * point["actual"] / max_value)
         point["forecast_label_y"] = max(12, point["forecast_y"] - 8)
@@ -196,15 +239,19 @@ def _page_context(
     active_run: dict,
     week_start: str,
     selected_bakery_id: int | None = None,
+    scenario: str | None = None,
 ) -> dict:
     settings = get_settings()
-    bakeries = bakery_service.get_bakery_list(active_run["run_id"], week_start, auth) if week_start else []
+    bakeries = bakery_service.get_bakery_list(active_run["run_id"], week_start, auth, scenario=scenario) if week_start else []
     if selected_bakery_id is None and bakeries:
         selected_bakery_id = int(bakeries[0]["bakery_id"])
+    scenario_query = f"&scenario={scenario}" if scenario else ""
+    run_query = (f"&run_id={active_run['run_id']}" if auth.is_admin else "") + scenario_query
     return {
         "request": request,
         "active_run": active_run,
         "runs": run_service.list_runs() if auth.is_admin else [],
+        "available_scenarios": run_service.get_available_scenarios() if auth.is_admin else [],
         "auth": auth,
         "app_env": settings.app_env,
         "table_suffix": settings.table_suffix,
@@ -212,7 +259,9 @@ def _page_context(
         "week_start": week_start,
         "bakeries": bakeries,
         "selected_bakery_id": selected_bakery_id,
-        "run_query": f"&run_id={active_run['run_id']}" if auth.is_admin else "",
+        "run_query": run_query,
+        "scenario": scenario,
+        "scenario_query": scenario_query,
     }
 
 
@@ -229,6 +278,7 @@ def index(
     date: str | None = Query(default=None),
     bakery_id: int | None = Query(default=None),
     run_id: str | None = Query(default=None),
+    scenario: str | None = Query(default=None),
 ) -> HTMLResponse:
     auth = get_auth_context(request)
     active_run = _resolve_run(auth, run_id)
@@ -240,7 +290,7 @@ def index(
     if not selected_week_start:
         raise HTTPException(status_code=404, detail="Forecast dates not found")
 
-    base_context = _page_context(request, auth, active_run, selected_week_start, bakery_id)
+    base_context = _page_context(request, auth, active_run, selected_week_start, bakery_id, scenario=scenario)
     selected_bakery_id = base_context["selected_bakery_id"]
     week = _week_dates(selected_week_start)
     raw_week_rows = (
@@ -250,6 +300,7 @@ def index(
             week[-1].isoformat(),
             selected_bakery_id,
             auth,
+            scenario=scenario,
         )
         if selected_bakery_id and week
         else []
@@ -291,6 +342,7 @@ def bakery_detail(
     week_start: str | None = Query(default=None),
     run_id: str | None = Query(default=None),
     category: str | None = Query(default=None),
+    scenario: str | None = Query(default=None),
 ) -> HTMLResponse:
     auth = get_auth_context(request)
     active_run = _resolve_run(auth, run_id)
@@ -299,13 +351,13 @@ def bakery_detail(
 
     dates = run_service.get_run_dates(active_run["run_id"])
     selected_week_start = week_start or _default_week_start(dates) or date
-    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id, auth)
+    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id, auth, scenario=scenario)
     if not bakery_day:
         raise HTTPException(status_code=404, detail="Bakery forecast not found")
 
-    categories = bakery_service.get_categories(active_run["run_id"], date, bakery_id, auth)
+    categories = bakery_service.get_categories(active_run["run_id"], date, bakery_id, auth, scenario=scenario)
     selected_category = category if category in categories else None
-    hourly_total = bakery_service.get_hourly_total(active_run["run_id"], date, bakery_id, auth)
+    hourly_total = bakery_service.get_hourly_total(active_run["run_id"], date, bakery_id, auth, scenario=scenario)
     top_sku = bakery_service.get_top_sku(
         active_run["run_id"],
         date,
@@ -313,20 +365,21 @@ def bakery_detail(
         auth,
         limit=100,
         category=selected_category,
+        scenario=scenario,
     )
     selected_date = _parse_date(date)
     return templates.TemplateResponse(
         request,
         "bakery.html",
         {
-            **_page_context(request, auth, active_run, selected_week_start, bakery_id),
+            **_page_context(request, auth, active_run, selected_week_start, bakery_id, scenario=scenario),
             "selected_date": date,
             "selected_date_label": _format_date(selected_date) if selected_date else date,
             "selected_weekday_label": WEEKDAYS_RU[selected_date.weekday()] if selected_date else "",
             "bakery": bakery_day,
             "context": bakery_service.get_day_context(active_run["run_id"], date, bakery_day["city"]),
             "hourly_total": hourly_total,
-            "hour_chart": _prepare_hour_chart(hourly_total),
+            "hour_chart": _prepare_hour_chart(hourly_total, mark_discrepancies=True),
             "top_sku": top_sku,
             "categories": categories,
             "selected_category": selected_category,
@@ -408,6 +461,7 @@ def sku_detail(
     week_start: str | None = Query(default=None),
     run_id: str | None = Query(default=None),
     category: str | None = Query(default=None),
+    scenario: str | None = Query(default=None),
 ) -> HTMLResponse:
     auth = get_auth_context(request)
     active_run = _resolve_run(auth, run_id)
@@ -416,18 +470,18 @@ def sku_detail(
 
     dates = run_service.get_run_dates(active_run["run_id"])
     selected_week_start = week_start or _default_week_start(dates) or date
-    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id, auth)
-    sku_day = bakery_service.get_sku_day(active_run["run_id"], date, bakery_id, product_id, auth)
+    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id, auth, scenario=scenario)
+    sku_day = bakery_service.get_sku_day(active_run["run_id"], date, bakery_id, product_id, auth, scenario=scenario)
     if not bakery_day or not sku_day:
         raise HTTPException(status_code=404, detail="SKU forecast not found")
 
-    sku_hour = bakery_service.get_sku_hour(active_run["run_id"], date, bakery_id, product_id, auth)
+    sku_hour = bakery_service.get_sku_hour(active_run["run_id"], date, bakery_id, product_id, auth, scenario=scenario)
     selected_date = _parse_date(date)
     return templates.TemplateResponse(
         request,
         "sku.html",
         {
-            **_page_context(request, auth, active_run, selected_week_start, bakery_id),
+            **_page_context(request, auth, active_run, selected_week_start, bakery_id, scenario=scenario),
             "selected_date": date,
             "selected_date_label": _format_date(selected_date) if selected_date else date,
             "selected_weekday_label": WEEKDAYS_RU[selected_date.weekday()] if selected_date else "",

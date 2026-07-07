@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 CLOSED_BAKERY_STATUS = "\u0417\u0430\u043a\u0440\u044b\u0442\u0430"
 ACTIVE_ROW_SORT_KEY = "tuple(2, toDateTime64('2100-01-01 00:00:00', 3))"
 SNAPSHOT_ROW_SORT_KEY = "tuple(1, generated_at)"
+DISCREPANCY_EPSILON = 0.000001
+SCENARIO_SOURCE_PATTERNS: dict[str, str] = {
+    "base_raw_uplift": "%_raw_uplift_%",
+    "base_no_sku_uplift": "%_no_sku_uplift_%",
+    "uplifted_norm": "%uplifted_bakery%",
+}
 
 
 def _records(df):
@@ -77,7 +83,8 @@ def _open_bakery_filter(bakery_expr: str) -> str:
         """
 
 
-def _bakery_day_source(date_filter_sql: str) -> str:
+def _bakery_day_source(date_filter_sql: str, snapshot_scenario_like: str | None = None) -> str:
+    scenario_clause = "and source_run_id LIKE %(snapshot_scenario)s" if snapshot_scenario_like else ""
     return """
         (
             select
@@ -114,6 +121,7 @@ def _bakery_day_source(date_filter_sql: str) -> str:
                 from {snapshot_table}
                 where lead_days = 1
                   and {date_filter_sql}
+                  {scenario_clause}
             )
             group by forecast_date, bakery_id
         )
@@ -123,10 +131,11 @@ def _bakery_day_source(date_filter_sql: str) -> str:
         active_sort_key=ACTIVE_ROW_SORT_KEY,
         snapshot_sort_key=SNAPSHOT_ROW_SORT_KEY,
         date_filter_sql=date_filter_sql,
+        scenario_clause=scenario_clause,
     )
 
 
-def _sku_bakery_total_source(date_filter_sql: str) -> str:
+def _sku_bakery_total_source(date_filter_sql: str, snapshot_scenario_like: str | None = None) -> str:
     """Sum of SKU-level forecasts aggregated to bakery-day — used as forecast_final."""
     return """
         (
@@ -138,11 +147,12 @@ def _sku_bakery_total_source(date_filter_sql: str) -> str:
             group by forecast_date, bakery_id
         )
         """.format(
-        sku_source=_sku_day_source(date_filter_sql),
+        sku_source=_sku_day_source(date_filter_sql, snapshot_scenario_like=snapshot_scenario_like),
     )
 
 
-def _sku_day_source(date_filter_sql: str) -> str:
+def _sku_day_source(date_filter_sql: str, snapshot_scenario_like: str | None = None) -> str:
+    scenario_clause = "and source_run_id LIKE %(snapshot_scenario)s" if snapshot_scenario_like else ""
     return """
         (
             select
@@ -179,6 +189,7 @@ def _sku_day_source(date_filter_sql: str) -> str:
                 from {snapshot_table}
                 where lead_days = 1
                   and {date_filter_sql}
+                  {scenario_clause}
             )
             group by forecast_date, bakery_id, product_id
         )
@@ -188,10 +199,12 @@ def _sku_day_source(date_filter_sql: str) -> str:
         active_sort_key=ACTIVE_ROW_SORT_KEY,
         snapshot_sort_key=SNAPSHOT_ROW_SORT_KEY,
         date_filter_sql=date_filter_sql,
+        scenario_clause=scenario_clause,
     )
 
 
-def _sku_hour_source(date_filter_sql: str) -> str:
+def _sku_hour_source(date_filter_sql: str, snapshot_scenario_like: str | None = None) -> str:
+    scenario_clause = "and source_run_id LIKE %(snapshot_scenario)s" if snapshot_scenario_like else ""
     return """
         (
             select
@@ -225,6 +238,7 @@ def _sku_hour_source(date_filter_sql: str) -> str:
                 from {snapshot_table}
                 where lead_days = 1
                   and {date_filter_sql}
+                  {scenario_clause}
             )
             group by forecast_date, bakery_id, product_id, hour
         )
@@ -234,6 +248,7 @@ def _sku_hour_source(date_filter_sql: str) -> str:
         active_sort_key=ACTIVE_ROW_SORT_KEY,
         snapshot_sort_key=SNAPSHOT_ROW_SORT_KEY,
         date_filter_sql=date_filter_sql,
+        scenario_clause=scenario_clause,
     )
 
 
@@ -259,8 +274,9 @@ def _raw_sales_source(filter_sql: str) -> str:
     )
 
 
-def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[dict]:
+def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext, scenario: str | None = None) -> list[dict]:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "b.bakery_id")
     open_bakery_sql = _open_bakery_filter("b.bakery_id")
     query = """
@@ -303,8 +319,8 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
           {access_sql}
         order by forecast_final desc, bakery_name asc
         """.format(
-        source=_bakery_day_source("forecast_date = %(forecast_date)s"),
-        sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s"),
+        source=_bakery_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+        sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         sales_source=_raw_sales_source("fcl.check_date = toDate(%(forecast_date)s)"),
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
@@ -317,6 +333,7 @@ def get_bakery_list(run_id: str, forecast_date: str, auth: AuthContext) -> list[
             "forecast_date": forecast_date,
             "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
@@ -329,8 +346,10 @@ def get_bakery_week(
     end_date: str,
     bakery_id: int,
     auth: AuthContext,
+    scenario: str | None = None,
 ) -> list[dict]:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "b.bakery_id")
     open_bakery_sql = _open_bakery_filter("b.bakery_id")
     query = """
@@ -380,8 +399,8 @@ def get_bakery_week(
           {access_sql}
         order by b.forecast_date
         """.format(
-        source=_bakery_day_source("forecast_date between %(start_date)s and %(end_date)s"),
-        sku_total_source=_sku_bakery_total_source("forecast_date between %(start_date)s and %(end_date)s"),
+        source=_bakery_day_source("forecast_date between %(start_date)s and %(end_date)s", snapshot_scenario_like=scenario_like),
+        sku_total_source=_sku_bakery_total_source("forecast_date between %(start_date)s and %(end_date)s", snapshot_scenario_like=scenario_like),
         sales_source=_raw_sales_source("fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s)"),
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
@@ -396,6 +415,7 @@ def get_bakery_week(
             "bakery_id": bakery_id,
             "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
@@ -407,8 +427,10 @@ def get_bakery_day(
     forecast_date: str,
     bakery_id: int,
     auth: AuthContext,
+    scenario: str | None = None,
 ) -> dict | None:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "b.bakery_id")
     open_bakery_sql = _open_bakery_filter("b.bakery_id")
     query = """
@@ -436,8 +458,8 @@ def get_bakery_day(
           {access_sql}
         limit 1
         """.format(
-        source=_bakery_day_source("forecast_date = %(forecast_date)s"),
-        sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s"),
+        source=_bakery_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+        sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         sales_source=_raw_sales_source("fcl.check_date = toDate(%(forecast_date)s)"),
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -450,6 +472,7 @@ def get_bakery_day(
             "bakery_id": bakery_id,
             "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
@@ -506,8 +529,10 @@ def get_top_sku(
     auth: AuthContext,
     limit: int = 20,
     category: str | None = None,
+    scenario: str | None = None,
 ) -> list[dict]:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "d.bakery_id")
     open_bakery_sql = _open_bakery_filter("d.bakery_id")
     category_sql = "and coalesce(d.category_name, '') = %(category)s" if category else ""
@@ -536,7 +561,7 @@ def get_top_sku(
         order by d.forecast_qty desc, d.product_name asc
         limit %(limit)s
         """.format(
-        source=_sku_day_source("forecast_date = %(forecast_date)s"),
+        source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         sales_source=_raw_sales_source(
             "fcl.check_date = toDate(%(forecast_date)s) "
             "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s"
@@ -555,14 +580,16 @@ def get_top_sku(
             "category": category or "",
             "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
     return _records(df)
 
 
-def get_categories(run_id: str, forecast_date: str, bakery_id: int, auth: AuthContext) -> list[str]:
+def get_categories(run_id: str, forecast_date: str, bakery_id: int, auth: AuthContext, scenario: str | None = None) -> list[str]:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "d.bakery_id")
     open_bakery_sql = _open_bakery_filter("d.bakery_id")
     query = """
@@ -574,7 +601,7 @@ def get_categories(run_id: str, forecast_date: str, bakery_id: int, auth: AuthCo
           {access_sql}
         order by category_name
         """.format(
-        source=_sku_day_source("forecast_date = %(forecast_date)s"),
+        source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -585,6 +612,7 @@ def get_categories(run_id: str, forecast_date: str, bakery_id: int, auth: AuthCo
             "forecast_date": forecast_date,
             "bakery_id": bakery_id,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
@@ -598,8 +626,10 @@ def get_hourly_total(
     forecast_date: str,
     bakery_id: int,
     auth: AuthContext,
+    scenario: str | None = None,
 ) -> list[dict]:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "bakery_id")
     open_bakery_sql = _open_bakery_filter("bakery_id")
     query = """
@@ -627,7 +657,7 @@ def get_hourly_total(
         full outer join actual on actual.hour = forecast.hour
         order by hour
         """.format(
-        source=_sku_hour_source("forecast_date = %(forecast_date)s"),
+        source=_sku_hour_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         sales_source=_raw_sales_source(
             "fcl.check_date = toDate(%(forecast_date)s) "
             "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s"
@@ -643,6 +673,7 @@ def get_hourly_total(
             "bakery_id": bakery_id,
             "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
@@ -655,8 +686,10 @@ def get_sku_hour(
     bakery_id: int,
     product_id: int,
     auth: AuthContext,
+    scenario: str | None = None,
 ) -> list[dict]:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "h.bakery_id")
     open_bakery_sql = _open_bakery_filter("h.bakery_id")
     query = """
@@ -693,8 +726,8 @@ def get_sku_hour(
         full outer join actual on actual.hour = forecast.hour
         order by hour
         """.format(
-        hour_source=_sku_hour_source("forecast_date = %(forecast_date)s"),
-        day_source=_sku_day_source("forecast_date = %(forecast_date)s"),
+        hour_source=_sku_hour_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+        day_source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         sales_source=_raw_sales_source(
             "fcl.check_date = toDate(%(forecast_date)s) "
             "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s "
@@ -712,6 +745,7 @@ def get_sku_hour(
             "product_id": product_id,
             "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
@@ -723,8 +757,10 @@ def get_sku_hour_forecast(
     forecast_date: str,
     bakery_id: int,
     auth: AuthContext,
+    scenario: str | None = None,
 ) -> list[dict]:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "h.bakery_id")
     open_bakery_sql = _open_bakery_filter("h.bakery_id")
     query = """
@@ -746,8 +782,8 @@ def get_sku_hour_forecast(
           {access_sql}
         order by d.product_name, h.product_id, h.hour
         """.format(
-        hour_source=_sku_hour_source("forecast_date = %(forecast_date)s"),
-        day_source=_sku_day_source("forecast_date = %(forecast_date)s"),
+        hour_source=_sku_hour_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+        day_source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -758,10 +794,154 @@ def get_sku_hour_forecast(
             "forecast_date": forecast_date,
             "bakery_id": bakery_id,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )
     return _records(df)
+
+
+def _build_hour_discrepancy_response(hour: int, rows: list[dict], limit: int) -> dict:
+    prepared = []
+    total_forecast = 0.0
+    total_actual = 0.0
+    for row in rows:
+        forecast_qty = float(row.get("forecast_qty") or 0)
+        actual_qty = float(row.get("actual_qty") or 0)
+        delta = forecast_qty - actual_qty
+        total_forecast += forecast_qty
+        total_actual += actual_qty
+        prepared.append(
+            {
+                **row,
+                "forecast_qty": forecast_qty,
+                "actual_qty": actual_qty,
+                "delta": delta,
+                "abs_delta": abs(delta),
+            }
+        )
+
+    total_delta = total_forecast - total_actual
+    if total_delta > DISCREPANCY_EPSILON:
+        direction = "over"
+        aligned = [row for row in prepared if row["delta"] > DISCREPANCY_EPSILON]
+    elif total_delta < -DISCREPANCY_EPSILON:
+        direction = "under"
+        aligned = [row for row in prepared if row["delta"] < -DISCREPANCY_EPSILON]
+    else:
+        direction = "flat"
+        aligned = [row for row in prepared if row["abs_delta"] > DISCREPANCY_EPSILON]
+
+    aligned.sort(key=lambda row: row["abs_delta"], reverse=True)
+    denominator = sum(row["abs_delta"] for row in aligned) or 1.0
+    items = []
+    for row in aligned[:limit]:
+        items.append(
+            {
+                "product_id": row.get("product_id"),
+                "product_name": row.get("product_name") or "SKU без названия",
+                "category_name": row.get("category_name") or "Без группы",
+                "forecast_qty": row["forecast_qty"],
+                "actual_qty": row["actual_qty"],
+                "delta": row["delta"],
+                "abs_delta": row["abs_delta"],
+                "contribution_pct": row["abs_delta"] / denominator,
+            }
+        )
+
+    return {
+        "hour": hour,
+        "direction": direction,
+        "forecast_qty": total_forecast,
+        "actual_qty": total_actual,
+        "delta": total_delta,
+        "abs_delta": abs(total_delta),
+        "items": items,
+    }
+
+
+def get_hour_discrepancy_contributors(
+    run_id: str,
+    forecast_date: str,
+    bakery_id: int,
+    hour: int,
+    auth: AuthContext,
+    limit: int = 10,
+    scenario: str | None = None,
+) -> dict:
+    client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
+    access_sql, access_params = _access_filter(auth, "h.bakery_id")
+    open_bakery_sql = _open_bakery_filter("h.bakery_id")
+    request_access_sql, request_access_params = _access_filter(auth, "toInt64(%(bakery_id)s)")
+    request_open_bakery_sql = _open_bakery_filter("toInt64(%(bakery_id)s)")
+    query = """
+        with forecast as (
+            select
+                h.product_id as product_id,
+                any(d.product_name) as product_name,
+                any(d.category_name) as category_name,
+                sum(h.forecast_qty) as forecast_qty
+            from {hour_source} h
+            left join {day_source} d
+              on d.run_id = h.run_id
+             and d.forecast_date = h.forecast_date
+             and d.bakery_id = h.bakery_id
+             and d.product_id = h.product_id
+            where h.forecast_date = %(forecast_date)s
+              and h.bakery_id = %(bakery_id)s
+              and h.hour = %(hour)s
+              {open_bakery_sql}
+              {access_sql}
+            group by h.product_id
+        ),
+        actual as (
+            select
+                toInt64OrNull(toString(fcl.product_id)) as product_id,
+                sum(toFloat64(fcl.quantity)) as actual_qty
+            from {sales_source} fcl
+            group by product_id
+        )
+        select
+            coalesce(forecast.product_id, actual.product_id) as product_id,
+            forecast.product_name as product_name,
+            forecast.category_name as category_name,
+            forecast.forecast_qty as forecast_qty,
+            actual.actual_qty as actual_qty
+        from forecast
+        full outer join actual
+          on actual.product_id = forecast.product_id
+        where coalesce(forecast.product_id, actual.product_id) is not null
+          {request_open_bakery_sql}
+          {request_access_sql}
+        """.format(
+        hour_source=_sku_hour_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+        day_source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+        sales_source=_raw_sales_source(
+            "fcl.check_date = toDate(%(forecast_date)s) "
+            "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s "
+            "and toHour(fcl.check_datetime) = %(hour)s"
+        ),
+        open_bakery_sql=open_bakery_sql,
+        access_sql=access_sql,
+        request_open_bakery_sql=request_open_bakery_sql,
+        request_access_sql=request_access_sql,
+    )
+    df = client.query_df(
+        query,
+        parameters={
+            "run_id": run_id,
+            "forecast_date": forecast_date,
+            "bakery_id": bakery_id,
+            "hour": hour,
+            "sales_event_hex": SALES_EVENT_HEX,
+            "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
+            **access_params,
+            **request_access_params,
+        },
+    )
+    return _build_hour_discrepancy_response(hour, _records(df), limit)
 
 
 def get_city_assortment(city: str | None) -> list[dict]:
@@ -867,8 +1047,10 @@ def get_sku_day(
     bakery_id: int,
     product_id: int,
     auth: AuthContext,
+    scenario: str | None = None,
 ) -> dict | None:
     client = get_client()
+    scenario_like = SCENARIO_SOURCE_PATTERNS.get(scenario) if scenario else None
     access_sql, access_params = _access_filter(auth, "d.bakery_id")
     open_bakery_sql = _open_bakery_filter("d.bakery_id")
     query = """
@@ -895,7 +1077,7 @@ def get_sku_day(
           {access_sql}
         limit 1
         """.format(
-        source=_sku_day_source("forecast_date = %(forecast_date)s"),
+        source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
         sales_source=_raw_sales_source(
             "fcl.check_date = toDate(%(forecast_date)s) "
             "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s "
@@ -913,6 +1095,7 @@ def get_sku_day(
             "product_id": product_id,
             "sales_event_hex": SALES_EVENT_HEX,
             "closed_bakery_status": CLOSED_BAKERY_STATUS,
+            **({"snapshot_scenario": scenario_like} if scenario_like else {}),
             **access_params,
         },
     )

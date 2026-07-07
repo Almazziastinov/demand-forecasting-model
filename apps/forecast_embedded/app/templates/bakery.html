@@ -39,6 +39,7 @@
         <input type="date" name="date" value="{{ selected_date }}" onchange="this.form.submit()">
       </label>
       {% if is_admin %}<input type="hidden" name="run_id" value="{{ active_run.run_id }}">{% endif %}
+      {% if is_admin and scenario %}<input type="hidden" name="scenario" value="{{ scenario }}">{% endif %}
     </form>
     <a class="button-link secondary" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}">Назад к неделе</a>
   </div>
@@ -89,6 +90,9 @@
       </div>
     </div>
     <svg class="line-chart" viewBox="0 0 {{ hour_chart.width }} {{ hour_chart.height }}" role="img" aria-label="Почасовой профиль пекарни">
+      {% for point in hour_chart.points if point.is_critical %}
+      <rect class="critical-hour-band {{ point.direction }}" x="{{ point.band_x }}" y="{{ point.band_y }}" width="{{ point.band_width }}" height="{{ point.band_height }}" rx="4"></rect>
+      {% endfor %}
       <line class="axis" x1="{{ hour_chart.left }}" y1="{{ hour_chart.bottom_y }}" x2="902" y2="{{ hour_chart.bottom_y }}"></line>
       {% for point in hour_chart.points %}
       <text class="tick-label" x="{{ point.x }}" y="252">{{ point.hour }}:00</text>
@@ -104,15 +108,17 @@
       <text class="value-label forecast" x="{{ point.x }}" y="{{ point.forecast_label_y }}">{{ "%.0f"|format(point.forecast) }}</text>
       {% endfor %}
     </svg>
-    <div class="hour-values">
+    <div class="hour-values" data-hour-discrepancy-root data-bakery-id="{{ bakery.bakery_id }}" data-date="{{ selected_date }}" data-run-id="{% if is_admin %}{{ active_run.run_id }}{% endif %}">
       {% for point in hour_chart.points %}
-      <div>
+      <button class="hour-card {% if point.is_critical %}is-critical {{ point.direction }}{% endif %}" type="button" data-hour="{{ point.hour }}">
         <strong>{{ "%02d"|format(point.hour) }}</strong>
         <span class="actual">Ф {{ "%.0f"|format(point.actual) }}</span>
         <span class="forecast">П {{ "%.0f"|format(point.forecast) }}</span>
-      </div>
+        {% if point.is_critical %}<span class="delta">{{ point.delta_label }}</span>{% endif %}
+      </button>
       {% endfor %}
     </div>
+    <div class="hour-discrepancy-panel" data-hour-discrepancy-panel hidden></div>
   </section>
 
   <section class="panel">
