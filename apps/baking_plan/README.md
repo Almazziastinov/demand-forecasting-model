@@ -4,8 +4,10 @@ Standalone logical unit that generates the per-bakery baking-window Excel plan.
 Runs in-process inside `forecast_embedded` (mounted as a router), but is a
 separate Python package with its own module boundary — the old implementation
 was torn down 2026-07-09 and rebuilt from scratch here, data-driven instead
-of expert-opinion-driven. See project memory `baking_plan_business_rules` /
-`baking_plan_package_split` for the full design history.
+of expert-opinion-driven. See `docs/baking_plan_implementation.md` for the
+full business-rule spec (kratnost, dough groups, defrost vs two-day,
+capacity model, mandatory assortment) and `docs/ops/DECISIONS.md` for the
+architecture/algorithm decisions.
 
 ## Boundary
 

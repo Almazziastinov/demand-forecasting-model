@@ -61,8 +61,6 @@ Context:
 
 Implication:
 
-- All baking-plan logic (windows, assortment, templates) currently raises
-  `NotImplementedError` — scaffolding only, not a regression to watch for.
 - If a genuine network-separated service becomes necessary later (e.g. the
   feature needs independent scaling or a different deploy cadence), promote
   `apps/baking_plan/router.py` to its own FastAPI app — the package boundary
@@ -70,6 +68,56 @@ Implication:
   beyond removing the mount line.
 - Any Blackhole deploy touching this feature must upload `apps/baking_plan/*`
   in addition to `apps/forecast_embedded/app/*`.
+
+**Superseded 2026-07-11** — the "scaffolding only, `NotImplementedError`"
+status above is no longer current. See the entry below.
+
+## 2026-07-10/11 - Baking Plan: MILP Allocator Chosen, Implementation Finished And Deployed
+
+Decision:
+
+- Built both a greedy allocator and a MILP allocator
+  (`scipy.optimize.milp`/HiGHS) and compared them on real data instead of
+  picking one up front (`scripts/compare_baking_algorithms.py`). MILP won
+  on weighted shortfall and dough-group window cohesion; chosen for
+  production. Greedy is kept in the codebase as reference/fallback, not
+  wired into `service.py`.
+- Full business-rule spec (кратность, тесто-группы, дефрост vs
+  двухдневка, mandatory-assortment highlighting, two-dimensional
+  baker-minutes/tray-slot capacity, proportional window-demand
+  redistribution, `Итого` = sum of scheduled windows) implemented and
+  documented in `docs/baking_plan_implementation.md`.
+- Deployed to Blackhole 2026-07-11 — see `CURRENT_STATE.md`.
+
+Context:
+
+- `scipy` was missing from `apps/forecast_embedded/requirements.txt` even
+  though `algorithms/milp.py` imports it unconditionally at module load
+  time (reached from `app.main` on every startup) — added before deploy,
+  since without it the whole embedded app would fail to boot, not just
+  the baking-plan route.
+- дефрост and двухдневка were briefly conflated during implementation
+  (дефрост implemented as "triggered by `is_two_day`") and then corrected
+  after the user caught it against the reference file's own data (zero
+  SKU overlap between the two groups). Kept as two independent
+  variable/constraint families in the MILP so neither can be produced
+  early or shorted in favor of regular SKUs.
+- Full-day proportional demand redistribution (spreading each SKU's whole
+  day across existing windows, since exact bakery closing hours aren't
+  tracked) made capacity genuinely scarce across most windows at once
+  once SKU count exceeds ~40, causing HiGHS branch-and-bound to run long;
+  mitigated with a 15s solver time limit + 0.5% relative-gap tolerance.
+
+Implication:
+
+- `DEFROST_SKU_NAMES` and `MANDATORY_ASSORTMENT`
+  (`apps/baking_plan/constants.py` / `rendering.py`) are hardcoded
+  placeholder lists with no ClickHouse source of truth — flagged as an
+  open item, not a bug, in `docs/baking_plan_implementation.md`.
+- Any future change to business rules (capacity constants, dough-group
+  mapping, mandatory assortment) should update
+  `docs/baking_plan_implementation.md` alongside the code — it is now the
+  canonical spec, not session memory.
 
 ## 2026-07-06 - bakery_sales_lag365 Added To Bakery-Day Model
 
