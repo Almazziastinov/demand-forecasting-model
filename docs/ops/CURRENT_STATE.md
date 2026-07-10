@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-07-09
+Last updated: 2026-07-11
 
 ## Summary
 
@@ -380,6 +380,54 @@ Deploy note: Blackhole deploys have historically uploaded only
 `apps/forecast_embedded/app/*` manually (see the 2026-07-07 entry below).
 Any future Blackhole deploy touching baking-plan must also upload
 `apps/baking_plan/*`.
+
+## Baking Plan MILP Rebuild Deployed (2026-07-11)
+
+The `apps/baking_plan/` rebuild (torn down and restructured 2026-07-09, see
+below) was committed (`8e3e79f`, `c8eedac`) and deployed to Blackhole
+(`82bb03a8`, host `fhmab3h2o3lo0jqd552k`).
+
+Pre-deploy fix: `algorithms/milp.py` imports `scipy.optimize.milp` at module
+load time, and that import is unconditional from `app.main` (mounts
+`baking_plan.router` on startup). `scipy` was missing from
+`apps/forecast_embedded/requirements.txt` — deploying without it would have
+crashed the whole embedded app on boot, not just the baking-plan route.
+Added `scipy==1.17.1` to requirements before deploying.
+
+Deploy method (no dedicated script exists yet):
+
+- Fetched a tarball of `origin/master` on the server via
+  `curl .../archive/refs/heads/master.tar.gz` (VibeCode exec API).
+- Backed up `/opt/app/app` → `/opt/app/app_backup_20260710_230211`.
+- Replaced `/opt/app/app` wholesale from the tarball's
+  `apps/forecast_embedded/app` (previous surgical file-by-file deploys had
+  already drifted — `templates/bakery.html` had uncommitted-looking changes
+  that a partial file list would have missed; full-directory replace avoids
+  that class of bug).
+- Created `/opt/baking_plan` (new, sibling to `/opt/app`, both directly
+  under `/opt`) from the tarball's `apps/baking_plan`.
+- Copied `apps/forecast_embedded/requirements.txt` → `/opt/app/requirements.txt`
+  and ran `/opt/app/.venv/bin/pip install -r requirements.txt` (installs
+  `scipy`; other pins were already satisfied, no-op).
+- Ran a preflight `cd /opt/app && python -c "import app.main"` *before*
+  restarting the service — only restarted `app.service` after that import
+  succeeded, so a bad deploy would have left the old process running
+  instead of taking the app down.
+- `systemctl restart app.service`; verified `http://localhost:3000/health`
+  → `{"ok":true,...}` and `systemctl is-active app.service` → `active`.
+
+Post-deploy smoke test: `GET /bakery/21/baking-plan.xlsx?date=2026-07-10`
+(bakery 21 = Парковая 7, Казань) with admin auth headers and an explicit
+`run_id` returned `HTTP 200` with a well-formed `.xlsx` (valid `PK` zip
+signature, `xl/worksheets/sheet1.xml` / `styles.xml` / `workbook.xml`
+present) generated from the live active run
+`prod_base_bakery_no_sku_uplift_20260710_h14`. A request without an
+explicit `run_id`/admin role returned `404 Bakery forecast not found` —
+expected existing access-control behavior for a synthetic non-portal test
+user, not a regression.
+
+Rollback: `/opt/app/app_backup_20260710_230211` and (if needed)
+`/opt/baking_plan_backup_20260710_230211` on the server.
 
 ## Do Not Do
 
