@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
 from app import db as embedded_db  # noqa: E402
 from app.auth import AuthContext, get_auth_context  # noqa: E402
+from app.routers import ui as ui_router  # noqa: E402
 from app.services import bakery as bakery_service  # noqa: E402
 from app.services import runs as runs_service  # noqa: E402
 from app.settings import get_settings  # noqa: E402
@@ -54,56 +55,6 @@ class _FakeRunsClient:
                 "is_bias_adjusted": [True],
             }
         )
-
-
-class _FakeBakeableClient:
-    def __init__(self, product_ids: list[str] | None = None, error=None):
-        self.product_ids = product_ids or []
-        self.error = error
-        self.queries: list[tuple[str, dict]] = []
-
-    def query_df(self, query: str, parameters: dict | None = None):
-        self.queries.append((query, parameters or {}))
-        if self.error is not None:
-            raise self.error
-        return pd.DataFrame(
-            {
-                "product_id": self.product_ids,
-                "product_name": [f"Product {value}" for value in self.product_ids],
-                "category_name": ["Выпечка"] * len(self.product_ids),
-            }
-        )
-
-
-def test_bakeable_allowlist_uses_latest_effective_snapshot(monkeypatch):
-    fake = _FakeBakeableClient(["000011471", "000011472"])
-    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
-
-    products = bakery_service.get_bakeable_products("Казань", "2026-06-20")
-
-    assert {row["product_id"] for row in products} == {"000011471", "000011472"}
-    query, parameters = fake.queries[0]
-    assert "from bakeable_products final" in query
-    assert "select max(valid_from)" in query
-    assert "where city = %(city)s" in query
-    assert "valid_from <= toDate(%(effective_date)s)" in query
-    assert parameters == {"city": "Казань", "effective_date": "2026-06-20"}
-
-
-def test_empty_bakeable_allowlist_is_an_error(monkeypatch):
-    fake = _FakeBakeableClient()
-    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
-
-    with pytest.raises(RuntimeError, match="allowlist is empty"):
-        bakery_service.get_bakeable_products("Казань", "2026-06-20")
-
-
-def test_bakeable_allowlist_query_error_is_not_silenced(monkeypatch):
-    fake = _FakeBakeableClient(error=ConnectionError("ClickHouse unavailable"))
-    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
-
-    with pytest.raises(ConnectionError, match="ClickHouse unavailable"):
-        bakery_service.get_bakeable_products("Казань", "2026-06-20")
 
 
 def test_partner_bakery_list_is_filtered_by_access_table(monkeypatch):
@@ -191,6 +142,60 @@ def test_sku_hour_reads_lead_one_snapshots(monkeypatch):
     assert "sku_forecast_day_snapshots" in query
     assert "lead_days = 1" in query
     assert params["run_id"] == "active_run"
+
+
+def test_hour_chart_marks_critical_bakery_hours():
+    chart = ui_router._prepare_hour_chart(
+        [
+            {"hour": 14, "actual_qty": 109.0, "forecast_qty": 170.0},
+            {"hour": 15, "actual_qty": 93.0, "forecast_qty": 162.0},
+            {"hour": 16, "actual_qty": 204.0, "forecast_qty": 196.0},
+        ],
+        mark_discrepancies=True,
+    )
+
+    by_hour = {point["hour"]: point for point in chart["points"]}
+
+    assert by_hour[14]["is_critical"] is True
+    assert by_hour[14]["direction"] == "over"
+    assert by_hour[14]["delta_label"] == "+61"
+    assert by_hour[15]["is_critical"] is True
+    assert by_hour[16]["is_critical"] is False
+
+
+def test_hour_discrepancy_contributors_follow_total_delta_direction():
+    response = bakery_service._build_hour_discrepancy_response(
+        14,
+        [
+            {
+                "product_id": 1,
+                "product_name": "Over SKU",
+                "category_name": "A",
+                "forecast_qty": 30.0,
+                "actual_qty": 5.0,
+            },
+            {
+                "product_id": 2,
+                "product_name": "Under SKU",
+                "category_name": "B",
+                "forecast_qty": 2.0,
+                "actual_qty": 12.0,
+            },
+            {
+                "product_id": 3,
+                "product_name": "Small over",
+                "category_name": "A",
+                "forecast_qty": 9.0,
+                "actual_qty": 4.0,
+            },
+        ],
+        limit=10,
+    )
+
+    assert response["direction"] == "over"
+    assert response["delta"] == 20.0
+    assert [item["product_id"] for item in response["items"]] == [1, 3]
+    assert response["items"][0]["contribution_pct"] == pytest.approx(25 / 30)
 
 
 def test_run_dates_include_lead_one_snapshots(monkeypatch):

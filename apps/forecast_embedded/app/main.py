@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+
+# apps/baking_plan is a sibling package to this app (apps/forecast_embedded/app),
+# not a subpackage of it — add apps/ to sys.path so `import baking_plan` resolves.
+_APPS_DIR = Path(__file__).resolve().parents[2]
+if str(_APPS_DIR) not in sys.path:
+    sys.path.insert(0, str(_APPS_DIR))
+
+from baking_plan.router import router as baking_plan_router
 
 from app.routers import api_bakeries
 from app.routers import api_exports
@@ -23,4 +33,5 @@ app.include_router(health.router)
 app.include_router(api_runs.router)
 app.include_router(api_bakeries.router)
 app.include_router(api_exports.router)
+app.include_router(baking_plan_router)
 app.include_router(ui.router)

@@ -699,6 +699,12 @@ a {
   fill: var(--blue);
 }
 
+.critical-hour-band {
+  fill: rgba(220, 38, 38, 0.1);
+  stroke: rgba(220, 38, 38, 0.22);
+  stroke-width: 1;
+}
+
 .hour-values {
   display: grid;
   grid-template-columns: repeat(12, minmax(58px, 1fr));
@@ -706,7 +712,8 @@ a {
   margin-top: 12px;
 }
 
-.hour-values div {
+.hour-values div,
+.hour-card {
   display: grid;
   gap: 3px;
   min-height: 58px;
@@ -714,6 +721,44 @@ a {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #f8fafc;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.hour-card {
+  cursor: pointer;
+}
+
+.hour-card:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.hour-card:hover,
+.hour-card.is-selected {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.hour-card.is-critical {
+  border-color: #fca5a5;
+  background: #fff1f2;
+  box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.08);
+}
+
+.hour-card.is-critical:hover,
+.hour-card.is-critical.is-selected {
+  border-color: #dc2626;
+  background: #ffe4e6;
+}
+
+.hour-card .delta {
+  color: #dc2626;
+}
+
+.hour-card.under .delta {
+  color: #b91c1c;
 }
 
 .hour-values strong {
@@ -732,6 +777,79 @@ a {
 
 .hour-values .forecast {
   color: var(--blue);
+}
+
+.hour-discrepancy-panel {
+  margin-top: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fffafa;
+  overflow: hidden;
+}
+
+.hour-discrepancy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #fee2e2;
+}
+
+.hour-discrepancy-head strong {
+  font-size: 15px;
+}
+
+.hour-discrepancy-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.hour-discrepancy-table {
+  display: grid;
+}
+
+.hour-discrepancy-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 72px 86px 86px 78px;
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #fee2e2;
+  font-size: 13px;
+}
+
+.hour-discrepancy-row:last-child {
+  border-bottom: 0;
+}
+
+.hour-discrepancy-row.header {
+  min-height: 34px;
+  background: #fff1f2;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.hour-discrepancy-row strong,
+.hour-discrepancy-row small {
+  display: block;
+}
+
+.hour-discrepancy-row small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hour-discrepancy-row > span:not(:first-child) {
+  text-align: right;
+  font-weight: 700;
+}
+
+.hour-discrepancy-row .delta {
+  color: #dc2626;
 }
 
 .sku-list {
@@ -905,6 +1023,15 @@ a {
 
   .sku-row {
     grid-template-columns: 1fr;
+  }
+
+  .hour-discrepancy-row {
+    grid-template-columns: 1fr 64px 76px;
+  }
+
+  .hour-discrepancy-row > span:nth-child(4),
+  .hour-discrepancy-row > span:nth-child(5) {
+    text-align: left;
   }
 
   .sku-row > span:not(:first-child) {

@@ -1,6 +1,6 @@
 # Services
 
-Last updated: 2026-06-28
+Last updated: 2026-07-09
 
 ## Service Ownership Matrix
 
@@ -9,6 +9,7 @@ Last updated: 2026-06-28
 | Production forecast VM | `201.51.7.24` | Generates and publishes forecasts | Yes | Active |
 | ClickHouse | External database | Serving tables and snapshots | N/A | Active |
 | VibeCode/Blackhole app | `bakery-forecast-embedded` | Embedded read-only API/UI | No | Active |
+| Baking plan package | In-process, mounted on Blackhole app | Generates per-bakery baking-window Excel plan | No | Scaffolding (rebuild in progress) |
 | Legacy Flask app | `web/app.py` | Local/demo legacy app | No prod role | Legacy |
 
 ## Production Forecast VM
@@ -37,6 +38,20 @@ flags. See `CURRENT_STATE.md` for the current scenario and verification command.
 
 The historical `/opt/forecast_job` tree may still exist. It must not be treated
 as the production writer. Forecast timers there must stay disabled.
+
+## Baking Plan Package
+
+- Repo path: `apps/baking_plan/` (sibling package to `apps/forecast_embedded/app`,
+  not a subpackage of it — see `apps/baking_plan/README.md`).
+- Runtime role: generates the per-bakery baking-window Excel plan, mounted
+  in-process into the Blackhole `app.service` via
+  `apps/forecast_embedded/app/main.py` (`baking_plan.router.router`).
+- Not a separate process/port. Rebuilt from scratch 2026-07-09; see
+  `DECISIONS.md` for the package-vs-service rationale and `CURRENT_STATE.md`
+  for current build status.
+- Deploy: any Blackhole deploy touching this feature must upload
+  `apps/baking_plan/*` in addition to `apps/forecast_embedded/app/*` — there
+  is no dedicated deploy script for Blackhole yet, uploads have been manual.
 
 ## ClickHouse
 

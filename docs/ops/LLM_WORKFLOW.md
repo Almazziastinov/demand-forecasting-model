@@ -1,6 +1,6 @@
 # LLM Workflow
 
-Last updated: 2026-06-28
+Last updated: 2026-07-09
 
 These rules are for Codex, Claude, and other code agents working in this repo.
 
@@ -34,7 +34,11 @@ Work in the smallest relevant area:
 
 - Production operations: `pipelines/forecast_publish/`, `scripts/`, `deploy/`,
   `docs/ops/`
-- Embedded app: `apps/forecast_embedded/`
+- Embedded app (frontend/API): `apps/forecast_embedded/`
+- Baking plan: `apps/baking_plan/` — standalone package, see its `README.md`
+  for the import boundary. Only `apps/forecast_embedded/app/main.py` may
+  import from it (one router-mount line); do not add imports from
+  `baking_plan.*` anywhere else in `apps/forecast_embedded/app`.
 - Legacy local demo: `web/`
 - Legacy baseline ML: `src/`, `run_pipeline.py`
 - Historical context: `handoffs/`

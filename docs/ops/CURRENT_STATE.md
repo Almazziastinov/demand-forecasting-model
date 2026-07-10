@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-07-06
+Last updated: 2026-07-09
 
 ## Summary
 
@@ -296,6 +296,90 @@ when nightly timer fires with a fresh run_id. Today's run_id
 `prod_base_bakery_no_sku_uplift_20260706_h14` was already consumed by the
 morning timer (03:30 UTC), causing a ClickHouse delete-timeout on the
 afternoon redeploy. The morning run (old model) remains active today.
+
+## Embedded Hour Discrepancy UI Deploy (2026-07-07)
+
+Deployed to Blackhole (`82bb03a8`, `/opt/app`) as a read-only embedded app
+change:
+
+- Bakery hourly profile now marks high fact-vs-forecast discrepancy hours.
+- All hour cards are clickable.
+- `/api/v1/bakeries/{bakery_id}/hour-discrepancy` returns top SKU contributors
+  for a selected bakery/date/hour.
+
+Deploy details:
+
+- Backed up `/opt/app/app` to `app_backup_ui_discrepancy_20260707_071254`.
+- Uploaded only embedded app files under `apps/forecast_embedded/app`.
+- Ran `python3 -m py_compile` for changed Python modules.
+- Restarted `app.service`.
+
+Post-deploy verification on Blackhole:
+
+- `app.service`: `active`
+- `http://localhost:3000/health`: OK
+- Active run: `prod_base_bakery_no_sku_uplift_20260707_h14`
+- Dates endpoint: `14` dates
+- Smoke with admin headers:
+  `/api/v1/bakeries/{bakery_id}/hour-discrepancy?date=2026-07-07&hour=14`
+  returned OK with `items=3`.
+- Blackhole forecast timers remained disabled/inactive.
+
+## Baking Plan Torn Down And Restructured (2026-07-09)
+
+The previous baking-plan implementation (deployed 2026-07-06, see
+"Baking Plan + Assortment Deploy" above) was torn down and is being rebuilt
+from scratch as its own package.
+
+Removed:
+
+- `apps/forecast_embedded/app/services/baking_plan.py` (996-line algorithm:
+  peak detection, window clustering, template allocation)
+- `apps/forecast_embedded/app/assets/baking_plan_template.xlsx` and
+  `baking_plan_individual/{20,21,22}_*.xlsx`
+- The `/bakery/{id}/baking-plan.xlsx` route, its "Выгрузить план выпекания"
+  button in `bakery.html`, and its JS special-case in `app.js`
+- Dead code left orphaned in `app/services/bakery.py`:
+  `get_bakeable_products`, `get_city_assortment`, `get_month_revenue_bucket`,
+  `get_historical_hourly_profile`, and the ClickHouse table constants only
+  those used
+- `docs/baking_plan_implementation.md`,
+  `scripts/audit_baking_plan_templates_assortment.py`,
+  `config/baking_plan_template_overrides.csv`, and their tests
+
+Added: `apps/baking_plan/` — a new standalone package (not a subpackage of
+`apps/forecast_embedded/app`) that owns the baking-plan feature end to end.
+See `apps/baking_plan/README.md` for the package boundary contract. Layout:
+
+```
+apps/baking_plan/
+  service.py    -- public entrypoint: build_baking_plan_workbook(...)
+  router.py      -- GET /bakery/{bakery_id}/baking-plan.xlsx
+  windows.py       -- peak detection / window-selection algorithm
+  assortment.py       -- bakeable-products allowlist (city + bakery scope)
+  templates.py            -- xlsx template selection + "комментарии" parsing
+  data.py                    -- ClickHouse reads specific to this feature
+  assets/, assets/individual/  -- xlsx templates (currently empty)
+```
+
+Wiring: `apps/forecast_embedded/app/main.py` inserts `apps/` onto `sys.path`
+and mounts `baking_plan.router.router`. This is a code-organization change
+only — still one process, one deploy target (Blackhole `app.service`), no new
+port or systemd unit. See `DECISIONS.md` (2026-07-09 entry) for the
+service/package boundary rationale.
+
+Status: scaffolding only. Every function in `apps/baking_plan/` raises
+`NotImplementedError`. The route is mounted and importable but not
+functional — the export button was removed from the UI until it works.
+Assortment and window-selection logic need a fresh design, not a port of the
+removed code (the old peak-detection/clustering approach and the SKU-hour
+floor-uplift it depended on were already flagged as unreliable — see the
+2026-07-01 decisions below).
+
+Deploy note: Blackhole deploys have historically uploaded only
+`apps/forecast_embedded/app/*` manually (see the 2026-07-07 entry below).
+Any future Blackhole deploy touching baking-plan must also upload
+`apps/baking_plan/*`.
 
 ## Do Not Do
 

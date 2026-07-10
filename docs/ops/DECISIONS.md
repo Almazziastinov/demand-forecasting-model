@@ -26,6 +26,51 @@ Implication:
 - Any future production writer migration must update `CURRENT_STATE.md`,
   `SERVICES.md`, this decision log, and the runbook before or during rollout.
 
+## 2026-07-09 - Baking Plan Rebuilt As Its Own Package
+
+Decision:
+
+- Torn down the old baking-plan implementation (algorithm, templates,
+  assortment allowlist, tests) and rebuilt the feature as `apps/baking_plan/`,
+  a standalone Python package — not a subpackage of
+  `apps/forecast_embedded/app`.
+- Mounted in-process: `apps/forecast_embedded/app/main.py` adds `apps/` to
+  `sys.path` and includes `baking_plan.router.router`. No new port, systemd
+  unit, or network hop.
+- Package boundary: `baking_plan` may import shared ClickHouse plumbing
+  (`app.db`, `app.settings`, `app.table_names`) and forecast-serving reads
+  (`app.services.bakery.get_bakery_day`, `get_sku_hour_forecast`); nothing
+  outside `apps/baking_plan/` may import from `baking_plan.*` except the one
+  router-mount line in `main.py`.
+
+Context:
+
+- User framed the target architecture as three logical units: a frontend
+  service, a predictions service, and a baking-plan service. A full separate
+  FastAPI process was considered and rejected for now — the baking-plan
+  feature only reads already-published forecast data from ClickHouse, so a
+  network-separated service would add deploy/health-check overhead without a
+  matching operational need. A package boundary gives the same logical
+  independence (own tests, own module graph, one-directional dependency on
+  `app`) without new infra.
+- The old implementation was already scheduled for a rewrite (see the
+  2026-07-01 SKU-hour floor-uplift rejection above — the peak-detection
+  window algorithm had no reliable way to distinguish genuine low demand from
+  shelf-absence censoring), so the teardown and the restructure happened
+  together.
+
+Implication:
+
+- All baking-plan logic (windows, assortment, templates) currently raises
+  `NotImplementedError` — scaffolding only, not a regression to watch for.
+- If a genuine network-separated service becomes necessary later (e.g. the
+  feature needs independent scaling or a different deploy cadence), promote
+  `apps/baking_plan/router.py` to its own FastAPI app — the package boundary
+  was designed so that move doesn't require re-touching `forecast_embedded`
+  beyond removing the mount line.
+- Any Blackhole deploy touching this feature must upload `apps/baking_plan/*`
+  in addition to `apps/forecast_embedded/app/*`.
+
 ## 2026-07-06 - bakery_sales_lag365 Added To Bakery-Day Model
 
 Decision: add `bakery_sales_lag365` (same bakery, same day last year) as a

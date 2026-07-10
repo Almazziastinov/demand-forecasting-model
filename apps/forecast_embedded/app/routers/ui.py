@@ -2,20 +2,16 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import logging
-import re
 from datetime import date as date_type
 from datetime import datetime, timedelta
-from io import BytesIO
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthContext, get_auth_context
 from app.services import bakery as bakery_service
-from app.services import baking_plan as baking_plan_service
 from app.services import runs as run_service
 from app.settings import get_settings
 
@@ -42,7 +38,6 @@ EVENT_LABELS_RU = {
     "post_event_4_7": "4-7 дней после события",
 }
 
-FILENAME_SAFE_RE = re.compile(r'[\\/:*?"<>|\r\n]+')
 CRITICAL_HOUR_ABS_DELTA = 40.0
 CRITICAL_HOUR_PCT_DELTA = 0.25
 CRITICAL_HOUR_TOP_N = 3
@@ -62,17 +57,6 @@ def _format_date(value: date_type) -> str:
 
 def _format_short_date(value: date_type) -> str:
     return value.strftime("%d.%m")
-
-
-def _safe_filename_part(value: object) -> str:
-    cleaned = FILENAME_SAFE_RE.sub(" ", str(value or "")).strip()
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned or "пекарня"
-
-
-def _attachment_header(filename: str, fallback_filename: str) -> str:
-    quoted = quote(filename)
-    return f'attachment; filename="{fallback_filename}"; filename*=UTF-8\'\'{quoted}'
 
 
 def _event_label(value: str | None) -> str:
@@ -384,71 +368,6 @@ def bakery_detail(
             "categories": categories,
             "selected_category": selected_category,
         },
-    )
-
-
-@router.get("/bakery/{bakery_id}/baking-plan.xlsx")
-def download_baking_plan(
-    request: Request,
-    bakery_id: int,
-    date: str = Query(...),
-    run_id: str | None = Query(default=None),
-    bucket: str | None = Query(default=None),
-) -> StreamingResponse:
-    auth = get_auth_context(request)
-    active_run = _resolve_run(auth, run_id)
-    if not active_run:
-        raise HTTPException(status_code=404, detail="Forecast run not found")
-
-    bakery_day = bakery_service.get_bakery_day(active_run["run_id"], date, bakery_id, auth)
-    if not bakery_day:
-        raise HTTPException(status_code=404, detail="Bakery forecast not found")
-
-    sku_hour = bakery_service.get_sku_hour_forecast(active_run["run_id"], date, bakery_id, auth)
-
-    # Night-defrost batches are prep for the next morning; size them from the next
-    # day's forecast. A missing next day (horizon end) must not break the export.
-    next_day_sku_hour: list[dict] = []
-    selected_date = _parse_date(date)
-    if selected_date is not None:
-        next_date = (selected_date + timedelta(days=1)).isoformat()
-        try:
-            next_day_sku_hour = bakery_service.get_sku_hour_forecast(
-                active_run["run_id"], next_date, bakery_id, auth
-            )
-        except Exception:
-            logger.warning("baking_plan: next-day forecast fetch failed", exc_info=True)
-            next_day_sku_hour = []
-
-    revenue_info = bakery_service.get_month_revenue_bucket(date, bakery_id)
-    selected_bucket = bucket or (revenue_info or {}).get("revenue_bucket")
-    city = str(bakery_day.get("city") or "").strip()
-    if not city:
-        raise HTTPException(status_code=503, detail="Bakery city is unavailable")
-    try:
-        bakeable_products = bakery_service.get_bakeable_products(city, date, bakery_id=bakery_id)
-    except Exception as exc:
-        logger.error("baking_plan: bakeable allowlist unavailable", exc_info=True)
-        raise HTTPException(
-            status_code=503,
-            detail="Bakeable-products allowlist is unavailable",
-        ) from exc
-    content = baking_plan_service.build_baking_plan_workbook(
-        bakery=bakery_day,
-        forecast_date=date,
-        sku_hour_rows=sku_hour,
-        next_day_sku_hour_rows=next_day_sku_hour,
-        assortment_rows=bakeable_products,
-        bucket=selected_bucket,
-        template_path=baking_plan_service.template_path_for_bakery(bakery_id),
-    )
-    bakery_name = _safe_filename_part(bakery_day.get("bakery_name") or bakery_id)
-    filename = f"План выпекания - {bakery_name} - {date}.xlsx"
-    fallback_filename = f"baking_plan_{bakery_id}_{date}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": _attachment_header(filename, fallback_filename)},
     )
 
 

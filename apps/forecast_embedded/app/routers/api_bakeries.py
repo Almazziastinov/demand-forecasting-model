@@ -101,3 +101,27 @@ def get_bakery_sku_hour(
         "run_id": active_run["run_id"],
         "items": items,
     }
+
+
+@router.get("/bakeries/{bakery_id}/hour-discrepancy")
+def get_bakery_hour_discrepancy(
+    request: Request,
+    bakery_id: int,
+    date: str = Query(...),
+    hour: int = Query(..., ge=0, le=23),
+    limit: int = Query(default=10, ge=1, le=50),
+    run_id: str | None = None,
+) -> dict:
+    active_run = _require_run(run_id)
+    auth = get_auth_context(request)
+    return {
+        "run_id": active_run["run_id"],
+        **bakery_service.get_hour_discrepancy_contributors(
+            active_run["run_id"],
+            date,
+            bakery_id,
+            hour,
+            auth,
+            limit=limit,
+        ),
+    }
