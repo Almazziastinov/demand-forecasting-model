@@ -472,6 +472,59 @@ No `requirements.txt` changes this deploy (no new dependencies).
 Rollback: `/opt/app/app_backup_20260713_072134` and
 `/opt/baking_plan_backup_20260713_072134` on the server.
 
+## Baking Plan Night Storage Rules Deployed (2026-07-13)
+
+Deployed commit `6e27bd9` (`fix: account for night storage in baking plan`)
+to Blackhole (`82bb03a8`, host `fhmab3h2o3lo0jqd552k`).
+
+Code changes:
+
+- Added direct overnight-stock limits from the freezer/refrigerator
+  night-storage PDFs dated 15.05.2026
+  (`NIGHT_STORAGE_DIRECT_UNITS_BY_SKU`).
+- Capped both tomorrow's extra overnight batch and today's lead-1 defrost
+  credit by those PDF quantities.
+- Added prep-only night-storage labor reductions for `Жар Киш ...` and
+  smetannik SKUs (`NIGHT_PREP_LABOR_MINUTES_BY_SKU`).
+- Added same-SKU label swapping so a physically identical regular batch and
+  defrost batch can exchange labels, placing `"ночная дефр"` later without
+  changing capacity usage.
+- Added `scripts/analyze_baking_plan_fact_night_storage.py` for fact-based
+  diagnostics against the night-storage scenarios.
+
+Deploy method:
+
+- Local tests before commit: focused baking-plan pytest suite
+  (`44 passed`) and ruff over `apps/baking_plan`, the diagnostics/compare
+  scripts, and focused baking-plan tests (`All checks passed`).
+- Pushed `6e27bd9` to `origin/master`.
+- Via the VibeCode exec API, fetched the GitHub tarball for exact commit
+  `6e27bd90c8312bd384f521de2ccb6abfcb9463b9` into `/tmp/deploy_src`,
+  staged `/tmp/deploy_stage/opt/app/app` and
+  `/tmp/deploy_stage/opt/baking_plan`, and ran import/compile preflight using
+  the existing `/opt/app/.venv`.
+- Backed up `/opt/app/app` to `/opt/app/app_backup_20260713_144022` and
+  `/opt/baking_plan` to `/opt/baking_plan_backup_20260713_144022`, replaced
+  both live directories from the staged tarball, ran live import, then
+  restarted `app.service`.
+
+Post-deploy verification:
+
+- `app.service`: `active`.
+- `http://localhost:3000/health`: `{"ok":true,"app_env":"prod","table_suffix":""}`.
+- Blackhole forecast timers remained disabled/inactive:
+  `forecast-production.timer` disabled/inactive and
+  `bakery-forecast-nightly.timer` disabled/inactive.
+- Smoke export:
+  `GET /bakery/16/baking-plan.xlsx?date=2026-07-13&run_id=prod_base_bakery_no_sku_uplift_20260713_h14`
+  with admin headers returned `HTTP 200`, valid `.xlsx` (8340 bytes).
+  In the exported workbook, `Киш грибы курица` has regular `10` in
+  `10:00-11:00` and `10 (ночная дефр)` in `11:00-12:00`, confirming the
+  same-SKU defrost-label swap is active in production.
+
+Rollback: `/opt/app/app_backup_20260713_144022` and
+`/opt/baking_plan_backup_20260713_144022` on the server.
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.
