@@ -607,6 +607,87 @@ live by reading `forecast_final - forecast_base` directly from
 constant `+114.3`/day adjustment (vs the old near-zero static value, which
 was insufficient), bakery 89 gets `-5.2`/day (vs the old `-125.6`).
 
+## SKU-Hour Fallback Profile Fix Deployed, Not Yet Exercised (2026-07-13)
+
+Investigated a user report that several real, currently-selling SKUs at
+bakery 16 (Кулагина 4, Казань) showed a forecast collapsed to near-zero
+despite steady actual demand — e.g. "Пирог с Манго" (product 11465):
+~7/day actual sales (`mart_sales_60d`, every day for 30 days) vs
+`sku_forecast_hour_embedded` showing `0.043`/day, with the entire day's
+forecast concentrated in a single, near-dead hour (22:00) instead of the
+SKU's real active hours.
+
+Root cause: `apply_bakery_profiles_clickhouse.py:load_profile_lookup_frames`
+(the tier-2, dow-blind fallback used for SKUs whose per-(bakery,dow,hour)
+`n_days` never reaches the tier-1 gate of 8) averaged
+`mean_sku_share_in_hour_norm` across dow with **no minimum sample-size
+filter at all**. A single-observation row (`n_days=1`) at an edge hour
+(05:00 or 22:00, low-traffic enough that one sale reads as "100% of that
+hour") produced an unsmoothed extreme share that then dominated the
+fallback for SKUs thin everywhere. Confirmed this is systemic, not a
+one-off: bakery 16 alone had 16 profile rows with `n_days<=2` and
+share > 0.1, 9 of them at hour 22 and 6 at hour 5 — affecting at least
+8-9 SKUs at this one bakery, not just the one reported.
+
+Fix: added `MIN_FALLBACK_N_DAYS = 3` gate excluding `n_days` 1-2 rows from
+the fallback average, in both `src/experiments_v2/apply_bakery_profiles.py`
+(CSV path, `build_sku_hour_profile_fallback`) and
+`apply_bakery_profiles_clickhouse.py` (the production ClickHouse path,
+`load_profile_lookup_frames`). `n_days == 0` is still trusted as before —
+that value means "no `n_days` column at all in a legacy profile" (defaults
+to 0 upstream), not "observed zero days," and should still get a fallback
+estimate rather than being silently dropped. Committed `e3f39e6`, pushed to
+`origin/master`. 2 new regression tests added; verified 4 pre-existing,
+unrelated test failures (3 in `test_apply_bakery_profiles_clickhouse_recent.py`
+pie-category-cap tests, 1 `test_build_bakeable_products_table.py` collection
+error from a renamed function) are untouched by this change (confirmed via
+`git stash`) — flagged separately, not fixed as part of this work.
+
+Deploy method: backed up
+`src/experiments_v2/apply_bakery_profiles.py(.bak_20260713_152709)` and
+`apply_bakery_profiles_clickhouse.py(.bak_20260713_152709)` on the VM,
+SFTP'd the two fixed files directly (working around the same VM git
+blockers noted above — root-owned `docs/ops/*.md` and unrelated
+uncommitted baking-plan drift), verified `py_compile` and a live import
+of `MIN_FALLBACK_N_DAYS` succeed. Deliberately did **not** trigger a
+manual `systemctl start forecast-production.service` — decided to let the
+fix land through the normal 03:30 UTC nightly timer (2026-07-14) rather
+than force an extra out-of-band production run today.
+
+**Confirmed NOT yet exercised**: a concurrent session manually restarted
+`forecast-production.service` at `2026-07-13 18:33:59+03:00` for an
+unrelated fix (see "Rolling Bakery-Day Bias Correction Deployed" above),
+regenerating today's active run. Checked directly afterward —
+`sku_forecast_hour_embedded` still shows product 11465 at `0.043775`/day,
+unchanged from before the fix landed on disk. Most likely explanation:
+that process's Python interpreter had already imported the old module
+code before the SFTP file replacement completed (the two events were only
+minutes apart) — module source isn't re-read mid-process. **First real
+run of this fix will be the 2026-07-14 03:30 UTC nightly timer** (or any
+earlier manual `run_production_inference` invocation). Whoever checks
+that morning should re-verify product 11465 (bakery 16) directly against
+`mart_sales_60d` before trusting the new forecast, since this fix has
+never actually executed yet.
+
+Rollback: `src/experiments_v2/apply_bakery_profiles.py.bak_20260713_152709`
+and `apply_bakery_profiles_clickhouse.py.bak_20260713_152709` on the VM.
+
+**Separately noticed, not fixed**: `bakeable_products` city-scope rows for
+Казань all come from the old `forecast_category_filter`/
+`partner_baking_markup` sources (no per-city sales-share threshold at
+all), not from `build_city_assortment_from_sales.py`'s `sales_window`
+source (which enforces the documented 80% threshold). Traced this to the
+same uncommitted VM drift flagged in the "Known issue" note above —
+the `production_dataset_refresh.py`/`build_city_assortment_from_sales.py`
+assortment-threshold code was placed on the VM at `2026-07-13 11:46 UTC`
+(after this morning's 03:30 UTC run), so it has **never executed even
+once** yet (`journalctl -u forecast-production.service` has zero
+"assortment" mentions in its entire history). Left it alone — it's
+someone else's in-flight, unreviewed change, not mine to touch. Its first
+real run will also be the 2026-07-14 03:30 UTC timer; worth checking then
+whether it actually drops the low-share SKUs (e.g. product 5105/10670/
+10628/5106/11213) from Казань's city scope as the 80% threshold intends.
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.

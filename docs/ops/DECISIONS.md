@@ -367,3 +367,79 @@ Implication:
   historical lead-1 comparisons. Needs its own decision (adding
   `source_run_id` to the sort key means a full table rebuild) — flagged,
   not resolved.
+
+## 2026-07-13 - SKU-Hour Fallback Profile Gains A Minimum-Sample-Size Gate
+
+Decision:
+
+- Added `MIN_FALLBACK_N_DAYS = 3` to the tier-2 (dow-blind) SKU-hour
+  fallback profile: rows with `n_days` 1-2 are excluded from the fallback
+  average entirely, in both `src/experiments_v2/apply_bakery_profiles.py`
+  (CSV path) and `apply_bakery_profiles_clickhouse.py` (the production
+  ClickHouse path actually used by `run_production_inference.py`).
+  `n_days == 0` is still trusted (legacy profiles missing the column
+  default to 0 upstream — that's "unknown", not "observed zero days").
+  Committed `e3f39e6`, deployed to the VM via targeted SFTP (see
+  `CURRENT_STATE.md`).
+
+Context:
+
+- Investigated a user report that real, steadily-selling SKUs at bakery 16
+  (Кулагина 4) had a forecast collapsed to near-zero. Traced "Пирог с
+  Манго" (product 11465): actual sales ~7/day every day for 30 days, but
+  `sku_forecast_hour_embedded` showed `0.043`/day, entirely concentrated
+  in a single near-dead hour (22:00).
+- Root-caused by re-running the real production functions against real
+  data rather than guessing: reconstructed the pre-correction base daily
+  forecast (~6.4/day, matching actual sales — so the profile *should* have
+  been fine), then ran the actual `_build_recent_correction_targets`
+  (recent-sales correction) on real bakery-16 data and got `6.39` — the
+  correction step was NOT the problem, contradicting the first hypothesis.
+  Working backward from there: the SKU's per-(dow,hour) profile rows never
+  reach the tier-1 gate (`n_days>=8`) in ANY hour, so it's entirely
+  dependent on the tier-2 fallback — which had a single `n_days=1` row at
+  hour 22 with an unsmoothed share of `0.5` (one Friday sale reading as
+  "100% of that near-empty hour"). That one row, averaged in unfiltered,
+  produced a fallback share of `0.135` for hour 22 vs `~0.002-0.004` for
+  every other hour — pulling nearly the SKU's entire (correctly-scaled)
+  daily total into a hour where the whole bakery only sells ~1 unit total,
+  crushing it down to a small fraction of that tiny pool.
+- Confirmed this is systemic, not a one-off for this one SKU: bakery 16
+  alone had 16 profile rows with `n_days<=2` and share > 0.1 (9 at hour
+  22, 6 at hour 5 — both low-traffic edge hours), affecting at least 8-9
+  distinct SKUs at this one bakery.
+- 4 pre-existing, unrelated test failures were found in passing (3
+  pie-category-cap tests in `test_apply_bakery_profiles_clickhouse_recent.py`
+  expecting numbers the current code doesn't produce, 1 collection error
+  in `test_build_bakeable_products_table.py` from a renamed function) —
+  confirmed via `git stash` that they fail identically without this
+  change, left untouched, flagged as a separate follow-up.
+
+Implication:
+
+- Deployed but **not yet exercised** as of 2026-07-13: a concurrent
+  session's unrelated manual production run (18:33:59+03:00) landed
+  minutes after the SFTP file replacement and still shows the old
+  (uncorrected) `0.043` value for product 11465 — most likely a race
+  where that process had already imported the old module code before the
+  files were replaced on disk. First real run will be the 2026-07-14
+  03:30 UTC nightly timer. Re-verify product 11465 (bakery 16) against
+  `mart_sales_60d` that morning before trusting the new forecast.
+- Any future "why is this one SKU's forecast wrong" investigation should
+  check `n_days` on its profile rows early — a SKU with no tier-1 coverage
+  anywhere is entirely at the mercy of the tier-2 fallback's data quality,
+  which has much less protection against small-sample noise than tier-1's
+  own `MIN_TIER1_N_DAYS=8` gate.
+- Separately noticed but deliberately not touched: `bakeable_products`
+  city-scope rows for Казань all come from the old
+  `forecast_category_filter`/`partner_baking_markup` sources with no
+  sales-share threshold at all — `build_city_assortment_from_sales.py`'s
+  `sales_window` source (the actual 80%-threshold logic) has never
+  produced a single row for any city, because the code implementing it
+  was placed on the VM uncommitted at 11:46 UTC today, after this
+  morning's run, and has literally never executed
+  (`journalctl -u forecast-production.service` has zero "assortment"
+  mentions in its full history). This is someone else's in-flight,
+  unreviewed work — see `CURRENT_STATE.md`'s "Known issue" note on VM git
+  drift. Left alone; will get its first real run at the same 2026-07-14
+  03:30 UTC timer.
