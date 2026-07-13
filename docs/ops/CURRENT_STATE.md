@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 ## Summary
 
@@ -428,6 +428,49 @@ user, not a regression.
 
 Rollback: `/opt/app/app_backup_20260710_230211` and (if needed)
 `/opt/baking_plan_backup_20260710_230211` on the server.
+
+## Baking Plan MILP Redesign Deployed (2026-07-13)
+
+Merged дефрост/двухдневка into the same MILP as regular production
+(previously three separate tray-variable families) — see
+`docs/baking_plan_implementation.md` and `apps/baking_plan/algorithms/milp.py`
+module docstring for the model. Also added: molding-pace floor (54s/3:30)
+with automatic retry, per-window capacity-shortage recommendation text on
+the rendered plan, red/orange Итого highlighting for unfulfilled SKUs, and
+crediting yesterday's overnight defrost batch back out of today's demand
+via `sku_forecast_hour_snapshots` (`lead_days = 1`).
+
+Deploy method: same manual tarball-replace pattern as 2026-07-11 (no
+dedicated deploy script yet), this time via the VibeCode `/v1/infra/servers/:id/exec`
+API directly (server id `82bb03a8-c356-4225-97a4-a1540cdc29e6`) rather than
+a prior session's access path:
+
+- Committed and pushed only the 8 baking_plan-related files (repo working
+  tree had unrelated uncommitted changes from other sessions — left
+  untouched) — commit `3b18eac`.
+- Staged verification *before* touching `/opt/app` or `/opt/baking_plan`:
+  fetched the `origin/master` tarball into `/tmp/deploy_src`, mirrored the
+  `/opt/app/app` + `/opt/baking_plan` sibling-package layout under
+  `/tmp/deploy_stage`, ran a dependency-free Python script (no `pip
+  install`, reused the existing `/opt/app/.venv` read-only) exercising the
+  same invariants as the local test suite — mandatory-always-wins-over-
+  higher-priority-regular, no gratuitous overproduction, defrost window
+  consolidation, clean-integer tail splitting, floor-pace constants — all
+  7 checks passed.
+- Only after that: backed up `/opt/app/app` → `/opt/app/app_backup_20260713_072134`
+  and `/opt/baking_plan` → `/opt/baking_plan_backup_20260713_072134`,
+  replaced both from the tarball, re-ran the plain `import app.main`
+  preflight in the live location, then `systemctl restart app.service`.
+- Post-deploy: `systemctl is-active app.service` → `active`,
+  `http://localhost:3000/health` → `{"ok":true,...}`,
+  `GET /bakery/21/baking-plan.xlsx?date=2026-07-10&run_id=prod_base_bakery_no_sku_uplift_20260710_h14`
+  with admin headers → `HTTP 200`, valid `.xlsx` (8338 bytes, correct zip
+  structure), clean service logs.
+
+No `requirements.txt` changes this deploy (no new dependencies).
+
+Rollback: `/opt/app/app_backup_20260713_072134` and
+`/opt/baking_plan_backup_20260713_072134` on the server.
 
 ## Do Not Do
 
