@@ -18,6 +18,11 @@ from pipelines.forecast_publish.load_forecast_run import (
     load_env_file,
     load_forecast_run,
 )
+from pipelines.forecast_publish.rolling_bakery_bias import (
+    DEFAULT_MIN_DAYS as DEFAULT_ROLLING_BIAS_MIN_DAYS,
+    DEFAULT_TRAILING_DAYS as DEFAULT_ROLLING_BIAS_DAYS,
+    build_rolling_bias_table,
+)
 from pipelines.forecast_publish.production_dataset_refresh import (
     DEFAULT_HISTORY_START_DATE,
     DEFAULT_RAW_OUTPUT,
@@ -32,7 +37,7 @@ from pipelines.forecast_publish.sku_hour_profile_store import (
     PROFILE_TABLE,
     UPLIFT_MULTIPLIER_TABLE,
 )
-from pipelines.forecast_publish.table_names import get_table_suffix_from_env_file
+from pipelines.forecast_publish.table_names import get_table_suffix_from_env_file, table_name
 from src.experiments_v2.apply_bakery_profiles import DEFAULT_BAKERY_HOUR_PROFILE_PATH
 from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
@@ -43,8 +48,10 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
 from src.experiments_v2.bakery_day_forecast import (
     DEFAULT_HORIZON_DAYS,
     FORECAST_BIAS_ADJ_COL,
+    load_bias_table,
     run_forecast_mode,
 )
+from src.experiments_v2.build_bakery_daily_dataset import BAKERY_ID_COL
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASE_DATASET_PATH = ROOT / "data" / "processed" / "bakery_daily_sales.csv"
@@ -129,12 +136,66 @@ def _build_run_id(prefix: str, scenario: dict, bakery_path: str | Path, horizon_
     return f"{prefix}_{scenario['run_id_suffix']}_{date_part}_h{horizon_days}"
 
 
+def _resolve_effective_bias_path(
+    args: argparse.Namespace, scenario: dict, dataset_path: Path, static_bias_path: Path
+) -> Path:
+    """Build a rolling (trailing-window) bias table that falls back to the
+    static holdout snapshot for bakeries without enough recent history, and
+    write it next to the scenario output so `run_forecast_mode` can load it
+    exactly like the static file. See rolling_bakery_bias.py for why: the
+    static bias.json is a one-time June-holdout snapshot that never
+    refreshes, so it silently goes stale after any model retrain or seasonal
+    shift (see docs/ops/DECISIONS.md, 2026-07 bakery-day bias entry)."""
+    dataset_dates = pd.to_datetime(
+        pd.read_csv(dataset_path, encoding="utf-8-sig", usecols=["date"])["date"],
+        errors="coerce",
+    ).dropna()
+    as_of_date = (
+        pd.Timestamp(args.start_date)
+        if args.start_date
+        else dataset_dates.max() + pd.Timedelta(days=1)
+    )
+    bakery_ids = sorted(
+        pd.read_csv(dataset_path, encoding="utf-8-sig", usecols=[BAKERY_ID_COL])[BAKERY_ID_COL]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+    static_bias_df = load_bias_table(static_bias_path)
+    table_suffix = get_table_suffix_from_env_file(args.env_file)
+    effective = build_rolling_bias_table(
+        env_file=args.env_file,
+        bakery_ids=bakery_ids,
+        as_of_date=as_of_date,
+        static_bias_df=static_bias_df,
+        trailing_days=args.rolling_bias_days,
+        min_days=args.rolling_bias_min_days,
+        bakery_forecast_table=table_name("bakery_forecast_day_snapshots", table_suffix),
+    )
+    effective_path = Path(args.output_dir) / f"{scenario['output_suffix']}_effective_bias.csv"
+    effective_path.parent.mkdir(parents=True, exist_ok=True)
+    effective.to_csv(effective_path, index=False, encoding="utf-8-sig")
+    return effective_path
+
+
 def run_bakery_forecast(args: argparse.Namespace, scenario: dict) -> Path:
     dataset_path = _existing_path(getattr(args, scenario["dataset_attr"]), label="dataset")
     model_path = _existing_path(getattr(args, scenario["model_attr"]), label="model")
     meta_path = _existing_path(getattr(args, scenario["meta_attr"]), label="meta")
-    bias_path = _existing_path(getattr(args, scenario["bias_attr"]), label="bias table")
+    static_bias_path = _existing_path(getattr(args, scenario["bias_attr"]), label="bias table")
     output_path = Path(args.output_dir) / scenario["forecast_name"]
+
+    if not args.no_bias_correction and not args.no_rolling_bias_correction:
+        try:
+            bias_path = _resolve_effective_bias_path(args, scenario, dataset_path, static_bias_path)
+        except Exception as exc:  # noqa: BLE001 - never let a bias refresh failure block the run
+            print(
+                f"rolling bias correction failed ({exc}); falling back to static bias table",
+                flush=True,
+            )
+            bias_path = static_bias_path
+    else:
+        bias_path = static_bias_path
 
     return run_forecast_mode(
         Namespace(
@@ -308,6 +369,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--activate-run", choices=["none", *SCENARIOS.keys()], default="none")
     parser.add_argument("--notes", default=None)
     parser.add_argument("--no-bias-correction", action="store_true")
+    parser.add_argument(
+        "--no-rolling-bias-correction",
+        action="store_true",
+        help=(
+            "Use only the static one-time bias.json snapshot instead of "
+            "refreshing it from the trailing window of live performance."
+        ),
+    )
+    parser.add_argument("--rolling-bias-days", type=int, default=DEFAULT_ROLLING_BIAS_DAYS)
+    parser.add_argument("--rolling-bias-min-days", type=int, default=DEFAULT_ROLLING_BIAS_MIN_DAYS)
     parser.add_argument("--no-replace-existing", action="store_true")
     parser.add_argument("--bias-clip-pct", type=float, default=0.15)
     parser.add_argument("--chunk-size", type=int, default=200_000)

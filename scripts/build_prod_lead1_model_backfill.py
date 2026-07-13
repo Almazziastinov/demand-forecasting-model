@@ -24,9 +24,21 @@ from pipelines.forecast_publish.load_forecast_run import (  # noqa: E402
     create_client,
     load_forecast_run,
 )
+from pipelines.forecast_publish.rolling_bakery_bias import (  # noqa: E402
+    DEFAULT_MIN_DAYS as DEFAULT_ROLLING_BIAS_MIN_DAYS,
+    DEFAULT_TRAILING_DAYS as DEFAULT_ROLLING_BIAS_DAYS,
+    build_rolling_bias_table,
+)
 from pipelines.forecast_publish.table_names import table_name  # noqa: E402
 from src.experiments_v2.apply_bakery_profiles_clickhouse import allocate_from_clickhouse  # noqa: E402
-from src.experiments_v2.bakery_day_forecast import DATE_COL, run_forecast_mode  # noqa: E402
+from src.experiments_v2.bakery_day_forecast import (  # noqa: E402
+    DATE_COL,
+    FORECAST_BIAS_ADJ_COL,
+    FORECAST_COL,
+    load_bias_table,
+    run_forecast_mode,
+)
+from src.experiments_v2.build_bakery_daily_dataset import BAKERY_ID_COL  # noqa: E402
 
 DEFAULT_DATASET_PATH = ROOT / "data" / "processed" / "bakery_daily_sales_uplifted.csv"
 DEFAULT_MODEL_PATH = ROOT / "models" / "bakery_day_model_uplifted.joblib"
@@ -99,6 +111,39 @@ def _resolve_bias_path(path: str | Path | None) -> Path:
     return FALLBACK_BIAS_PATH
 
 
+def _resolve_backfill_bias_path(
+    args: argparse.Namespace, forecast_date: str, history_path: Path, output_dir: Path
+) -> Path:
+    static_path = _resolve_bias_path(args.bias_path)
+    if not getattr(args, "use_rolling_bias", False):
+        return static_path
+
+    bakery_ids = sorted(
+        pd.read_csv(history_path, encoding="utf-8-sig", usecols=[BAKERY_ID_COL])[
+            BAKERY_ID_COL
+        ]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+    static_bias_df = load_bias_table(static_path)
+    effective = build_rolling_bias_table(
+        env_file=args.env_file,
+        bakery_ids=bakery_ids,
+        as_of_date=forecast_date,
+        static_bias_df=static_bias_df,
+        trailing_days=args.rolling_bias_days,
+        min_days=args.rolling_bias_min_days,
+        bakery_forecast_table=table_name(
+            "bakery_forecast_day_snapshots", args.table_suffix
+        ),
+    )
+    date_part = forecast_date.replace("-", "")
+    effective_path = output_dir / f"_lead1_rolling_bias_{date_part}.csv"
+    effective.to_csv(effective_path, index=False, encoding="utf-8-sig")
+    return effective_path
+
+
 def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]:
     output_dir = Path(args.output_dir)
     date_part = forecast_date.replace("-", "")
@@ -110,17 +155,23 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         forecast_date,
         history_path,
     )
+    apply_bias = not getattr(args, "no_bias_correction", False)
+    bias_path = (
+        _resolve_backfill_bias_path(args, forecast_date, history_path, output_dir)
+        if apply_bias
+        else None
+    )
     run_forecast_mode(
         argparse.Namespace(
             dataset_path=str(history_path),
             model_path=args.model_path,
             meta_path=args.meta_path,
-            bias_path=str(_resolve_bias_path(args.bias_path)),
+            bias_path=str(bias_path) if bias_path else "",
             output_path=str(bakery_path),
             weather_path=args.weather_path,
             horizon_days=1,
             start_date=forecast_date,
-            apply_bias_correction=True,
+            apply_bias_correction=apply_bias,
             bias_clip_pct=args.bias_clip_pct,
         )
     )
@@ -133,7 +184,7 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         env_file=args.env_file,
         profile_table=table_name(args.profile_table, args.table_suffix),
         uplift_table=table_name(args.uplift_table, args.table_suffix),
-        forecast_col="bakery_day_forecast_bias_adj",
+        forecast_col=FORECAST_BIAS_ADJ_COL if apply_bias else FORECAST_COL,
         output_suffix=f"prod_lead1_{date_part}",
         uplift_profile_version=args.uplift_profile_version,
         recent_correction_mode=args.recent_correction_mode,
@@ -146,14 +197,20 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
     )
 
     model_is_base = Path(args.model_path).resolve() == BASE_MODEL_PATH.resolve()
+    if not apply_bias:
+        bias_suffix = "_nocorrection"
+    elif getattr(args, "use_rolling_bias", False):
+        bias_suffix = "_rollingbias"
+    else:
+        bias_suffix = ""
     if use_raw:
-        run_id = f"backfill_base_bakery_raw_uplift_sku_{date_part}_h1"
+        run_id = f"backfill_base_bakery_raw_uplift_sku{bias_suffix}_{date_part}_h1"
         model_version = "bakery_day_lgbm_base_lead1_backfill"
     elif model_is_base:
-        run_id = f"backfill_base_bakery_no_sku_uplift_{date_part}_h1"
+        run_id = f"backfill_base_bakery_no_sku_uplift{bias_suffix}_{date_part}_h1"
         model_version = "bakery_day_lgbm_base_lead1_backfill"
     else:
-        run_id = f"backfill_uplifted_bakery_norm_uplift_sku_{date_part}_h1"
+        run_id = f"backfill_uplifted_bakery_norm_uplift_sku{bias_suffix}_{date_part}_h1"
         model_version = "bakery_day_lgbm_uplifted_lead1_backfill"
 
     loaded = load_forecast_run(
@@ -205,6 +262,26 @@ def main() -> None:
     parser.add_argument("--recent-correction-days", type=int, default=30)
     parser.add_argument("--recent-sales-table", default=DEFAULT_RECENT_SALES_TABLE)
     parser.add_argument("--bias-clip-pct", type=float, default=0.15)
+    parser.add_argument(
+        "--no-bias-correction",
+        action="store_true",
+        help="Skip bias correction entirely and use the raw model output as-is.",
+    )
+    parser.add_argument(
+        "--use-rolling-bias",
+        action="store_true",
+        help=(
+            "Replace the static bias.json snapshot with a trailing-window "
+            "rolling correction recomputed for each backfilled date (see "
+            "pipelines/forecast_publish/rolling_bakery_bias.py)."
+        ),
+    )
+    parser.add_argument(
+        "--rolling-bias-days", type=int, default=DEFAULT_ROLLING_BIAS_DAYS
+    )
+    parser.add_argument(
+        "--rolling-bias-min-days", type=int, default=DEFAULT_ROLLING_BIAS_MIN_DAYS
+    )
     parser.add_argument("--table-suffix", default="")
     parser.add_argument("--output-dir", default=str(ROOT / "data" / "processed"))
     parser.add_argument(

@@ -6,6 +6,12 @@
       "runtimeExecutable": "powershell.exe",
       "runtimeArgs": ["-NoProfile", "-Command", "Set-Location apps/forecast_embedded; & '../../.venv/Scripts/python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 3000"],
       "port": 3000
+    },
+    {
+      "name": "forecast_embedded_dev",
+      "runtimeExecutable": "powershell.exe",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/dev_run_embedded_api.ps1"],
+      "port": 3001
     }
   ]
 }
