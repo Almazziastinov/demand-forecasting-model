@@ -101,7 +101,8 @@ Context:
   after the user caught it against the reference file's own data (zero
   SKU overlap between the two groups). Kept as two independent
   variable/constraint families in the MILP so neither can be produced
-  early or shorted in favor of regular SKUs.
+  early or shorted in favor of regular SKUs. **Superseded 2026-07-13** —
+  merged into a single shared-pool model; see the entry below.
 - Full-day proportional demand redistribution (spreading each SKU's whole
   day across existing windows, since exact bakery closing hours aren't
   tracked) made capacity genuinely scarce across most windows at once
@@ -118,6 +119,86 @@ Implication:
   mapping, mandatory assortment) should update
   `docs/baking_plan_implementation.md` alongside the code — it is now the
   canonical spec, not session memory.
+
+## 2026-07-13 - Baking Plan: Дефрост/Двухдневка Merged Into A Single MILP Demand Pool
+
+Decision:
+
+- Дефрост and двухдневка are no longer separate tray-variable/constraint
+  families in the MILP. Each SKU now has one shared `trays[sku][w]` pool
+  sized against its **combined** target (regular + defrost top-up +
+  two-day next-day volume), with the "always fully produced" guarantee
+  preserved via a secondary `mandatory_shortfall[sku]` checkpoint
+  constraint at the last window only, weighted at
+  `MANDATORY_SHORTFALL_WEIGHT = 10_000.0`.
+- Window *placement* of the mandatory portion (which window(s) it lands
+  in) is decided by a post-solve, correctness-preserving pass —
+  `_split_tail` then `_shift_to_later_windows` in
+  `apps/baking_plan/algorithms/milp.py` — not by the solver's objective.
+- Deployed to Blackhole 2026-07-13 — see `CURRENT_STATE.md`. Full
+  mechanics documented in `docs/baking_plan_implementation.md`
+  ("Дефрост vs двухдневка" and "Algorithm" sections).
+
+Context:
+
+- The prior two-independent-families model (2026-07-10/11 decision above)
+  guaranteed дефрост/двухдневка could never be shorted, but gave the
+  solver no signal about *which* window to place that guaranteed
+  production in. In practice this scattered a single SKU's mandatory
+  output across up to 6-7 windows, which the user flagged as
+  operationally wrong — a bakery expects one consolidated late batch, not
+  crumbs across the whole day.
+- Two alternatives were tried and rejected before the shared-pool +
+  post-processing design:
+  1. **Scalar objective-weight window bias**
+     (`LATE_WINDOW_PREFERENCE_WEIGHT` added to later windows' cost).
+     Weighted below `ANTI_WASTE_WEIGHT` it was too small to reliably beat
+     HiGHS's `mip_rel_gap=0.005` tolerance, so placement was
+     non-deterministic between otherwise-identical runs. Weighted large
+     enough to matter (~1e-3-1e-1) it started trading real production for
+     placement — confirmed by a reproducible overproduction case (120
+     units baked against ~75.7 units of actual demand) that appeared only
+     with the weight active and vanished when it was removed. No single
+     scalar weight could simultaneously "matter within the optimality
+     gap" and "never override correctness."
+  2. **Pre-solve greedy backward-fill allocator** (compute
+     дефрост/двухдневка placement first via a separate greedy pass, then
+     feed the MILP only the leftover regular demand). Rejected per the
+     user's explicit correction: this loses the benefit of joint
+     optimization (the MILP would no longer see the true full-day
+     resource picture when placing regular SKUs) and reintroduces the
+     kind of hand-tuned sequencing the MILP rebuild was meant to replace.
+     The user's directive was explicit: treat regular + defrost + two-day
+     as one combined demand figure solved together, and only *relabel*
+     after the fact for display.
+- A related bug was found and fixed during this work: the mandatory
+  checkpoint's lower bound must be `-inf` (not left at its implicit
+  default) for SKUs with zero defrost/two-day component, otherwise it
+  silently duplicates the regular constraint and applies the 10,000×
+  weight to ordinary regular shortfall too — this was caught by
+  `test_two_day_always_wins_capacity_over_higher_priority_regular_sku`
+  failing with the priority order backwards.
+- A second bug produced fractional `Итого` values (e.g. `40.0265...`):
+  `_split_tail` was originally called with the raw continuous solver
+  value for the mandatory boundary instead of the kratnost-rounded
+  regular-only target; fixed to use
+  `ceil(cum_demand[last]/kratnost - eps) * kratnost`.
+
+Implication:
+
+- `ANTI_WASTE_WEIGHT` was raised from `1e-5` to `1e-2` as part of this
+  work, but purely for solve-speed — a weight sweep (1e-5 to 0.3)
+  produced identical production/shortfall at every tested value, so this
+  is not a correctness-relevant change and should not be treated as one
+  if revisited.
+- Any future change to window-placement behavior should extend the
+  post-processing pass, not reintroduce an objective-weight term — the
+  `MIP_REL_GAP`/`ANTI_WASTE_WEIGHT` tension documented above applies to
+  any similar "soft preference" signal added to this MILP.
+- `Итого` in the rendered plan now excludes дефрост (it's tomorrow's
+  batch, not today's) but still includes двухдневка (it fully replaces
+  today's regular production) — see `docs/baking_plan_implementation.md`
+  Rendering section.
 
 ## 2026-07-06 - bakery_sales_lag365 Added To Bakery-Day Model
 
