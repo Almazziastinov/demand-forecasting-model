@@ -13,7 +13,13 @@ sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
 from baking_plan.algorithms.common import DEFROST_SKU_NAMES, window_demand  # noqa: E402
 from baking_plan.algorithms.greedy import allocate_greedy  # noqa: E402
-from baking_plan.capacity import CapacityConfig, resolve_molding_minutes, window_capacity  # noqa: E402
+from baking_plan.capacity import (  # noqa: E402
+    CapacityConfig,
+    effective_kratnost,
+    is_core_baking_category,
+    resolve_molding_minutes_for_sku,
+    window_capacity,
+)
 from baking_plan.demand import SkuDemand  # noqa: E402
 from baking_plan.templates import Window  # noqa: E402
 
@@ -54,18 +60,24 @@ def _assert_capacity_respected(result, skus, windows, capacity, molding_map):
     sku_by_id = {s.product_id: s for s in skus}
     for window in windows:
         trays = sum(
-            math.ceil(qty / sku_by_id[pid].kratnost)
+            math.ceil(qty / effective_kratnost(sku_by_id[pid]))
             for (pid, label), qty in result.items()
             if label == window.label
         )
         baker_min = sum(
-            qty * resolve_molding_minutes(sku_by_id[pid].category_name, molding_map)
+            qty * resolve_molding_minutes_for_sku(sku_by_id[pid], molding_map)
             for (pid, label), qty in result.items()
-            if label == window.label
+            if label == window.label and is_core_baking_category(sku_by_id[pid].category_name)
+        )
+        helper_min = sum(
+            qty * resolve_molding_minutes_for_sku(sku_by_id[pid], molding_map)
+            for (pid, label), qty in result.items()
+            if label == window.label and not is_core_baking_category(sku_by_id[pid].category_name)
         )
         cap = window_capacity(window, capacity)
         assert trays <= cap.tray_slots
         assert baker_min <= cap.baker_minutes
+        assert helper_min <= cap.helper_minutes
 
 
 def test_window_demand_rescales_to_full_day_total():

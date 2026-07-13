@@ -40,35 +40,44 @@ def _capacity_recommendation(
     """Scan every window's actual resource usage (at the pace that was just
     solved) and report which physical resource(s) are pinned at capacity
     somewhere in the day — the reason a shortfall survived even at the floor
-    molding pace. Baker-minutes and tray-slots are independent physical
-    resources (see capacity.window_capacity), so either, both, or neither
-    can be the binding one; only report what's actually maxed. Regular,
+    molding pace. Core baker-minutes, helper-minutes, and tray-slots are
+    independent physical resources (see capacity.window_capacity), so any
+    combination can be binding; only report what's actually maxed. Regular,
     defrost, and two_day allocations can each land in any window now (see
     algorithms/milp.py), so all three are checked in every window, not just
     the last.
     """
     needs_baker = False
+    needs_helper = False
     needs_oven = False
     for window in windows:
         wc = capacity.window_capacity(window, capacity_config)
         used_baker_minutes = 0.0
+        used_helper_minutes = 0.0
         used_trays = 0.0
         for sku in skus:
             key = (sku.product_id, window.label)
             qty = regular_alloc.get(key, 0.0) + defrost_alloc.get(key, 0.0) + two_day_alloc.get(key, 0.0)
             if not qty:
                 continue
-            molding_minutes = capacity.resolve_molding_minutes(sku.category_name, molding_map)
-            used_baker_minutes += qty * molding_minutes
-            used_trays += qty / sku.kratnost
+            molding_minutes = capacity.resolve_molding_minutes_for_sku(sku, molding_map)
+            if capacity.is_core_baking_category(sku.category_name):
+                used_baker_minutes += qty * molding_minutes
+            else:
+                used_helper_minutes += qty * molding_minutes
+            used_trays += qty / capacity.effective_kratnost(sku)
         if wc.baker_minutes > 0 and used_baker_minutes / wc.baker_minutes >= UTILIZATION_THRESHOLD:
             needs_baker = True
+        if wc.helper_minutes > 0 and used_helper_minutes / wc.helper_minutes >= UTILIZATION_THRESHOLD:
+            needs_helper = True
         if wc.tray_slots > 0 and used_trays / wc.tray_slots >= UTILIZATION_THRESHOLD:
             needs_oven = True
 
     recommendation = []
     if needs_baker:
         recommendation.append("пекарь")
+    if needs_helper:
+        recommendation.append("помощник пекаря")
     if needs_oven:
         recommendation.append("печь")
     return recommendation
@@ -98,8 +107,10 @@ def build_baking_plan_workbook(
     capacity_config = capacity.get_capacity_config(bakery_id)
     molding_map = capacity.get_molding_minutes_map()
 
+    normal_core_cap = capacity.daily_core_unit_cap(capacity_config, peak=False)
+    peak_core_cap = capacity.daily_core_unit_cap(capacity_config, peak=True)
     regular_alloc, defrost_alloc, two_day_alloc, shortfall_by_sku, defrost_shortfall_by_sku = (
-        allocate_milp_detailed(skus, windows, capacity_config, molding_map)
+        allocate_milp_detailed(skus, windows, capacity_config, molding_map, core_unit_cap=normal_core_cap)
     )
 
     # Normal pace can't cover today's demand: before concluding this bakery
@@ -109,7 +120,13 @@ def build_baking_plan_workbook(
     capacity_note: str | None = None
     if _has_shortfall(shortfall_by_sku):
         regular_alloc, defrost_alloc, two_day_alloc, shortfall_by_sku, defrost_shortfall_by_sku = (
-            allocate_milp_detailed(skus, windows, capacity_config, capacity.MOLDING_MINUTES_FLOOR)
+            allocate_milp_detailed(
+                skus,
+                windows,
+                capacity_config,
+                capacity.MOLDING_MINUTES_FLOOR,
+                core_unit_cap=peak_core_cap,
+            )
         )
         if _has_shortfall(shortfall_by_sku):
             missing = _capacity_recommendation(
@@ -123,13 +140,13 @@ def build_baking_plan_workbook(
             )
             if missing:
                 capacity_note = (
-                    "Даже при минимальном темпе лепки (54 сек/шт мелкоштучка, 3:30/шт пироги) "
+                    "Даже при ускоренном темпе мелкоштучки (54 сек/шт; пироги считаются по тесто-группе) "
                     f"план не выполняется полностью — требуется дополнительно: {', '.join(missing)}."
                 )
         if capacity_note is None:
             capacity_note = (
                 "Для выполнения плана сегодня требуется ускоренный темп лепки: "
-                "54 сек/шт (мелкоштучка), 3:30/шт (пироги)."
+                "54 сек/шт для мелкоштучки; пироги считаются по тесто-группе."
             )
 
     workbook = render_workbook(

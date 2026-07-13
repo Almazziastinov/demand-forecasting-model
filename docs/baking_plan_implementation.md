@@ -31,6 +31,10 @@ Gap-handling:
 
 - Assortment SKU with no `baking_sku_meta` row → skipped from the plan,
   logged as a data-quality gap (not defaulted or hard-failed).
+- SKU whose `dough_group` marks it as "Замороженные полуфабрикаты" →
+  skipped from the production plan. These products have no baking process;
+  they are placed on the showcase rather than occupying a baking window,
+  oven slot, baker minute, or helper minute.
 - SKU with no forecast for the date → kept in the output with all window
   cells empty and `Итого = 0` (bakers should see the full eligible
   assortment even at zero forecast demand, not have rows vanish).
@@ -51,8 +55,10 @@ regular shortfall.
 
 ## SKU metadata (`baking_sku_meta`, ClickHouse, keyed by `product_id`)
 
-- **Кратность** (`kratnost`) — tray capacity: how many units fit in one
-  bake per tray/plate. A physical constant, not a rounding convenience.
+- **Кратность** (`kratnost`) — production multiple / tray capacity from the
+  reference data. For non-pie SKUs it is used directly; for pie categories
+  the allocator overrides oven fit to 4 pies per tray-slot from the updated
+  operational input.
 - **Тесто-группа** (`dough_group`) — auto-derived from
   `dim_recipes.material_name` (materials starting with "Тесто", mapped via
   `baking_dough_group_mapping`) so new products flow in automatically from
@@ -74,31 +80,45 @@ project items) intentionally left out.
 `baking_category_molding_minutes`, ClickHouse; bakery-override-ready,
 currently one global default row)
 
-- Лепка/formation time: **4 min/unit** for Пироги сытные and Пироги
-  сладкие; **1 min/unit** for every other category.
+- Лепка/formation time: **1 min/unit** for regular baked goods,
+  **4 min/unit** for pies whose `dough_group` contains "песоч", and
+  **2 min/unit** for other pies.
 - Bake time: **30 min/batch**, regardless of category.
 - Oven holds **6 trays** per batch.
-- Default staffing: **2 bakers, 2 ovens** per bakery (placeholder, ready
-  for per-bakery override later).
+- Pies use an effective oven kratnost of **4 pies per tray-slot**. The
+  historical `baking_sku_meta.kratnost` still controls production multiples
+  for non-pie SKUs, but pie oven fit is overridden in code from the updated
+  operational input.
+- Default staffing: **2 bakers, 2 baker assistants, 2 ovens** per bakery
+  (placeholder, ready for per-bakery override later).
 
-Capacity is modeled in **two independent dimensions per window** —
-baker-minutes (`bakers_count * window_duration_minutes`) and tray-slots
-(`ovens_count * (window_duration_minutes // bake_minutes) *
-trays_per_oven_batch`). Both must be respected; a window can be tray-slack
-but baker-minute-bound (or vice versa) — this is correct multi-resource
-packing behavior, not a bug, and shows up as apparently "unused" tray
-capacity when baker-minutes is actually the binding constraint.
+Capacity is modeled in **three independent dimensions per window**:
+core baker-minutes (`bakers_count * window_duration_minutes`) for
+Выпечка сытная/сладкая and Пироги сытные/сладкие, helper-minutes
+(`helpers_count * window_duration_minutes`) for products outside those core
+categories, and shared tray-slots (`ovens_count *
+(window_duration_minutes // bake_minutes) * trays_per_oven_batch`). All
+three must be respected; a window can be tray-slack but labor-bound (or vice
+versa), and helper-owned products no longer consume core baker minutes.
 
-**Molding-pace floor and automatic retry (2026-07-13):** the 1/4
-min-per-unit figures above are the *normal* pace. If the plan can't be
-fully covered at that pace, `service.build_baking_plan_workbook` retries
-once at a fixed floor pace — 54 sec/unit (default categories), 3:30/unit
-(Пироги сытные/сладкие), confirmed directly by the user, no ClickHouse
-source of truth yet (`apps/baking_plan/capacity.py:MOLDING_MINUTES_FLOOR`).
+There is also a **daily core-unit throughput cap** independent of per-SKU
+minutes: one baker can produce roughly **600 total units** across pies +
+small baked goods in normal conditions and up to **800 total units** at peak
+pace over the 12-hour window grid. The first solve uses `600 *
+bakers_count`; if that leaves shortfall, the accelerated retry uses `800 *
+bakers_count`. Helper-owned categories do not consume this core-unit cap.
+
+**Molding-pace floor and automatic retry (2026-07-13, revised
+2026-07-13):** if the plan can't be fully covered at the normal pace,
+`service.build_baking_plan_workbook` retries once at a fixed floor pace for
+non-pie categories — 54 sec/unit. Pie timing is not taken from the old
+category floor anymore; it is resolved by SKU/dough group as described
+above.
 If shortfall remains even at the floor, `service.py` scans every window's
 actual resource usage and adds a note to the rendered plan naming which
-physical resource(s) are maxed out — "требуется дополнительно: пекарь"
-and/or "печь" — rather than leaving the shortfall unexplained.
+physical resource(s) are maxed out — "требуется дополнительно: пекарь",
+"помощник пекаря", and/or "печь" — rather than leaving the shortfall
+unexplained.
 
 ## Windows
 
@@ -122,21 +142,35 @@ These are still business-distinct and must stay conceptually separate,
 but as of the 2026-07-13 redesign they are **not** separate variable
 families in the solver — see "Algorithm" below for why that changed.
 
-- **Дефрост**: a SKU gets its **normal** same-day window production
-  *plus* an extra overnight batch on top, sized from **tomorrow's**
-  early-morning forecast hours (06:00–12:00). Triggered by SKU identity
-  (`DEFROST_SKU_NAMES` in `apps/baking_plan/constants.py` — a hardcoded
-  5-name placeholder list; **no ClickHouse source of truth exists yet**,
-  open question). Rendered as `"N (доп. партия на завтра)"` with a
-  light-coral fill — now in **whichever window(s) the post-processing
-  step consolidates it into**, preferring the latest window with spare
+- **Дефрост / прямой ночной запас**: a SKU gets its **normal** same-day
+  window production *plus* an extra overnight batch on top, sized from
+  **tomorrow's** early-morning forecast hours (06:00–12:00) and capped by
+  the recommended SKU quantity from the freezer/refrigerator night-storage
+  PDFs dated 15.05.2026 (`NIGHT_STORAGE_DIRECT_UNITS_BY_SKU` in
+  `apps/baking_plan/constants.py`; `DEFROST_SKU_NAMES` remains a
+  backwards-compatible alias). The next day credits that same capped
+  amount back out of early-hour regular demand via the lead-1 snapshot, so
+  the plan does not ask the day shift to remake stock already left
+  overnight. Rendered as
+  `"N (ночная дефр)"` with a light-coral
+  fill — now in **whichever window(s) the post-processing step
+  consolidates it into**, preferring the latest window with spare
   capacity rather than being hardwired to the last window (see below).
+  The label text is a deliberate cosmetic choice made 2026-07-13: the
+  post-processing pass usually does land defrost in the last window
+  (that's what it's tuned to prefer), so "ночная" reads correctly in the
+  common case even though it's no longer a hard guarantee.
 - **Двухдневка** (`is_two_day`): **zero** regular-window production
   today (today's stock was already baked in yesterday's last window) —
   the entire **next day's** forecast bakes in one batch, again placed by
   post-processing to prefer the latest feasible window(s) rather than
   always the last one. Rendered as a plain number with a light-purple
   fill, no text suffix.
+- **Ночные заготовки**: prep-only rows from the refrigerator/freezer PDFs
+  (formed blanks / dough balls for жар киши and сметанники) are not
+  treated as finished stock and do not reduce SKU demand. Instead they
+  reduce daytime labor minutes for the mapped SKUs through
+  `NIGHT_PREP_LABOR_MINUTES_BY_SKU`.
 
 Both mechanics are business-mandatory: they must always be produced in
 full regardless of their own sales priority, and only the capacity left
@@ -150,6 +184,14 @@ cluster in nearby windows rather than being scattered by pure priority
 rank, though this isn't a hard constraint in the MILP formulation (it
 still comes out tighter than greedy's explicit whole-group-or-nothing
 rule in practice).
+
+Production is not forced to open a full extra batch for a tiny tail above a
+multiple. For example, a regular SKU with forecast 61 and `kratnost = 20`
+may be planned as 60 rather than 80. The tolerance is intentionally small
+(up to 50% of `kratnost`) and does **not** drop the first partial batch to
+zero: forecast 5 with `kratnost = 20` still produces 20 unless
+capacity/priority prevents it. With `kratnost = 20`, forecast 70 can stay
+at 60, while 71 requires the next batch and plans 80.
 
 ## Algorithm: MILP chosen over greedy
 
@@ -276,20 +318,25 @@ bakery/date, so the template's row structure doesn't generalize. Layout:
   demand even at the molding-pace floor, a bold note row is inserted at
   row 3 (`CAPACITY_NOTE_FILL`, shifting the header down to row 4) naming
   which physical resource(s) are the bottleneck — "требуется
-  дополнительно: пекарь" and/or "печь". If the floor pace *did* resolve
-  the shortfall, a softer informational note about the accelerated pace
-  is shown instead.
+  дополнительно: пекарь", "помощник пекаря", and/or "печь". If the floor
+  pace *did* resolve the shortfall, a softer informational note about the
+  accelerated pace is shown instead.
 
 ## Known open items
 
-- `DEFROST_SKU_NAMES` and `MANDATORY_ASSORTMENT` are hardcoded constants
-  with no ClickHouse source of truth.
-- `MOLDING_MINUTES_FLOOR` (54 sec/unit default, 3:30/unit for Пироги
-  categories) and `UTILIZATION_THRESHOLD = 0.99` are also hardcoded,
-  confirmed verbally by the user with no ClickHouse-backed source of
-  truth yet — same category of open item as the two above.
+- `NIGHT_STORAGE_DIRECT_UNITS_BY_SKU`,
+  `NIGHT_PREP_LABOR_MINUTES_BY_SKU`, and `MANDATORY_ASSORTMENT` are
+  hardcoded constants with no ClickHouse source of truth.
+- `MOLDING_MINUTES_FLOOR` (54 sec/unit for non-pie categories),
+  `UTILIZATION_THRESHOLD = 0.99`, `helpers_count = 2`,
+  `PIE_EFFECTIVE_KRATNOST = 4`, and the sand-dough marker `"песоч"` are
+  hardcoded with no ClickHouse-backed source of truth yet — same category
+  of open item as the two above.
+- `NORMAL_DAILY_CORE_UNITS_PER_BAKER = 600` and
+  `PEAK_DAILY_CORE_UNITS_PER_BAKER = 800` are hardcoded until moved to a
+  ClickHouse-backed capacity table.
 - The yesterday-defrost credit (`_load_yesterday_defrost_offset`) only
-  applies to `DEFROST_SKU_NAMES` members. `is_two_day` SKUs have no
+  applies to direct night-storage members. `is_two_day` SKUs have no
   analogous "yesterday" top-up concept — they bake their *entire* next
   day in one batch rather than a partial early-hour amount, so there's
   no partial credit to reconcile.

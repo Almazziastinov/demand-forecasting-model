@@ -29,8 +29,9 @@ Model per (bakery, date):
   `shortfall_by_sku[sku] = max(shortfall_regular[sku][last],
   mandatory_shortfall[sku])` is the correct *total* unmet demand (summing
   them would double-count the overlapping gap).
-- Capacity per window: baker-minutes and oven-tray-slots
-  (`capacity.window_capacity`), shared by the one `trays` pool.
+- Capacity per window: core baker-minutes, helper-minutes, and
+  oven-tray-slots (`capacity.window_capacity`), shared by the one `trays`
+  pool. Helper-owned SKUs do not consume core baker minutes.
 - Objective: minimize `avg_daily_sales[sku] * shortfall_regular` +
   `MANDATORY_SHORTFALL_WEIGHT * mandatory_shortfall` + `ANTI_WASTE_WEIGHT *
   trays` (see ANTI_WASTE_WEIGHT for why the last term exists).
@@ -68,7 +69,13 @@ import math
 import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, milp
 
-from ..capacity import CapacityConfig, resolve_molding_minutes, window_capacity
+from ..capacity import (
+    CapacityConfig,
+    effective_kratnost,
+    is_core_baking_category,
+    resolve_molding_minutes_for_sku,
+    window_capacity,
+)
 from ..demand import SkuDemand
 from ..templates import Window
 from .common import DEFROST_SKU_NAMES, defrost_demand, two_day_demand, window_demand
@@ -114,6 +121,26 @@ MANDATORY_SHORTFALL_WEIGHT = 10_000.0
 # SOLVE_TIME_LIMIT_SECONDS safety margin.
 ANTI_WASTE_WEIGHT = 1e-2
 
+# Do not open one more full production batch for a tiny tail above the
+# previous multiple. Example: forecast 61 with kratnost=20 should be allowed
+# to stay at 60 rather than forcing 80 and crowding out other SKUs. The first
+# partial batch is still protected: demand 5 with kratnost=20 is not rounded
+# down to 0.
+ROUNDING_TAIL_MAX_FRACTION = 0.50
+
+
+def _rounding_tolerant_target(value: float, kratnost: float) -> float:
+    if value <= 0 or kratnost <= 0:
+        return value
+    floor_value = math.floor(value / kratnost + 1e-9) * kratnost
+    if floor_value <= 0:
+        return value
+    tail = value - floor_value
+    tolerance = ROUNDING_TAIL_MAX_FRACTION * kratnost
+    if 0 < tail <= tolerance + 1e-9:
+        return floor_value
+    return value
+
 
 def _shift_to_later_windows(
     movable: dict[tuple[str, str], float],
@@ -152,23 +179,30 @@ def _shift_to_later_windows(
         return movable
 
     n_win = len(windows)
-    kratnost_by_id = {sku.product_id: sku.kratnost for sku in skus}
+    kratnost_by_id = {sku.product_id: effective_kratnost(sku) for sku in skus}
     category_by_id = {sku.product_id: sku.category_name for sku in skus}
     priority_by_id = {sku.product_id: sku.avg_daily_sales for sku in skus}
+    sku_by_id = {sku.product_id: sku for sku in skus}
     window_caps = [window_capacity(w, capacity) for w in windows]
     label_idx = {w.label: idx for idx, w in enumerate(windows)}
 
     used_baker_min = [0.0] * n_win
+    used_helper_min = [0.0] * n_win
     used_trays = [0.0] * n_win
     for (pid, label), qty in fixed.items():
         idx = label_idx[label]
-        molding_minutes = resolve_molding_minutes(category_by_id[pid], molding_minutes_map)
-        used_baker_min[idx] += qty * molding_minutes
+        molding_minutes = resolve_molding_minutes_for_sku(sku_by_id[pid], molding_minutes_map)
+        if is_core_baking_category(category_by_id[pid]):
+            used_baker_min[idx] += qty * molding_minutes
+        else:
+            used_helper_min[idx] += qty * molding_minutes
         used_trays[idx] += qty / kratnost_by_id[pid]
 
     remaining_by_sku: dict[str, float] = {}
+    original_by_sku: dict[str, dict[str, float]] = {}
     for (pid, _label), qty in movable.items():
         remaining_by_sku[pid] = remaining_by_sku.get(pid, 0.0) + qty
+        original_by_sku.setdefault(pid, {})[_label] = original_by_sku.setdefault(pid, {}).get(_label, 0.0) + qty
     sku_order = sorted(remaining_by_sku, key=lambda pid: priority_by_id[pid], reverse=True)
 
     result: dict[tuple[str, str], float] = {}
@@ -178,20 +212,40 @@ def _shift_to_later_windows(
             if remaining_qty <= 1e-9:
                 continue
             kratnost = kratnost_by_id[pid]
-            molding_minutes = resolve_molding_minutes(category_by_id[pid], molding_minutes_map)
-            remaining_baker_min = window_caps[dst_idx].baker_minutes - used_baker_min[dst_idx]
+            molding_minutes = resolve_molding_minutes_for_sku(sku_by_id[pid], molding_minutes_map)
+            if is_core_baking_category(category_by_id[pid]):
+                remaining_labor_min = window_caps[dst_idx].baker_minutes - used_baker_min[dst_idx]
+            else:
+                remaining_labor_min = window_caps[dst_idx].helper_minutes - used_helper_min[dst_idx]
             remaining_trays = window_caps[dst_idx].tray_slots - used_trays[dst_idx]
-            max_by_baker_min = remaining_baker_min / molding_minutes if molding_minutes > 0 else float("inf")
-            movable_trays = max(0.0, min(remaining_qty / kratnost, remaining_trays, max_by_baker_min))
+            max_by_labor_min = (
+                remaining_labor_min / (molding_minutes * kratnost)
+                if molding_minutes > 0 and kratnost > 0
+                else float("inf")
+            )
+            movable_trays = max(0.0, min(remaining_qty / kratnost, remaining_trays, max_by_labor_min))
             movable_trays = float(np.floor(movable_trays + 1e-9))
             if movable_trays <= 0:
                 continue
             move_qty = movable_trays * kratnost
             key = (pid, windows[dst_idx].label)
             result[key] = result.get(key, 0.0) + move_qty
-            used_baker_min[dst_idx] += move_qty * molding_minutes
+            if is_core_baking_category(category_by_id[pid]):
+                used_baker_min[dst_idx] += move_qty * molding_minutes
+            else:
+                used_helper_min[dst_idx] += move_qty * molding_minutes
             used_trays[dst_idx] += movable_trays
             remaining_by_sku[pid] -= move_qty
+    for pid, remaining_qty in remaining_by_sku.items():
+        if remaining_qty <= 1e-9:
+            continue
+        for label, original_qty in original_by_sku.get(pid, {}).items():
+            if remaining_qty <= 1e-9:
+                break
+            keep_qty = min(original_qty, remaining_qty)
+            key = (pid, label)
+            result[key] = result.get(key, 0.0) + keep_qty
+            remaining_qty -= keep_qty
     return result
 
 
@@ -225,11 +279,65 @@ def _split_tail(
     return regular_part, mandatory_part
 
 
+def _swap_mandatory_labels_later(
+    regular: dict[tuple[str, str], float],
+    mandatory: dict[tuple[str, str], float],
+    skus: list[SkuDemand],
+    windows: list[Window],
+) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], float]]:
+    """Move the mandatory label later by swapping equal-SKU quantities.
+
+    After `_shift_to_later_windows`, a mandatory batch can still sit earlier
+    than regular production of the same SKU. Physically those batches are
+    identical: same SKU, same kratnost, same labor, same oven slots. Swapping
+    only the labels therefore does not change capacity usage or total
+    production, but makes the rendered "ночная дефр"/two-day portion land as
+    late as possible.
+    """
+    if not regular or not mandatory or not windows:
+        return regular, mandatory
+
+    window_idx = {window.label: idx for idx, window in enumerate(windows)}
+    product_ids = {sku.product_id for sku in skus}
+    regular_out = dict(regular)
+    mandatory_out = dict(mandatory)
+
+    for pid in product_ids:
+        for early in windows:
+            early_key = (pid, early.label)
+            early_mandatory = mandatory_out.get(early_key, 0.0)
+            if early_mandatory <= 1e-9:
+                continue
+            for late in reversed(windows):
+                if window_idx[late.label] <= window_idx[early.label] or early_mandatory <= 1e-9:
+                    break
+                late_key = (pid, late.label)
+                late_regular = regular_out.get(late_key, 0.0)
+                if late_regular <= 1e-9:
+                    continue
+                swap_qty = min(early_mandatory, late_regular)
+
+                mandatory_out[early_key] = mandatory_out.get(early_key, 0.0) - swap_qty
+                if mandatory_out[early_key] <= 1e-9:
+                    mandatory_out.pop(early_key, None)
+                mandatory_out[late_key] = mandatory_out.get(late_key, 0.0) + swap_qty
+
+                regular_out[late_key] = regular_out.get(late_key, 0.0) - swap_qty
+                if regular_out[late_key] <= 1e-9:
+                    regular_out.pop(late_key, None)
+                regular_out[early_key] = regular_out.get(early_key, 0.0) + swap_qty
+
+                early_mandatory -= swap_qty
+
+    return regular_out, mandatory_out
+
+
 def allocate_milp_detailed(
     skus: list[SkuDemand],
     windows: list[Window],
     capacity: CapacityConfig,
     molding_minutes_map: dict[str, float],
+    core_unit_cap: int | None = None,
 ) -> tuple[
     dict[tuple[str, str], float],
     dict[tuple[str, str], float],
@@ -259,11 +367,19 @@ def allocate_milp_detailed(
         [defrost_demand(sku) + two_day_demand(sku) for sku in skus]
     )  # (n_sku,) — at most one of the two terms is ever nonzero per SKU
 
-    kratnost = np.array([sku.kratnost for sku in skus], dtype=float)
-    molding_min = np.array(
-        [resolve_molding_minutes(sku.category_name, molding_minutes_map) for sku in skus],
+    kratnost = np.array([effective_kratnost(sku) for sku in skus], dtype=float)
+    coverage_target = np.array(
+        [
+            [_rounding_tolerant_target(cum_demand[i, w], kratnost[i]) for w in range(n_win)]
+            for i in range(n_sku)
+        ],
         dtype=float,
     )
+    molding_min = np.array(
+        [resolve_molding_minutes_for_sku(sku, molding_minutes_map) for sku in skus],
+        dtype=float,
+    )
+    is_core = np.array([is_core_baking_category(sku.category_name) for sku in skus], dtype=bool)
     priority = np.array([sku.avg_daily_sales for sku in skus], dtype=float)
 
     n_regular = n_sku * n_win
@@ -286,7 +402,7 @@ def allocate_milp_detailed(
         c[mandatory_shortfall_idx(i)] = MANDATORY_SHORTFALL_WEIGHT
         c[[trays_idx(i, w) for w in range(n_win)]] = ANTI_WASTE_WEIGHT
 
-    # Regular cumulative coverage: kratnost[i] * sum_{w'<=w} trays[i,w'] + shortfall_regular[i,w] >= cum_demand[i,w]
+    # Regular cumulative coverage: kratnost[i] * sum_{w'<=w} trays[i,w'] + shortfall_regular[i,w] >= coverage_target[i,w]
     n_cov_rows = n_sku * n_win
     a_cov = np.zeros((n_cov_rows, n_vars))
     lb_cov = np.zeros(n_cov_rows)
@@ -296,7 +412,7 @@ def allocate_milp_detailed(
             for w2 in range(w + 1):
                 a_cov[row, trays_idx(i, w2)] = kratnost[i]
             a_cov[row, shortfall_idx(i, w)] = 1.0
-            lb_cov[row] = cum_demand[i, w]
+            lb_cov[row] = coverage_target[i, w]
             row += 1
     coverage_constraint = LinearConstraint(a_cov, lb_cov, np.full(n_cov_rows, np.inf))
 
@@ -317,27 +433,40 @@ def allocate_milp_detailed(
             a_mand[i, trays_idx(i, w2)] = kratnost[i]
         a_mand[i, mandatory_shortfall_idx(i)] = 1.0
         if mandatory_extra[i] > 1e-9:
-            lb_mand[i] = cum_demand[i, last_w] + mandatory_extra[i]
+            lb_mand[i] = coverage_target[i, last_w] + mandatory_extra[i]
     mandatory_constraint = LinearConstraint(a_mand, lb_mand, np.full(n_sku, np.inf))
 
-    # Per-window capacity: baker-minutes and tray-slots, one shared trays pool.
+    # Per-window capacity: core baker-minutes, helper-minutes, and tray-slots,
+    # one shared trays pool.
     window_caps = [window_capacity(w, capacity) for w in windows]
-    a_cap = np.zeros((2 * n_win, n_vars))
-    ub_cap = np.zeros(2 * n_win)
+    a_cap = np.zeros((3 * n_win, n_vars))
+    ub_cap = np.zeros(3 * n_win)
     for w in range(n_win):
         for i in range(n_sku):
-            a_cap[2 * w, trays_idx(i, w)] = kratnost[i] * molding_min[i]
-            a_cap[2 * w + 1, trays_idx(i, w)] = 1.0
-        ub_cap[2 * w] = window_caps[w].baker_minutes
-        ub_cap[2 * w + 1] = window_caps[w].tray_slots
-    capacity_constraint = LinearConstraint(a_cap, np.full(2 * n_win, -np.inf), ub_cap)
+            labor_row = 3 * w if is_core[i] else 3 * w + 1
+            a_cap[labor_row, trays_idx(i, w)] = kratnost[i] * molding_min[i]
+            a_cap[3 * w + 2, trays_idx(i, w)] = 1.0
+        ub_cap[3 * w] = window_caps[w].baker_minutes
+        ub_cap[3 * w + 1] = window_caps[w].helper_minutes
+        ub_cap[3 * w + 2] = window_caps[w].tray_slots
+    capacity_constraint = LinearConstraint(a_cap, np.full(3 * n_win, -np.inf), ub_cap)
+
+    constraints = [coverage_constraint, mandatory_constraint, capacity_constraint]
+    if core_unit_cap is not None:
+        a_day = np.zeros((1, n_vars))
+        for i in range(n_sku):
+            if not is_core[i]:
+                continue
+            for w in range(n_win):
+                a_day[0, trays_idx(i, w)] = kratnost[i]
+        constraints.append(LinearConstraint(a_day, np.array([-np.inf]), np.array([float(core_unit_cap)])))
 
     integrality = np.zeros(n_vars)
     integrality[:n_regular] = 1  # trays integer; both shortfall families stay continuous
 
     result = milp(
         c,
-        constraints=[coverage_constraint, mandatory_constraint, capacity_constraint],
+        constraints=constraints,
         integrality=integrality,
         bounds=Bounds(lb=0, ub=np.inf),
         options={"time_limit": SOLVE_TIME_LIMIT_SECONDS, "mip_rel_gap": MIP_REL_GAP},
@@ -359,7 +488,7 @@ def allocate_milp_detailed(
         for w in range(n_win):
             trays = round(result.x[trays_idx(i, w)])
             if trays > 0:
-                produced_by_window[windows[w].label] = trays * sku.kratnost
+                produced_by_window[windows[w].label] = trays * effective_kratnost(sku)
 
         if mandatory_extra[i] > 1e-9:
             # Claim (total actually produced) - (regular's own rounded-up
@@ -376,7 +505,9 @@ def allocate_milp_detailed(
             # because of the mandatory addition.
             total_produced = sum(produced_by_window.values())
             regular_only_min = (
-                math.ceil(cum_demand[i, last_w] / kratnost[i] - 1e-9) * kratnost[i] if kratnost[i] > 0 else 0.0
+                math.ceil(coverage_target[i, last_w] / kratnost[i] - 1e-9) * kratnost[i]
+                if kratnost[i] > 0
+                else 0.0
             )
             mandatory_to_claim = max(0.0, total_produced - regular_only_min)
             regular_part, mandatory_part = _split_tail(produced_by_window, windows, mandatory_to_claim)
@@ -396,6 +527,7 @@ def allocate_milp_detailed(
         )
 
     mandatory = _shift_to_later_windows(mandatory, regular, skus, windows, capacity, molding_minutes_map)
+    regular, mandatory = _swap_mandatory_labels_later(regular, mandatory, skus, windows)
 
     sku_by_id = {sku.product_id: sku for sku in skus}
     defrost_out: dict[tuple[str, str], float] = {}
@@ -412,6 +544,7 @@ def allocate_milp(
     windows: list[Window],
     capacity: CapacityConfig,
     molding_minutes_map: dict[str, float],
+    core_unit_cap: int | None = None,
 ) -> dict[tuple[str, str], float]:
     """Return {(product_id, window.label): qty} for every SKU actually scheduled.
 
@@ -419,7 +552,7 @@ def allocate_milp(
     use `allocate_milp_detailed` when they need to stay distinguishable.
     """
     regular, defrost_out, two_day_out, _shortfall_by_sku, _defrost_shortfall_by_sku = allocate_milp_detailed(
-        skus, windows, capacity, molding_minutes_map
+        skus, windows, capacity, molding_minutes_map, core_unit_cap=core_unit_cap
     )
     merged = dict(regular)
     for key, qty in defrost_out.items():

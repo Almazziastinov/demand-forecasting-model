@@ -15,7 +15,10 @@ from baking_plan.algorithms.milp import allocate_milp_detailed  # noqa: E402
 from baking_plan.capacity import (  # noqa: E402
     CapacityConfig,
     MOLDING_MINUTES_FLOOR,
+    effective_kratnost,
+    is_core_baking_category,
     resolve_molding_minutes_floor,
+    resolve_molding_minutes_for_sku,
 )
 from baking_plan.demand import SkuDemand  # noqa: E402
 from baking_plan.rendering import (  # noqa: E402
@@ -58,11 +61,11 @@ def make_sku(
 
 
 def test_resolve_molding_minutes_floor_matches_known_categories():
-    assert resolve_molding_minutes_floor("Пироги сладкие") == pytest.approx(210 / 60)
-    assert resolve_molding_minutes_floor("Пироги сытные") == pytest.approx(210 / 60)
-    # Unknown category falls back to the '' default floor (54s), same
-    # fallback pattern as resolve_molding_minutes().
+    # Pie categories are resolved by SKU/dough group in
+    # resolve_molding_minutes_for_sku(); the generic floor applies to
+    # non-pie categories.
     assert resolve_molding_minutes_floor("Выпечка сытная") == pytest.approx(54 / 60)
+    assert resolve_molding_minutes_floor("Пироги сладкие") == pytest.approx(54 / 60)
     assert MOLDING_MINUTES_FLOOR[""] == pytest.approx(54 / 60)
 
 
@@ -100,7 +103,7 @@ def test_capacity_recommendation_flags_baker_when_only_baker_minutes_maxed():
     cap = CapacityConfig(bakers_count=1, ovens_count=10, trays_per_oven_batch=10, bake_minutes=60)
     # baker_minutes = 1*60 = 60 (tight); tray_slots = 10*(60//60)*10 = 100 (roomy)
     molding = {"": 1}
-    sku = make_sku("A", kratnost=1, category="Фастфуд")
+    sku = make_sku("A", kratnost=1, category="Выпечка сытная")
     regular_alloc = {("A", "W"): 60.0}  # 60 baker-min used of 60 (100%); 60 trays of 100 (60%)
     rec = service._capacity_recommendation([sku], windows, cap, molding, regular_alloc, {}, {})
     assert rec == ["пекарь"]
@@ -117,6 +120,22 @@ def test_capacity_recommendation_flags_oven_when_only_trays_maxed():
     assert rec == ["печь"]
 
 
+def test_capacity_recommendation_flags_helper_when_helper_minutes_maxed():
+    windows = [Window("W", 0, 1)]  # 60 minutes
+    cap = CapacityConfig(
+        bakers_count=100,
+        ovens_count=10,
+        trays_per_oven_batch=10,
+        bake_minutes=60,
+        helpers_count=1,
+    )
+    molding = {"": 1}
+    sku = make_sku("A", kratnost=1, category="Фастфуд")
+    regular_alloc = {("A", "W"): 60.0}
+    rec = service._capacity_recommendation([sku], windows, cap, molding, regular_alloc, {}, {})
+    assert rec == ["помощник пекаря"]
+
+
 def test_capacity_recommendation_empty_when_nothing_maxed():
     windows = [Window("W", 0, 1)]
     cap = CapacityConfig(bakers_count=10, ovens_count=10, trays_per_oven_batch=10, bake_minutes=60)
@@ -125,6 +144,17 @@ def test_capacity_recommendation_empty_when_nothing_maxed():
     regular_alloc = {("A", "W"): 1.0}
     rec = service._capacity_recommendation([sku], windows, cap, molding, regular_alloc, {}, {})
     assert rec == []
+
+
+def test_effective_capacity_helpers_match_current_business_rules():
+    non_sand_pie = make_sku("P1", category="Пироги сытные", dough_group="дрожжевое", kratnost=1)
+    sand_pie = make_sku("P2", category="Пироги сладкие", dough_group="песочка", kratnost=1)
+    fastfood = make_sku("F", category="Фастфуд", kratnost=1)
+
+    assert effective_kratnost(non_sand_pie) == 4
+    assert resolve_molding_minutes_for_sku(non_sand_pie, MOLDING) == 2.0
+    assert resolve_molding_minutes_for_sku(sand_pie, MOLDING) == 4.0
+    assert not is_core_baking_category(fastfood.category_name)
 
 
 def _cell_by_name(sheet, name: str):

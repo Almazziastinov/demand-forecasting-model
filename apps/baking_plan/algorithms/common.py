@@ -34,7 +34,11 @@ in "комментарии"):
 
 from __future__ import annotations
 
-from ..constants import DEFROST_HOURS, DEFROST_SKU_NAMES
+from ..constants import (
+    DEFROST_HOURS,
+    DEFROST_SKU_NAMES,
+    NIGHT_STORAGE_DIRECT_UNITS_BY_SKU,
+)
 from ..demand import SkuDemand
 from ..templates import Window
 
@@ -77,10 +81,16 @@ def window_demand(sku: SkuDemand, windows: list[Window]) -> list[float]:
 
 
 def defrost_demand(sku: SkuDemand) -> float:
-    """Extra overnight batch (next-day early hours) for `DEFROST_SKU_NAMES` members."""
-    if sku.product_name not in DEFROST_SKU_NAMES:
+    """Extra overnight batch for direct night-storage SKUs.
+
+    The batch is sized to next-day early-hour demand but capped by the PDF
+    recommended night-storage quantity for that SKU.
+    """
+    night_limit = NIGHT_STORAGE_DIRECT_UNITS_BY_SKU.get(sku.product_name)
+    if night_limit is None:
         return 0.0
-    return sum(sku.next_day_hourly_qty.get(h, 0.0) for h in DEFROST_HOURS)
+    early_demand = sum(sku.next_day_hourly_qty.get(h, 0.0) for h in DEFROST_HOURS)
+    return min(float(night_limit), early_demand)
 
 
 def two_day_demand(sku: SkuDemand) -> float:

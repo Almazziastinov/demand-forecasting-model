@@ -20,7 +20,7 @@ from datetime import timedelta
 
 from ._clickhouse import get_client, records, table_name
 from .assortment import get_bakeable_products
-from .constants import DEFROST_HOURS, DEFROST_SKU_NAMES
+from .constants import DEFROST_HOURS, DEFROST_SKU_NAMES, NIGHT_STORAGE_DIRECT_UNITS_BY_SKU
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,12 @@ BAKEABLE_CATEGORIES = {
     "Выпечка сладкая",
     "Фастфуд",
 }
+FROZEN_SEMI_FINISHED_MARKER = "замороженные полуфабрикаты"
+
+
+def _is_no_bake_meta(meta: dict) -> bool:
+    dough_group = str(meta.get("dough_group") or "").strip().lower()
+    return FROZEN_SEMI_FINISHED_MARKER in dough_group
 
 
 @dataclass
@@ -168,6 +174,35 @@ def _apply_defrost_offset(
             today_hourly[hour] = max(0.0, today_hourly.get(hour, 0.0) - offset_qty)
 
 
+def _cap_defrost_offset(
+    offset: dict[str, dict[int, float]],
+    name_by_id: dict[str, str],
+) -> dict[str, dict[int, float]]:
+    """Cap yesterday's credited night stock by the PDF SKU allowance.
+
+    The lead-1 snapshot tells us what yesterday expected for today's early
+    hours. The PDFs tell us how much stock may be left overnight. Use both:
+    credit no more than the allowed overnight quantity, consuming the earliest
+    hours first.
+    """
+    capped: dict[str, dict[int, float]] = {}
+    for pid, hour_qty in offset.items():
+        limit = NIGHT_STORAGE_DIRECT_UNITS_BY_SKU.get(name_by_id.get(pid, ""))
+        if limit is None:
+            continue
+        remaining = float(limit)
+        for hour in sorted(hour_qty):
+            if remaining <= 1e-9:
+                break
+            qty = hour_qty[hour]
+            if qty <= 0:
+                continue
+            take = min(qty, remaining)
+            capped.setdefault(pid, {})[hour] = take
+            remaining -= take
+    return capped
+
+
 def _load_avg_daily_sales(bakery_id: int, product_ids: list[str]) -> dict[str, float]:
     if not product_ids:
         return {}
@@ -206,7 +241,15 @@ def build_sku_demand(
             skipped,
         )
 
-    matched_ids = [pid for pid in product_ids if pid in sku_meta]
+    no_bake_ids = [pid for pid in product_ids if pid in sku_meta and _is_no_bake_meta(sku_meta[pid])]
+    if no_bake_ids:
+        logger.info(
+            "build_sku_demand: %d products require no baking process, skipping production plan rows: %s",
+            len(no_bake_ids),
+            no_bake_ids,
+        )
+
+    matched_ids = [pid for pid in product_ids if pid in sku_meta and pid not in no_bake_ids]
     hourly = _load_hourly(run_id, forecast_date, bakery_id, matched_ids)
 
     # Next-day hourly is needed for both двухдневка SKUs (two_day_demand:
@@ -228,6 +271,7 @@ def build_sku_demand(
     # batch, so only they need the offset.
     defrost_ids = [pid for pid in matched_ids if name_by_id[pid] in DEFROST_SKU_NAMES]
     yesterday_defrost_offset = _load_yesterday_defrost_offset(bakery_id, forecast_date, defrost_ids)
+    yesterday_defrost_offset = _cap_defrost_offset(yesterday_defrost_offset, name_by_id)
     _apply_defrost_offset(hourly, yesterday_defrost_offset)
 
     avg_sales = _load_avg_daily_sales(bakery_id, matched_ids)
@@ -236,7 +280,7 @@ def build_sku_demand(
     for row in candidates:
         pid = row["product_id"]
         meta = sku_meta.get(pid)
-        if meta is None:
+        if meta is None or pid in no_bake_ids:
             continue
         rows.append(
             SkuDemand(

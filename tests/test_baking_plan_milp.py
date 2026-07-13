@@ -12,8 +12,19 @@ sys.path.insert(0, str(ROOT / "apps"))
 sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
 from baking_plan.algorithms.common import DEFROST_SKU_NAMES  # noqa: E402
-from baking_plan.algorithms.milp import _shift_to_later_windows, _split_tail, allocate_milp  # noqa: E402
-from baking_plan.capacity import CapacityConfig, resolve_molding_minutes, window_capacity  # noqa: E402
+from baking_plan.algorithms.milp import (  # noqa: E402
+    _shift_to_later_windows,
+    _split_tail,
+    _swap_mandatory_labels_later,
+    allocate_milp,
+)
+from baking_plan.capacity import (  # noqa: E402
+    CapacityConfig,
+    effective_kratnost,
+    is_core_baking_category,
+    resolve_molding_minutes_for_sku,
+    window_capacity,
+)
 from baking_plan.demand import SkuDemand  # noqa: E402
 from baking_plan.templates import Window  # noqa: E402
 
@@ -53,18 +64,24 @@ def _assert_capacity_respected(result, skus, windows, capacity, molding_map):
     sku_by_id = {s.product_id: s for s in skus}
     for window in windows:
         trays = sum(
-            math.ceil(qty / sku_by_id[pid].kratnost)
+            math.ceil(qty / effective_kratnost(sku_by_id[pid]))
             for (pid, label), qty in result.items()
             if label == window.label
         )
         baker_min = sum(
-            qty * resolve_molding_minutes(sku_by_id[pid].category_name, molding_map)
+            qty * resolve_molding_minutes_for_sku(sku_by_id[pid], molding_map)
             for (pid, label), qty in result.items()
-            if label == window.label
+            if label == window.label and is_core_baking_category(sku_by_id[pid].category_name)
+        )
+        helper_min = sum(
+            qty * resolve_molding_minutes_for_sku(sku_by_id[pid], molding_map)
+            for (pid, label), qty in result.items()
+            if label == window.label and not is_core_baking_category(sku_by_id[pid].category_name)
         )
         cap = window_capacity(window, capacity)
         assert trays <= cap.tray_slots
         assert baker_min <= cap.baker_minutes
+        assert helper_min <= cap.helper_minutes
 
 
 def test_prioritizes_higher_avg_sales_when_capacity_binds():
@@ -81,6 +98,24 @@ def test_prioritizes_higher_avg_sales_when_capacity_binds():
     assert result.get(("HIGH", "0-4"), 0) == 5
     assert result.get(("LOW", "0-4"), 0) == 3  # only 3 tray-slots left after HIGH
     _assert_capacity_respected(result, [high, low], windows, CAPACITY, MOLDING)
+
+
+def test_night_prep_sku_uses_reduced_daytime_molding_minutes():
+    prep = make_sku(
+        "PREP",
+        name="Жар Киш курица",
+        category="Пироги сытные",
+        dough_group="песочка",
+    )
+    regular_sand_pie = make_sku(
+        "PIE",
+        name="Губадия",
+        category="Пироги сладкие",
+        dough_group="песочка",
+    )
+
+    assert resolve_molding_minutes_for_sku(prep, MOLDING) == 1.0
+    assert resolve_molding_minutes_for_sku(regular_sand_pie, MOLDING) == 4.0
 
 
 def test_two_day_always_wins_capacity_over_higher_priority_regular_sku():
@@ -245,3 +280,163 @@ def test_shift_to_later_windows_routes_around_fixed_usage_and_splits_across_wind
     assert shifted == {("F", "8-12"): 20.0, ("F", "4-8"): 10.0}
     assert sum(shifted.values()) == 30.0  # total quantity unchanged
     assert fixed == {("OTHER", "8-12"): 60.0}  # fixed background never touched
+
+
+def test_shift_to_later_windows_converts_labor_minutes_to_trays():
+    # Regression: remaining_labor / minutes_per_unit is a unit count, not a
+    # tray count. For kratnost=10 and 1 min/unit, 10 spare minutes allow only
+    # one tray (10 units), not ten trays.
+    windows = [Window("0-1", 0, 1), Window("1-2", 1, 2)]
+    capacity = CapacityConfig(bakers_count=1, ovens_count=10, trays_per_oven_batch=10, bake_minutes=60)
+    sku = make_sku("F", kratnost=10, category="Выпечка сытная")
+    fixed = {("F", "1-2"): 50.0}  # 50 of 60 baker-minutes already used in the last window
+    movable = {("F", "0-1"): 30.0}
+
+    shifted = _shift_to_later_windows(movable, fixed, [sku], windows, capacity, MOLDING)
+
+    assert shifted == {("F", "1-2"): 10.0, ("F", "0-1"): 20.0}
+    assert sum(shifted.values()) == 30.0
+
+
+def test_swap_mandatory_labels_later_exchanges_same_sku_regular_batch():
+    sku = make_sku("KISH", category="Выпечка сытная", kratnost=10)
+    regular = {("KISH", "11-12"): 10.0}
+    mandatory = {("KISH", "10-11"): 10.0}
+    windows = [Window("10-11", 10, 11), Window("11-12", 11, 12)]
+
+    regular_out, mandatory_out = _swap_mandatory_labels_later(regular, mandatory, [sku], windows)
+
+    assert regular_out == {("KISH", "10-11"): 10.0}
+    assert mandatory_out == {("KISH", "11-12"): 10.0}
+    assert regular == {("KISH", "11-12"): 10.0}
+    assert mandatory == {("KISH", "10-11"): 10.0}
+
+
+def test_helper_pool_keeps_fastfood_from_consuming_core_baker_minutes():
+    windows = [Window("0-1", 0, 1)]
+    capacity = CapacityConfig(
+        bakers_count=1,
+        ovens_count=20,
+        trays_per_oven_batch=10,
+        bake_minutes=60,
+        helpers_count=1,
+    )
+    core = make_sku("CORE", category="Выпечка сытная", hourly_qty={0: 60}, avg_daily_sales=10)
+    helper_owned = make_sku("HELPER", category="Фастфуд", hourly_qty={0: 60}, avg_daily_sales=10)
+
+    result = allocate_milp([core, helper_owned], windows, capacity, MOLDING)
+
+    assert result.get(("CORE", "0-1"), 0) == 60
+    assert result.get(("HELPER", "0-1"), 0) == 60
+    _assert_capacity_respected(result, [core, helper_owned], windows, capacity, MOLDING)
+
+
+def test_pie_effective_kratnost_is_four_units_per_oven_slot():
+    windows = [Window("0-1", 0, 1)]
+    capacity = CapacityConfig(bakers_count=10, ovens_count=1, trays_per_oven_batch=1, bake_minutes=60)
+    pie = make_sku(
+        "PIE",
+        category="Пироги сытные",
+        dough_group="дрожжевое",
+        kratnost=1,
+        hourly_qty={0: 4},
+    )
+
+    result = allocate_milp([pie], windows, capacity, MOLDING)
+
+    assert result.get(("PIE", "0-1"), 0) == 4
+    _assert_capacity_respected(result, [pie], windows, capacity, MOLDING)
+
+
+def test_non_sand_pies_use_two_minutes_and_sand_pies_use_four_minutes():
+    windows = [Window("0-1", 0, 1)]
+    capacity = CapacityConfig(
+        bakers_count=1,
+        ovens_count=10,
+        trays_per_oven_batch=10,
+        bake_minutes=60,
+    )
+    non_sand = make_sku(
+        "NON_SAND",
+        category="Пироги сытные",
+        dough_group="дрожжевое",
+        hourly_qty={0: 28},
+        avg_daily_sales=10,
+    )
+    sand = make_sku(
+        "SAND",
+        category="Пироги сладкие",
+        dough_group="песочка",
+        hourly_qty={0: 30},
+        avg_daily_sales=1,
+    )
+
+    result = allocate_milp([non_sand, sand], windows, capacity, MOLDING)
+
+    assert result.get(("NON_SAND", "0-1"), 0) == 28
+    assert ("SAND", "0-1") not in result
+    _assert_capacity_respected(result, [non_sand, sand], windows, capacity, MOLDING)
+
+
+def test_core_daily_unit_cap_limits_baked_goods_but_not_helper_owned_skus():
+    windows = [Window("0-1", 0, 1), Window("1-2", 1, 2)]
+    capacity = CapacityConfig(
+        bakers_count=10,
+        ovens_count=20,
+        trays_per_oven_batch=10,
+        bake_minutes=60,
+        helpers_count=10,
+    )
+    core = make_sku("CORE", category="Выпечка сытная", hourly_qty={0: 80}, avg_daily_sales=10)
+    helper_owned = make_sku("HELPER", category="Фастфуд", hourly_qty={0: 80}, avg_daily_sales=10)
+
+    result = allocate_milp([core, helper_owned], windows, capacity, MOLDING, core_unit_cap=50)
+
+    assert sum(qty for (pid, _), qty in result.items() if pid == "CORE") == 50
+    assert sum(qty for (pid, _), qty in result.items() if pid == "HELPER") == 80
+    _assert_capacity_respected(result, [core, helper_owned], windows, capacity, MOLDING)
+
+
+def test_tiny_tail_above_kratnost_does_not_force_extra_batch():
+    windows = [Window("0-1", 0, 1)]
+    capacity = CapacityConfig(bakers_count=10, ovens_count=10, trays_per_oven_batch=10, bake_minutes=60)
+    sku = make_sku(
+        "TRIANGLE",
+        category="Выпечка сытная",
+        kratnost=20,
+        hourly_qty={0: 61},
+    )
+
+    result = allocate_milp([sku], windows, capacity, MOLDING)
+
+    assert result.get(("TRIANGLE", "0-1"), 0) == 60
+
+
+def test_tail_above_half_kratnost_forces_extra_batch():
+    windows = [Window("0-1", 0, 1)]
+    capacity = CapacityConfig(bakers_count=10, ovens_count=10, trays_per_oven_batch=10, bake_minutes=60)
+    sku = make_sku(
+        "TRIANGLE",
+        category="Выпечка сытная",
+        kratnost=20,
+        hourly_qty={0: 71},
+    )
+
+    result = allocate_milp([sku], windows, capacity, MOLDING)
+
+    assert result.get(("TRIANGLE", "0-1"), 0) == 80
+
+
+def test_first_partial_batch_is_not_rounded_down_to_zero():
+    windows = [Window("0-1", 0, 1)]
+    capacity = CapacityConfig(bakers_count=10, ovens_count=10, trays_per_oven_batch=10, bake_minutes=60)
+    sku = make_sku(
+        "SMALL",
+        category="Выпечка сытная",
+        kratnost=20,
+        hourly_qty={0: 5},
+    )
+
+    result = allocate_milp([sku], windows, capacity, MOLDING)
+
+    assert result.get(("SMALL", "0-1"), 0) == 20

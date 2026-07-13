@@ -38,11 +38,7 @@ MANDATORY_FILL = PatternFill("solid", fgColor="FFFFFF00")
 SHORTFALL_FULL_FILL = PatternFill("solid", fgColor="FFFFC7CE")  # zero produced, demand > 0
 SHORTFALL_PARTIAL_FILL = PatternFill("solid", fgColor="FFFFEB9C")  # produced < demand
 CAPACITY_NOTE_FILL = PatternFill("solid", fgColor="FFFFEB9C")
-# Not "(ночная дефр)" any more (2026-07-11): дефрост/двухдневка can now land
-# in any window with spare capacity, not only the last one (see
-# algorithms/milp.py), so a label implying it's always baked at night would
-# be actively wrong.
-DEFROST_SUFFIX = " (доп. партия на завтра)"
+DEFROST_SUFFIX = " (ночная дефр)"
 
 # Below this, a shortfall is solver/rounding noise, not a real gap — mirrors
 # service.SHORTFALL_TOLERANCE.

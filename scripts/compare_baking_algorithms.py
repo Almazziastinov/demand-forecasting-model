@@ -42,20 +42,19 @@ def _resolve_city(client, bakery_id: int) -> str:
     return df.iloc[0]["city"]
 
 
-def _sku_total_demand(sku, defrost_demand_fn) -> float:
-    demand = sum(sku.hourly_qty.values())
+def _sku_total_demand(sku, defrost_demand_fn, two_day_demand_fn) -> float:
     if sku.is_two_day:
-        demand += defrost_demand_fn(sku)
-    return demand
+        return two_day_demand_fn(sku)
+    return sum(sku.hourly_qty.values()) + defrost_demand_fn(sku)
 
 
-def _shortfall_metric(skus, allocation, defrost_demand_fn) -> float:
+def _shortfall_metric(skus, allocation, defrost_demand_fn, two_day_demand_fn) -> float:
     produced: dict[str, float] = {}
     for (pid, _label), qty in allocation.items():
         produced[pid] = produced.get(pid, 0.0) + qty
     total = 0.0
     for sku in skus:
-        demand = _sku_total_demand(sku, defrost_demand_fn)
+        demand = _sku_total_demand(sku, defrost_demand_fn, two_day_demand_fn)
         shortfall = max(0.0, demand - produced.get(sku.product_id, 0.0))
         total += shortfall * sku.avg_daily_sales
     return total
@@ -75,6 +74,17 @@ def _cohesion_metric(skus, allocation) -> dict[str, float]:
     }
 
 
+def _has_shortfall(skus, allocation, defrost_demand_fn, two_day_demand_fn) -> bool:
+    produced: dict[str, float] = {}
+    for (pid, _label), qty in allocation.items():
+        produced[pid] = produced.get(pid, 0.0) + qty
+    for sku in skus:
+        demand = _sku_total_demand(sku, defrost_demand_fn, two_day_demand_fn)
+        if demand - produced.get(sku.product_id, 0.0) > 1e-6:
+            return True
+    return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", default=str(ROOT / ".env"))
@@ -88,9 +98,10 @@ def main() -> None:
     import openpyxl
 
     from baking_plan._clickhouse import get_client, table_name
-    from baking_plan.algorithms.common import defrost_demand
+    from baking_plan.algorithms.common import defrost_demand, two_day_demand
     from baking_plan.algorithms.greedy import allocate_greedy
     from baking_plan.algorithms.milp import allocate_milp
+    from baking_plan import capacity as capacity_module
     from baking_plan.capacity import get_capacity_config, get_molding_minutes_map
     from baking_plan.demand import build_sku_demand
     from baking_plan.templates import BASE_TEMPLATE_PATH, parse_windows
@@ -117,11 +128,25 @@ def main() -> None:
     greedy_time = time.time() - t0
 
     t0 = time.time()
-    milp_result = allocate_milp(skus, windows, capacity_config, molding_map)
+    milp_result = allocate_milp(
+        skus,
+        windows,
+        capacity_config,
+        molding_map,
+        core_unit_cap=capacity_module.daily_core_unit_cap(capacity_config, peak=False),
+    )
+    if _has_shortfall(skus, milp_result, defrost_demand, two_day_demand):
+        milp_result = allocate_milp(
+            skus,
+            windows,
+            capacity_config,
+            capacity_module.MOLDING_MINUTES_FLOOR,
+            core_unit_cap=capacity_module.daily_core_unit_cap(capacity_config, peak=True),
+        )
     milp_time = time.time() - t0
 
-    greedy_shortfall = _shortfall_metric(skus, greedy_result, defrost_demand)
-    milp_shortfall = _shortfall_metric(skus, milp_result, defrost_demand)
+    greedy_shortfall = _shortfall_metric(skus, greedy_result, defrost_demand, two_day_demand)
+    milp_shortfall = _shortfall_metric(skus, milp_result, defrost_demand, two_day_demand)
     greedy_cohesion = _cohesion_metric(skus, greedy_result)
     milp_cohesion = _cohesion_metric(skus, milp_result)
 
