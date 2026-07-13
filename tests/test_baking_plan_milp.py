@@ -5,12 +5,14 @@ import math
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps"))
 sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
 from baking_plan.algorithms.common import DEFROST_SKU_NAMES  # noqa: E402
-from baking_plan.algorithms.milp import allocate_milp  # noqa: E402
+from baking_plan.algorithms.milp import _shift_to_later_windows, _split_tail, allocate_milp  # noqa: E402
 from baking_plan.capacity import CapacityConfig, resolve_molding_minutes, window_capacity  # noqa: E402
 from baking_plan.demand import SkuDemand  # noqa: E402
 from baking_plan.templates import Window  # noqa: E402
@@ -122,10 +124,10 @@ def test_two_day_has_zero_regular_windows_and_full_next_day_in_last_window():
     result = allocate_milp([two_day], WINDOWS, CAPACITY, MOLDING)
 
     assert ("D", "0-4") not in result
-    # >= 7 rather than == : the objective only penalizes shortfall, not
-    # overproduction, so any qty >= demand is an equally-optimal solution —
-    # HiGHS isn't guaranteed to return the tightest one.
-    assert result[("D", "4-8")] >= 7
+    # Exactly 7: ANTI_WASTE_WEIGHT keeps total production at the exact
+    # demand, and _shift_to_later_windows consolidates it into the last
+    # window regardless of which window the raw solve happened to use.
+    assert result[("D", "4-8")] == 7
 
 
 def test_defrost_is_extra_on_top_of_regular_production_not_tied_to_two_day():
@@ -162,3 +164,84 @@ def test_capacity_never_exceeded_under_heavy_demand():
     ]
     result = allocate_milp(skus, WINDOWS, CAPACITY, MOLDING)
     _assert_capacity_respected(result, skus, WINDOWS, CAPACITY, MOLDING)
+
+
+def test_two_day_can_land_in_an_earlier_window_when_the_last_window_has_no_capacity():
+    # Last window has zero duration -> zero baker-minutes and zero
+    # tray-slots (window_capacity derives both from duration).
+    # _shift_to_later_windows tries to move the mandatory portion there,
+    # finds no capacity, and leaves it in the earlier window instead.
+    windows = [Window("0-4", 0, 4), Window("4-4", 4, 4)]
+    two_day = make_sku(
+        "D",
+        name="Сочень",
+        is_two_day=True,
+        avg_daily_sales=1,
+        next_day_hourly_qty={0: 5},
+    )
+    result = allocate_milp([two_day], windows, CAPACITY, MOLDING)
+    assert result.get(("D", "0-4"), 0) == 5
+    assert ("D", "4-4") not in result
+
+
+def test_no_gratuitous_overproduction_when_shortfall_already_zero():
+    # Trays cost nothing directly in the objective (only shortfall does), so
+    # without ANTI_WASTE_WEIGHT the solver could "optimally" produce far more
+    # than needed once demand is fully covered. Neither the split nor the
+    # shift pass change total quantity, so this stays exact (kratnost=1
+    # here, so no rounding overshoot is even possible either).
+    two_day = make_sku(
+        "D",
+        name="Сочень",
+        is_two_day=True,
+        avg_daily_sales=1,
+        next_day_hourly_qty={0: 1, 6: 3, 7: 2, 15: 1},  # total = 7
+    )
+    result = allocate_milp([two_day], WINDOWS, CAPACITY, MOLDING)
+    total_produced = sum(qty for (pid, _label), qty in result.items() if pid == "D")
+    assert total_produced == pytest.approx(7.0)
+
+
+def test_defrost_prefers_the_last_window_when_multiple_are_equally_feasible():
+    # The merged MILP is indifferent to which window the defrost increment
+    # lands in (see module docstring) — _shift_to_later_windows is what
+    # consolidates it into the last window regardless of the solver's raw
+    # (non-deterministic) choice.
+    defrost_name = next(iter(DEFROST_SKU_NAMES))
+    sku = make_sku(
+        "F",
+        name=defrost_name,
+        is_two_day=False,
+        avg_daily_sales=1,
+        hourly_qty={},
+        next_day_hourly_qty={6: 3, 7: 2},  # defrost demand = 5
+    )
+    result = allocate_milp([sku], WINDOWS, CAPACITY, MOLDING)
+    assert result.get(("F", "4-8"), 0) == 5
+    assert ("F", "0-4") not in result
+
+
+def test_split_tail_claims_from_the_end_and_splits_a_window_if_needed():
+    windows = [Window("0-4", 0, 4), Window("4-8", 4, 8), Window("8-12", 8, 12)]
+    produced_by_window = {"0-4": 10.0, "4-8": 10.0, "8-12": 10.0}
+    # Mandatory amount (15) spans the last two windows: all of "8-12" (10)
+    # plus 5 of "4-8"'s 10, splitting that window between regular/mandatory.
+    regular_part, mandatory_part = _split_tail(produced_by_window, windows, 15.0)
+    assert regular_part == {"0-4": 10.0, "4-8": 5.0}
+    assert mandatory_part == {"8-12": 10.0, "4-8": 5.0}
+
+
+def test_shift_to_later_windows_routes_around_fixed_usage_and_splits_across_windows():
+    # "8-12" (last) already has 6 of its 8 tray-slots used by fixed
+    # (regular) production for a different SKU — the movable mandatory
+    # portion (3 trays) can only fit 2 there, so 1 tray spills back to
+    # "4-8" rather than being stranded in "0-4".
+    windows = [Window("0-4", 0, 4), Window("4-8", 4, 8), Window("8-12", 8, 12)]
+    f_sku = make_sku("F", kratnost=10, category="Фастфуд")
+    other_sku = make_sku("OTHER", kratnost=10, category="Фастфуд")
+    movable = {("F", "0-4"): 30.0}  # 3 trays, all sitting in the first window
+    fixed = {("OTHER", "8-12"): 60.0}  # 6 of "8-12"'s 8 tray-slots already used
+    shifted = _shift_to_later_windows(movable, fixed, [f_sku, other_sku], windows, CAPACITY, MOLDING)
+    assert shifted == {("F", "8-12"): 20.0, ("F", "4-8"): 10.0}
+    assert sum(shifted.values()) == 30.0  # total quantity unchanged
+    assert fixed == {("OTHER", "8-12"): 60.0}  # fixed background never touched

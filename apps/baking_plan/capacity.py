@@ -3,6 +3,16 @@
 Reads `baking_capacity_config` (bakery override, falls back to the global
 `bakery_id IS NULL` default row) and `baking_category_molding_minutes`
 (category -> minutes/unit, `''` is the default-fallback category).
+
+Also defines the floor (fastest realistic) molding pace per category —
+used by the pace-search in `service.py`: if the normal pace can't fit
+demand into capacity, the solver is retried at this floor before falling
+back to a capacity-shortage recommendation. Hardcoded like
+`DEFROST_SKU_NAMES`/`MANDATORY_ASSORTMENT` elsewhere in this package — no
+ClickHouse source of truth exists yet for a per-category minimum pace,
+confirmed directly by the user (2026-07-11): 54s/unit for the default
+(1 min normal) categories, 3:30/unit for Пироги сытные/сладкие (4 min
+normal).
 """
 
 from __future__ import annotations
@@ -67,6 +77,23 @@ def resolve_molding_minutes(category_name: str, minutes_map: dict[str, int]) -> 
     if category_name in minutes_map:
         return minutes_map[category_name]
     return minutes_map.get("", 1)
+
+
+# Floor pace (minutes/unit) — see module docstring. Keyed the same way as
+# `baking_category_molding_minutes` (`''` = default fallback).
+MOLDING_MINUTES_FLOOR: dict[str, float] = {
+    "": 54 / 60,
+    "Пироги сытные": 210 / 60,
+    "Пироги сладкие": 210 / 60,
+}
+
+
+def resolve_molding_minutes_floor(
+    category_name: str, floor_map: dict[str, float] = MOLDING_MINUTES_FLOOR
+) -> float:
+    if category_name in floor_map:
+        return floor_map[category_name]
+    return floor_map.get("", 54 / 60)
 
 
 def window_capacity(window: Window, config: CapacityConfig) -> WindowCapacity:

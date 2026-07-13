@@ -4,7 +4,10 @@ Pipeline: assortment (city+bakery scope) -> filter to bakeable categories ->
 join `baking_sku_meta` (bakery override, fallback base; missing rows are
 skipped and reported) -> hourly forecast (+ next-day for двухдневка SKUs and
 DEFROST_SKU_NAMES members, needed for two_day_demand/defrost_demand in
-algorithms/common.py) -> average sales (slot-priority ranking input).
+algorithms/common.py) -> credit yesterday's already-baked defrost stock back
+out of today's own early hours (DEFROST_SKU_NAMES members only, see
+`_load_yesterday_defrost_offset`) -> average sales (slot-priority ranking
+input).
 """
 
 from __future__ import annotations
@@ -17,12 +20,13 @@ from datetime import timedelta
 
 from ._clickhouse import get_client, records, table_name
 from .assortment import get_bakeable_products
-from .constants import DEFROST_SKU_NAMES
+from .constants import DEFROST_HOURS, DEFROST_SKU_NAMES
 
 logger = logging.getLogger(__name__)
 
 SKU_META_TABLE = table_name("baking_sku_meta")
 SKU_FORECAST_HOUR_TABLE = table_name("sku_forecast_hour_embedded")
+SKU_FORECAST_HOUR_SNAPSHOTS_TABLE = table_name("sku_forecast_hour_snapshots")
 SALES_TABLE = "mart_sales_60d"
 
 BAKEABLE_CATEGORIES = {
@@ -104,6 +108,66 @@ def _load_hourly(
     return result
 
 
+def _load_yesterday_defrost_offset(
+    bakery_id: int, forecast_date: str, product_ids: list[str]
+) -> dict[str, dict[int, float]]:
+    """Per-(product, hour) forecast_qty from the `lead_days = 1` snapshot for
+    `forecast_date` — i.e. what the forecast expected to sell in today's
+    early hours as of ~1 day ago. `DEFROST_SKU_NAMES` members get an extra
+    overnight batch baked the *night before*, sized to cover exactly this
+    (see `algorithms/common.py:defrost_demand`, which uses the same
+    `DEFROST_HOURS`) — crediting it back out of today's own regular-window
+    demand avoids treating that already-baked stock as if it still needed
+    fresh production today. Verified 2026-07-11 that `lead_days = 1` values
+    track closely (within a few percent) with directly querying the prior
+    day's own run, so this is not a guess at a run-naming convention.
+    """
+    if not product_ids:
+        return {}
+    client = get_client()
+    pid_by_int = {int(pid): pid for pid in product_ids}
+    df = client.query_df(
+        f"""
+        select product_id, hour, sum(forecast_qty) as qty
+        from {SKU_FORECAST_HOUR_SNAPSHOTS_TABLE}
+        where forecast_date = %(forecast_date)s
+          and lead_days = 1
+          and bakery_id = %(bakery_id)s
+          and product_id in %(pids)s
+          and hour in %(hours)s
+        group by product_id, hour
+        """,
+        parameters={
+            "forecast_date": forecast_date,
+            "bakery_id": bakery_id,
+            "pids": list(pid_by_int.keys()),
+            "hours": list(DEFROST_HOURS),
+        },
+    )
+    result: dict[str, dict[int, float]] = {}
+    for row in records(df):
+        pid = pid_by_int.get(int(row["product_id"]))
+        if pid is None:
+            continue
+        result.setdefault(pid, {})[int(row["hour"])] = float(row["qty"])
+    return result
+
+
+def _apply_defrost_offset(
+    hourly: dict[str, dict[int, float]], offset: dict[str, dict[int, float]]
+) -> None:
+    """Mutate `hourly` in place, subtracting `offset` per (product, hour).
+
+    Clamped at 0: an overnight batch that turned out larger than today's
+    (possibly revised) forecast just means surplus shelf stock, not a
+    negative demand.
+    """
+    for pid, hour_offsets in offset.items():
+        today_hourly = hourly.setdefault(pid, {})
+        for hour, offset_qty in hour_offsets.items():
+            today_hourly[hour] = max(0.0, today_hourly.get(hour, 0.0) - offset_qty)
+
+
 def _load_avg_daily_sales(bakery_id: int, product_ids: list[str]) -> dict[str, float]:
     if not product_ids:
         return {}
@@ -158,6 +222,13 @@ def build_sku_demand(
     ]
     next_day_date = (date_type.fromisoformat(forecast_date) + timedelta(days=1)).isoformat()
     next_day_hourly = _load_hourly(run_id, next_day_date, bakery_id, next_day_ids)
+
+    # Credit yesterday's overnight defrost batch back out of today's own
+    # early-hour demand — only DEFROST_SKU_NAMES members ever got that extra
+    # batch, so only they need the offset.
+    defrost_ids = [pid for pid in matched_ids if name_by_id[pid] in DEFROST_SKU_NAMES]
+    yesterday_defrost_offset = _load_yesterday_defrost_offset(bakery_id, forecast_date, defrost_ids)
+    _apply_defrost_offset(hourly, yesterday_defrost_offset)
 
     avg_sales = _load_avg_daily_sales(bakery_id, matched_ids)
 

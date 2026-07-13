@@ -31,7 +31,22 @@ CATEGORY_FILL = PatternFill("solid", fgColor="FFD9EAF7")
 DEFROST_FILL = PatternFill("solid", fgColor="FFFCE4D6")
 TWO_DAY_FILL = PatternFill("solid", fgColor="FFE6D9F2")
 MANDATORY_FILL = PatternFill("solid", fgColor="FFFFFF00")
-DEFROST_SUFFIX = " (ночная дефр)"
+# Итого-column fills for demand the plan couldn't fully cover — see the
+# shortfall handling in render_workbook() below. Not used on the
+# Стол/Наименование cells so they don't fight with MANDATORY_FILL when a
+# SKU is both mandatory and short.
+SHORTFALL_FULL_FILL = PatternFill("solid", fgColor="FFFFC7CE")  # zero produced, demand > 0
+SHORTFALL_PARTIAL_FILL = PatternFill("solid", fgColor="FFFFEB9C")  # produced < demand
+CAPACITY_NOTE_FILL = PatternFill("solid", fgColor="FFFFEB9C")
+# Not "(ночная дефр)" any more (2026-07-11): дефрост/двухдневка can now land
+# in any window with spare capacity, not only the last one (see
+# algorithms/milp.py), so a label implying it's always baked at night would
+# be actively wrong.
+DEFROST_SUFFIX = " (доп. партия на завтра)"
+
+# Below this, a shortfall is solver/rounding noise, not a real gap — mirrors
+# service.SHORTFALL_TOLERANCE.
+SHORTFALL_TOLERANCE = 1e-6
 
 # SKUs management tracks as "обязательный ассортимент" — must always be on
 # the plan. No source table for this yet (only one SKU was marked yellow in
@@ -58,26 +73,37 @@ def render_workbook(
     windows: list[Window],
     skus: list[SkuDemand],
     regular_alloc: dict[tuple[str, str], float],
-    defrost_alloc: dict[str, float],
-    two_day_alloc: dict[str, float],
+    defrost_alloc: dict[tuple[str, str], float],
+    two_day_alloc: dict[tuple[str, str], float],
+    shortfall_by_sku: dict[str, float] | None = None,
+    defrost_shortfall_by_sku: dict[str, float] | None = None,
+    capacity_note: str | None = None,
 ) -> Workbook:
+    shortfall_by_sku = shortfall_by_sku or {}
+    defrost_shortfall_by_sku = defrost_shortfall_by_sku or {}
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = SHEET_NAME
 
     total_col = 3 + len(windows)  # A=Стол, B=Наименование, C..=windows, then Итого
-    last_window_label = windows[-1].label if windows else None
 
     sheet["A1"] = f"План выпекания: {bakery_name} на {forecast_date}."
     sheet["A1"].font = Font(bold=True)
     sheet["A2"] = (
         "Количество по SKU-hour прогнозу активного run, разнесено по окнам "
-        "выпекания через MILP-оптимизацию; ночная дефростация — по утреннему "
-        "прогнозу следующего дня."
+        "выпекания через MILP-оптимизацию; доп. партия на завтра (дефрост/"
+        "двухдневка) размещается в любом окне со свободной мощностью."
     )
     sheet["A2"].font = Font(bold=True)
 
     header_row = 3
+    if capacity_note:
+        sheet.cell(row=3, column=1, value=capacity_note)
+        sheet.cell(row=3, column=1).font = Font(bold=True)
+        for col in range(1, total_col + 1):
+            sheet.cell(row=3, column=col).fill = CAPACITY_NOTE_FILL
+        header_row = 4
+
     sheet.cell(row=header_row, column=1, value="Стол")
     sheet.cell(row=header_row, column=2, value="Наименование")
     for idx, window in enumerate(windows):
@@ -114,25 +140,53 @@ def render_workbook(
                 name_cell.fill = MANDATORY_FILL
             row_total = 0.0
             for idx, window in enumerate(windows):
-                is_last_window = window.label == last_window_label
-                two_day_qty = two_day_alloc.get(sku.product_id, 0) if is_last_window else 0
+                key = (sku.product_id, window.label)
+                two_day_qty = two_day_alloc.get(key, 0)
                 if two_day_qty:
                     window_cell = sheet.cell(row=row, column=3 + idx, value=two_day_qty)
                     window_cell.fill = TWO_DAY_FILL
                     row_total += two_day_qty
                     continue
-                qty = regular_alloc.get((sku.product_id, window.label), 0)
-                defrost_qty = defrost_alloc.get(sku.product_id, 0) if is_last_window else 0
+                qty = regular_alloc.get(key, 0)
+                defrost_qty = defrost_alloc.get(key, 0)
                 cell_value = _format_cell(qty, defrost_qty)
                 if cell_value != "":
                     window_cell = sheet.cell(row=row, column=3 + idx, value=cell_value)
                     if defrost_qty:
                         window_cell.fill = DEFROST_FILL
-                    row_total += qty + defrost_qty
-            # Итого = sum of what's actually scheduled across the windows
-            # (kratnost-rounded production), not the raw model forecast —
-            # e.g. forecast 41.21 with 20+20 scheduled shows 40, not 41.21.
-            sheet.cell(row=row, column=total_col, value=row_total)
+                    # Итого deliberately excludes the defrost component: it's
+                    # an extra batch for *tomorrow* morning, not part of
+                    # today's own demand, so it stays visible in the cell
+                    # (with its label/fill) but doesn't inflate today's total.
+                    row_total += qty
+            # Итого is normally the sum of what's actually scheduled across
+            # the windows for today's own demand (regular + двухдневка,
+            # kratnost-rounded) — not the raw model forecast, e.g. forecast
+            # 41.21 with 20+20 scheduled shows 40, not 41.21, and not the
+            # extra defrost batch (see above). When the plan couldn't fully
+            # cover today's demand (shortfall from the solver, see
+            # service.py's pace search) that's flipped: show the missed
+            # demand instead of a bare 0/partial number, so a
+            # capacity-starved SKU isn't visually indistinguishable from one
+            # with genuinely no demand.
+            shortfall = shortfall_by_sku.get(sku.product_id, 0.0) - defrost_shortfall_by_sku.get(
+                sku.product_id, 0.0
+            )
+            total_cell = sheet.cell(row=row, column=total_col)
+            forecast_total = row_total + shortfall
+            # Only colour/reformat the cell when the shortfall actually
+            # survives rounding — e.g. produced=6.6 vs forecast=7.0 both
+            # round to 7, so showing "7/7" in orange would look like a
+            # false alarm even though the raw LP shortfall is nonzero.
+            if shortfall > SHORTFALL_TOLERANCE and round(row_total) != round(forecast_total):
+                if row_total <= SHORTFALL_TOLERANCE:
+                    total_cell.value = round(forecast_total)
+                    total_cell.fill = SHORTFALL_FULL_FILL
+                else:
+                    total_cell.value = f"{round(row_total)}/{round(forecast_total)}"
+                    total_cell.fill = SHORTFALL_PARTIAL_FILL
+            else:
+                total_cell.value = row_total
 
     _set_column_widths(sheet, total_col)
     return workbook
