@@ -309,3 +309,61 @@ Implication:
 - The 28-day `analyze_variants_comparison.py` row-count/bias discrepancy is
   still unexplained and should be investigated before it's trusted for any
   future decision.
+
+## 2026-07-13 - Static Bakery-Day Bias Correction Replaced With A Rolling One
+
+Decision:
+
+- Replaced the one-time static bias snapshot (`models/bakery_day_bias.json`,
+  computed once from a June holdout and applied to every forecast forever)
+  with a correction recomputed every run from a trailing 7-day window of
+  live lead-1 `forecast_base` vs actual sales
+  (`pipelines/forecast_publish/rolling_bakery_bias.py`). Falls back to the
+  static snapshot for bakeries with fewer than 3 days of recent history.
+  Same `0.15` relative clip as before. Live in prod as of run
+  `prod_base_bakery_no_sku_uplift_20260713_h14`.
+
+Context:
+
+- User-reported underforecast on Парковая 7 / Парина 6 (2026-07-06..11) was
+  traced to the 2026-07-06 bakery-day model retrain (`bakery_sales_lag365`
+  added) making `bias.json`'s June-derived corrections stale — confirmed
+  directly from live `forecast_base` vs `forecast_final` on the active prod
+  run, not inferred from a backtest.
+- A static, never-refreshed correction is fragile by construction: it can
+  only be as good as whatever the model's bias happened to be during its
+  one calibration window, and silently degrades after any retrain or
+  seasonal shift with no signal that it's gone wrong.
+- Validated with an 11-day dev walk-forward backfill before deploying
+  (see `CURRENT_STATE.md` for the numbers) — first pass used stale/default
+  weather and overstated the improvement; re-ran with real Open-Meteo
+  weather before trusting it. Static was worse than every alternative
+  tested (no correction, rolling, trend-extrapolated) in every variant.
+
+Implication:
+
+- Any future bakery-day model retrain no longer requires a matching manual
+  bias-table regeneration step — the rolling correction adapts on its own
+  within `min_days` (default 3) runs.
+- `models/bakery_day_bias.json` is now only a cold-start fallback, not the
+  primary correction source. Keep it reasonably fresh (regenerate at
+  retrain time as before) but it's no longer load-bearing for bakeries with
+  steady recent history.
+- A trend-extrapolated variant (linear fit + damped one-step-ahead
+  extrapolation over a trailing 14-day window) was tried and rejected —
+  no better than the flat rolling mean on this data, and riskier (can
+  double-count trend the model's own `bakery_sales_trend` feature already
+  captures). Revisit only with a longer, more stable trend signal than a
+  single transitional-period backtest can provide.
+- Discovered but did not fix: `bakery_forecast_day_snapshots` and its
+  SKU-day/SKU-hour counterparts (prod and dev) are `ReplacingMergeTree`
+  with `source_run_id` outside the sort key
+  (`ORDER BY forecast_date, lead_days, bakery_id[, product_id[, hour]]`).
+  Background merges silently collapse multiple runs sharing a
+  (date, bakery[, product[, hour]]) key down to one, regardless of
+  run_id — confirmed by watching two deliberately-parallel dev backfill
+  runs lose 9 of 11 days of one variant to a merge within about an hour.
+  This likely also explains earlier-observed "run_id mixing" in
+  historical lead-1 comparisons. Needs its own decision (adding
+  `source_run_id` to the sort key means a full table rebuild) — flagged,
+  not resolved.

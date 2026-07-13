@@ -16,6 +16,17 @@ read-only embedded UI/API over ClickHouse and must not run forecast generation.
 - VM timer schedule: daily `03:30:00 UTC`
 - VM repo state observed: behind origin by docs/handoff only; production code
   was effectively current during the 2026-06-28 audit.
+- **Known issue (2026-07-13):** `git pull` on the VM currently fails —
+  `docs/ops/*.md` are owned by `root:root` (the `forecast` user can't
+  unlink them), and the working tree also has uncommitted baking-plan
+  drift unrelated to this VM's own job (files were placed directly,
+  bypassing git, presumably from Blackhole-deploy tooling being pointed
+  at the wrong host). Neither has been fixed — the 2026-07-13 rolling-bias
+  deploy below worked around it with a targeted SFTP file copy instead of
+  `git pull`. Whoever owns the baking-plan deploy tooling should confirm
+  this VM was an intentional target and either commit+clean up the drift
+  or stop touching this host; `chown` on the docs/ops files needs a
+  decision on why they went root-owned before just reverting it.
 
 ## Embedded App
 
@@ -43,6 +54,9 @@ read-only embedded UI/API over ClickHouse and must not run forecast generation.
 - Recent sales table: `mart_sales_60d`
 - Dataset refresh: enabled on the VM (`FORECAST_REFRESH_DATASETS=1`)
 - Weather refresh: enabled on the VM (`FORECAST_REFRESH_WEATHER=1`)
+- Bakery-day bias correction: **rolling** (trailing 7-day window,
+  recomputed every run), not the old static one-time snapshot — see
+  "Rolling Bakery-Day Bias Correction Deployed" below.
 
 Previous scenario (`uplifted_norm`, active through 2026-06-29..2026-06-30) is
 still defined in `SCENARIOS` for rollback if needed.
@@ -524,6 +538,74 @@ Post-deploy verification:
 
 Rollback: `/opt/app/app_backup_20260713_144022` and
 `/opt/baking_plan_backup_20260713_144022` on the server.
+
+## Rolling Bakery-Day Bias Correction Deployed (2026-07-13)
+
+`models/bakery_day_bias.json` was a one-time snapshot of mean(actual -
+forecast) per bakery from the June holdout, applied unconditionally to
+every forecast forever. It never refreshed, so after the 2026-07-06
+bakery-day model retrain (`bakery_sales_lag365` added) it went stale and
+was actively pulling several pilot bakeries' forecasts in the wrong
+direction — e.g. Парина 6 (bakery 89) got a constant `-125.6`/day
+correction computed in June that no longer matched the retrained model's
+July behaviour, deepening a live underforecast users were seeing in the
+embedded app (reported by the user against Парковая 7 / Парина 6,
+2026-07-06..11).
+
+Root-caused via live ClickHouse `forecast_base` vs `forecast_final` on the
+already-active prod run (not a backtest reconstruction) — confirmed
+`forecast_final = forecast_base + bias.json[bakery_id]`, i.e. the static
+file, not the retrained model itself, was the dominant driver of the
+Парина 6 error.
+
+Fix: `pipelines/forecast_publish/rolling_bakery_bias.py` — recomputes the
+same style of per-bakery correction from a trailing 7-day window of live
+lead-1 `forecast_base` vs `mart_sales_60d` on every run (falls back to the
+static snapshot for bakeries with `< 3` days of recent history). Wired
+into `run_production_inference.py` as the default (opt out with
+`--no-rolling-bias-correction`); same `bias_clip_pct=0.15` safety cap as
+before.
+
+Validated on dev (`.env.dev`, `_dev`-suffixed tables) via an 11-day
+walk-forward lead-1 backfill (2026-07-01..11, all 10 pilot bakeries,
+`scripts/build_prod_lead1_model_backfill.py --use-rolling-bias`), rebuilt
+with real Open-Meteo weather (the first pass used stale/default weather
+and overstated the win — flagged and rerun before trusting the result):
+
+| variant | wMAPE | bias% |
+| --- | ---: | ---: |
+| static (prod as of 2026-07-13 morning) | 8.1% | -1.2% |
+| no correction (raw `forecast_base`) | 5.7% | -1.6% |
+| rolling (this fix) | 5.6-5.8% | -0.2% to -1.8% |
+
+Static is worse than every alternative for 8/10 pilot bakeries. Rolling
+vs no-correction is close in aggregate but rolling clearly wins for
+bakeries with a persistent (non-weather, non-noise) bias, e.g. Парковая 7
+(bakery 21): wMAPE 6.7% (no correction) vs 4.6% (rolling).
+
+Deploy method: pushed commit `0dcb638` to `origin/master`. A concurrent
+session was mid-deploy of unrelated baking-plan changes on this same VM
+(`/opt/demand-forecasting-model` working tree had uncommitted baking-plan
+drift, plus `docs/ops/*.md` are root-owned and block `forecast`-user
+`git pull`) — rather than force a full `git pull` through that, SFTP'd
+only the 3 changed files (`rolling_bakery_bias.py`,
+`run_production_inference.py`, `build_prod_lead1_model_backfill.py`)
+directly to their paths, `chown forecast:forecast`, verified they import
+cleanly under the VM's venv, then `systemctl start
+forecast-production.service` to regenerate and activate a fresh run
+immediately rather than waiting for tomorrow's 03:30 UTC timer. VM git
+history is therefore not fast-forwarded to `0dcb638` yet — file contents
+are correct and live, but `git log` on the VM will look stale until
+someone resolves the docs/ops ownership + baking-plan working-tree drift
+and pulls cleanly.
+
+Post-deploy verification: `scripts.verify_prod_deploy` → `VERIFY OK`.
+New active run `prod_base_bakery_no_sku_uplift_20260713_h14`
+(generated `2026-07-13 18:33:59+03:00`). Confirmed the new correction is
+live by reading `forecast_final - forecast_base` directly from
+`bakery_forecast_day_snapshots` for this run: bakery 21 now gets a
+constant `+114.3`/day adjustment (vs the old near-zero static value, which
+was insufficient), bakery 89 gets `-5.2`/day (vs the old `-125.6`).
 
 ## Do Not Do
 
