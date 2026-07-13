@@ -11,8 +11,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.experiments_v2.apply_bakery_profiles import MIN_FALLBACK_N_DAYS  # noqa: E402
 from src.experiments_v2.apply_bakery_profiles import MIN_TIER1_N_DAYS  # noqa: E402
 from src.experiments_v2.apply_bakery_profiles import apply_profiles  # noqa: E402
+from src.experiments_v2.apply_bakery_profiles import build_sku_hour_profile_fallback  # noqa: E402
 from src.experiments_v2.apply_bakery_profiles import build_tier1_share_sums  # noqa: E402
 from src.experiments_v2.apply_bakery_profiles import _finalize_source_stats  # noqa: E402
 from src.experiments_v2.apply_bakery_profiles import _update_source_stats  # noqa: E402
@@ -196,6 +198,47 @@ def test_tier1_shares_are_renormalized_after_n_days_gate():
         "mean_sku_share_in_hour_norm",
     ].iloc[0]
     assert round(float(p1_share), 6) == 0.6
+
+
+def test_fallback_ignores_single_observation_outlier_share():
+    # Regression test for a real production case (bakery 16, product "Пирог
+    # с Манго"): a single sale recorded at a near-dead edge hour (n_days=1)
+    # produced an unsmoothed mean_sku_share_in_hour_norm of 0.5, which then
+    # dominated the tier-2 (dow-blind) fallback average for that hour and
+    # collapsed the SKU's daily forecast to near zero. The outlier row must
+    # be excluded from the fallback pool entirely, not merely diluted.
+    profile = pd.DataFrame(
+        [
+            # P1: well-supported across several dow, always a modest share.
+            {"bakery_id": "B1", "hour": 22, "product_id": "P1", "dow": 0, "mean_sku_share_in_hour_norm": 0.004, "n_days": 6},
+            {"bakery_id": "B1", "hour": 22, "product_id": "P1", "dow": 1, "mean_sku_share_in_hour_norm": 0.003, "n_days": 5},
+            {"bakery_id": "B1", "hour": 22, "product_id": "P1", "dow": 2, "mean_sku_share_in_hour_norm": 0.004, "n_days": 7},
+            # P2: only a single (dow=4) observation at this hour, share=0.5 —
+            # exactly the shape of the real bug.
+            {"bakery_id": "B1", "hour": 22, "product_id": "P2", "dow": 4, "mean_sku_share_in_hour_norm": 0.5, "n_days": 1},
+        ]
+    )
+
+    fallback = build_sku_hour_profile_fallback(profile, normalize_sku_shares=True)
+
+    products = set(fallback["product_id"])
+    assert "P2" not in products, "single-observation outlier row must not survive into the fallback pool"
+    p1_share = fallback.loc[fallback["product_id"] == "P1", "mean_sku_share_in_hour_norm"].iloc[0]
+    assert round(float(p1_share), 6) == 1.0, "with P2 excluded, P1 should claim the full renormalized share"
+
+
+def test_fallback_keeps_rows_at_or_above_min_n_days():
+    profile = pd.DataFrame(
+        [
+            {"bakery_id": "B1", "hour": 22, "product_id": "P1", "dow": 0, "mean_sku_share_in_hour_norm": 0.6, "n_days": MIN_FALLBACK_N_DAYS},
+            {"bakery_id": "B1", "hour": 22, "product_id": "P2", "dow": 1, "mean_sku_share_in_hour_norm": 0.4, "n_days": MIN_FALLBACK_N_DAYS},
+        ]
+    )
+
+    fallback = build_sku_hour_profile_fallback(profile, normalize_sku_shares=True)
+
+    assert set(fallback["product_id"]) == {"P1", "P2"}
+    assert round(float(fallback["mean_sku_share_in_hour_norm"].sum()), 6) == 1.0
 
 
 def test_source_stats_track_rows_and_forecast_share():

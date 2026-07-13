@@ -59,6 +59,14 @@ SKU_PROFILE_CHUNK_SIZE = 100_000
 # routes to tier-2 (bakery x sku x hour) with a "thin" source tag so audits
 # can tell "no tier-1 data" apart from "tier-1 data too thin".
 MIN_TIER1_N_DAYS = 8
+# Tier-2 (bakery x sku x hour, averaged across dow) still needs a minimum
+# sample size of its own: a single-observation row (n_days=1) can carry an
+# extreme, unsmoothed share (e.g. one Friday-22:00 sale recorded as "100% of
+# that hour") and, since tier-2 has no per-dow averaging to dilute it, that
+# one row can dominate the whole fallback for a thin SKU. Rows below this
+# gate are excluded from the tier-2 average entirely (not just down-weighted)
+# rather than trusted as a genuine low-volume signal.
+MIN_FALLBACK_N_DAYS = 3
 N_DAYS_COL = "n_days"
 
 HOURLY_OUTPUT_NAME = "sku_hour_forecast.csv"
@@ -197,6 +205,15 @@ def build_sku_hour_profile_fallback(
     *,
     normalize_sku_shares: bool = True,
 ) -> pd.DataFrame:
+    if N_DAYS_COL in profile.columns:
+        n_days = pd.to_numeric(profile[N_DAYS_COL], errors="coerce").fillna(0)
+        # n_days == 0 means "unknown" (legacy profiles with no n_days column
+        # at all get defaulted to 0 upstream, see load_sku_hour_profile_frame)
+        # rather than "observed zero days" — trust those like before. Only
+        # exclude rows that DID report a real-but-tiny sample (1-2 days),
+        # which is what actually produces the unsmoothed extreme shares this
+        # gate exists to catch.
+        profile = profile[(n_days == 0) | (n_days >= MIN_FALLBACK_N_DAYS)]
     work = (
         profile.groupby([BAKERY_ID_COL, HOUR_COL, PRODUCT_ID_COL], as_index=False)
         .agg(mean_sku_share_in_hour_norm=(SKU_SHARE_COL, "mean"))

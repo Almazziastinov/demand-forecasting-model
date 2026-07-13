@@ -36,6 +36,7 @@ from src.experiments_v2.apply_bakery_profiles import DEFAULT_BAKERY_HOUR_PROFILE
 from src.experiments_v2.apply_bakery_profiles import HOUR_COL
 from src.experiments_v2.apply_bakery_profiles import HOURLY_OUTPUT_NAME
 from src.experiments_v2.apply_bakery_profiles import HOURLY_OUTPUT_COLS
+from src.experiments_v2.apply_bakery_profiles import MIN_FALLBACK_N_DAYS
 from src.experiments_v2.apply_bakery_profiles import MIN_TIER1_N_DAYS
 from src.experiments_v2.apply_bakery_profiles import PRODUCT_ID_COL
 from src.experiments_v2.apply_bakery_profiles import PRODUCT_NAME_COL
@@ -524,7 +525,7 @@ def load_profile_lookup_frames(
             product_id,
             avg(mean_sku_share_in_hour_norm) as mean_sku_share_in_hour_norm
         from {profile_table}
-        where 1=1
+        where n_days >= {MIN_FALLBACK_N_DAYS}
           {bak_filter}
         group by bakery_id, hour, product_id
         """
