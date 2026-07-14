@@ -526,3 +526,72 @@ Implication:
   the bakery's total, so they get *some* lift instead of falling through
   to the un-boosted default blend. Not investigated further this
   session.
+
+## 2026-07-14 - SKU-Level Floor-Uplift Reactivated For Pilot (Reverses 2026-07-01 Decision)
+
+Decision:
+
+- Restored the `max(raw_share, mean_share)` floor in
+  `smooth_sku_hour_share_profile.py` (reverted one line of `625605d`) and
+  switched production to scenario `base_raw_uplift` (base bakery-day model +
+  raw SKU-hour uplift multiplier), applied to all bakeries. This explicitly
+  reverses the "2026-07-01 - SKU-Hour Profile Floor-Uplift Removed" decision
+  above.
+
+Context:
+
+- The project is repositioning around an imminent pilot launch. Per the
+  user, the project's core value proposition is eliminating missed
+  sales/underproduction, not forecast-accuracy purity — without SKU-level
+  uplift, that value proposition isn't delivered, even though the floor's
+  known imprecision (no way to distinguish shelf-absence/stockout censoring
+  from genuine low demand, per the 2026-07-01 investigation) still applies
+  unchanged. The user explicitly acknowledged this tradeoff and chose to
+  proceed anyway for the pilot.
+- Before making any change, confirmed live that simply flipping
+  `FORECAST_SCENARIO` to `base_raw_uplift` would have been a no-op: the
+  `sku_hour_uplift_multiplier_embedded` table (version `weekly_20260712`,
+  produced automatically every Sunday by the still-enabled
+  `weekly-profile-refresh.timer` even after the floor was removed) had 0 of
+  27,150 rows with a multiplier above 1.0. The floor removal had silently
+  turned the entire uplift mechanism into a no-op weeks before anyone
+  planned to use it again.
+- Rebuilt the full profile pipeline with the restored floor
+  (`scripts/weekly_profile_refresh.py`), producing `profile_version
+  weekly_20260714` with 95.4% of multiplier rows now above 1.0 (avg 1.29,
+  max 3.53) — confirms the mechanism produces a real signal again, not just
+  that the code compiles.
+- Verified end-to-end against a live production run
+  (`prod_base_bakery_raw_uplift_sku_20260714_h14`): product 11465 (Пирог с
+  Манго, bakery 16) forecast moved from `2.97`/day (no uplift) to
+  `3.44`/day (with uplift) — a real, directionally-correct increase, though
+  still below the ~6.9/day actual for that specific thin SKU.
+- Deploy hit a new obstacle beyond the known VM git-pull block: the usual
+  SFTP-copy workaround failed outright (`Subsystem sftp` isn't configured
+  in this VM's sshd — confirmed with a bare `sftp.put()` to `/tmp` failing
+  with `ENOENT`, unrelated to the target path). Worked around by piping
+  base64-encoded file content over the existing SSH exec channel instead.
+  Should be fixed properly (enable the sftp subsystem) so future sessions
+  don't have to rediscover this.
+
+Implication:
+
+- The imprecision risk from the 2026-07-01 decision is now live in
+  production again, by deliberate choice: any future "why is this forecast
+  too high" investigation for a low-traffic SKU/hour should check the
+  `sku_hour_uplift_multiplier` first, not assume it's still a no-op.
+- SKU-hour forecasts are **not renormalized** under this scenario — summed
+  SKU-hour forecasts within a bakery-hour can and do exceed what the
+  bakery-day model predicts for that hour (observed up to 607 units summed
+  in one bakery-hour on the first live run). This is intentional (the whole
+  point of an un-renormalized uplift), but any downstream consumer of
+  `sku_forecast_hour_embedded`/`sku_forecast_day_embedded` (baking plan,
+  capacity planning) needs to expect materially higher numbers than under
+  `base_no_sku_uplift`.
+- Rollback is a scenario-config change only (`base_no_sku_uplift` in VM
+  `.env`, restore from `.env.bak_20260714_162514`), not a code revert — the
+  restored floor code is inert unless `use_raw_uplift_multiplier=True`.
+- Baking-plan template rework (phase 2 of this pilot reconfiguration —
+  templates instead of MILP, individual per-bakery templates, current
+  assortment with missing-from-template SKUs left blank) is explicitly out
+  of scope for this decision and not yet started.

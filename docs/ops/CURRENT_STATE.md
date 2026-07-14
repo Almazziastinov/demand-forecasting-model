@@ -39,15 +39,21 @@ read-only embedded UI/API over ClickHouse and must not run forecast generation.
 
 ## Active Forecast
 
-- Active run on 2026-07-01: `prod_base_bakery_no_sku_uplift_20260701_h14`
-- Scenario: `base_no_sku_uplift` (new scenario, added 2026-07-01)
+- Active run on 2026-07-14: `prod_base_bakery_raw_uplift_sku_20260714_h14`
+- Scenario: `base_raw_uplift` (switched from `base_no_sku_uplift` on
+  2026-07-14 for the pilot launch — see "SKU-Level Uplift Reactivated For
+  Pilot" below for the full rationale)
   - Bakery-day model: **base** (`bakery_day_model.joblib`, no bakery-level uplift)
-  - SKU-hour allocation: raw `sku_hour_share_profile_smoothed_embedded`
-    (no floor-uplift, see below)
-  - SKU-hour uplift multiplier: **disabled** (`use_raw_uplift_multiplier=False`)
-- `.env` on the VM updated: `FORECAST_SCENARIO=base_no_sku_uplift`,
-  `FORECAST_ACTIVATE_RUN=base_no_sku_uplift` (nightly timer will keep using
-  this scenario going forward)
+  - SKU-hour allocation: raw `sku_hour_share_profile_smoothed_embedded`,
+    **with the mean-share floor restored** (see below — floor-uplift is
+    back after being removed 2026-07-01)
+  - SKU-hour uplift multiplier: **enabled** (`use_raw_uplift_multiplier=True`),
+    `profile_version=weekly_20260714`
+- `.env` on the VM updated: `FORECAST_SCENARIO=base_raw_uplift`,
+  `FORECAST_ACTIVATE_RUN=base_raw_uplift`,
+  `FORECAST_UPLIFT_PROFILE_VERSION=weekly_20260714` (nightly timer will keep
+  using this scenario going forward; old `.env` backed up as
+  `.env.bak_20260714_162514` on the VM)
 - Horizon days: `14`
 - Recent correction mode: `runner_city_prior_soft_weekpart`
 - Recent correction days: `30`
@@ -58,8 +64,9 @@ read-only embedded UI/API over ClickHouse and must not run forecast generation.
   recomputed every run), not the old static one-time snapshot — see
   "Rolling Bakery-Day Bias Correction Deployed" below.
 
-Previous scenario (`uplifted_norm`, active through 2026-06-29..2026-06-30) is
-still defined in `SCENARIOS` for rollback if needed.
+Previous scenario (`base_no_sku_uplift`, active 2026-07-01..2026-07-14) and
+`uplifted_norm` (active through 2026-06-29..2026-06-30) remain defined in
+`SCENARIOS` for rollback if needed.
 
 Observed active snapshot rows after the 2026-06-29 refresh:
 
@@ -771,6 +778,92 @@ rows are still present, just no longer selected) — if the new
 `sales_window` assortment turns out to be wrong for some city/bakery, the
 fix would need to be in the threshold/window-days parameters, not a data
 revert.
+
+## SKU-Level Uplift Reactivated For Pilot (2026-07-14)
+
+The project is pivoting toward a pilot launch. User direction: the project's
+core value is eliminating missed sales/underforecast, which requires real
+SKU-level uplift even though the mechanism is known to be imprecise (can't
+distinguish shelf-absence/stockout from genuine low demand — see the
+2026-07-01 rejection below). Applied to all bakeries (no per-bakery
+override exists in the embedded app); deployed straight to prod per user
+direction, no dev pre-validation this time.
+
+**Root finding before any change**: switching `FORECAST_SCENARIO` to
+`base_raw_uplift` alone would have done nothing. `sku_hour_uplift_multiplier`
+is derived from the gap between a mean-share floor and the raw share; that
+floor (`adjusted_share = max(raw_share, mean_share)`) was removed 2026-07-01
+(commit `625605d`). Confirmed live before touching anything: the
+`sku_hour_uplift_multiplier_embedded` table's only existing version
+(`weekly_20260712`, produced automatically by the still-enabled
+`weekly-profile-refresh.timer`) had **0 of 27,150 rows with multiplier >
+1.0** — the mechanism had been a complete no-op since the floor was removed,
+undetected because the active scenario never used it.
+
+**Change**: restored the floor
+(`work[ADJUSTED_SHARE_COL] = np.maximum(work[SKU_SHARE_COL],
+work[PROFILE_MEAN_COL])`) in
+`src/experiments_v2/smooth_sku_hour_share_profile.py`
+(`build_adjusted_applied_chunk`), reverting only that one line from
+`625605d` — the rest of that commit (vectorization,
+`weekly_profile_refresh.py` CLI fixes) is unaffected and correct. Updated
+the one test that had been asserting no-floor passthrough behavior back to
+floor-based expected values. Committed `144ef59`, pushed to
+`origin/master`.
+
+**Deploy**: VM `git pull` is still blocked (see "Known issue" above) — the
+usual SFTP workaround also failed this session (`Subsystem sftp` is not
+configured in this VM's sshd — confirmed by a bare `sftp.put()` failing with
+`ENOENT` even against `/tmp`, not a path-specific issue). Worked around by
+streaming the file content over the existing SSH exec channel
+(`base64 -d > path` fed via stdin) instead of the SFTP subsystem. Backed up
+the prior file as
+`src/experiments_v2/smooth_sku_hour_share_profile.py.bak_20260714_152419`
+on the VM, verified `py_compile` and a live import confirming the floor
+formula is present before proceeding.
+
+**Rebuilt the profile pipeline end to end** with the restored floor via
+`scripts/weekly_profile_refresh.py --env-file .env` (full 12-month
+export → build → smooth → load profile → load multipliers, ~47 min
+total). Produced a fresh `profile_version=weekly_20260714` (distinct from
+the two no-op tags `weekly_20260701`/`weekly_20260712`): 3,542,847 profile
+rows, 27,155 multiplier rows, **95.4% of multiplier rows now > 1.0**
+(avg `1.29`, max `3.53`) — confirms the floor is live and producing a real
+signal again.
+
+Updated VM `.env` (backed up as `.env.bak_20260714_162514`):
+`FORECAST_SCENARIO=base_raw_uplift`, `FORECAST_ACTIVATE_RUN=base_raw_uplift`,
+`FORECAST_UPLIFT_PROFILE_VERSION=weekly_20260714`. Manually triggered
+`systemctl start forecast-production.service` (full run, ~9 min) rather than
+waiting for the nightly timer. New active run:
+`prod_base_bakery_raw_uplift_sku_20260714_h14`.
+`scripts.verify_prod_deploy` → `VERIFY OK`.
+
+**Verified the uplift is live** by comparing the same SKU across scenarios:
+product 11465 (Пирог с Манго, bakery 16) went from `2.97`/day
+(`base_no_sku_uplift`, no uplift) to `3.44`/day (`base_raw_uplift`, this
+change) — still below the ~6.9/day actual, but a real, directionally
+correct increase from the multiplier, not a no-op.
+
+**Important — magnitude/blast-radius note for the pilot team**: this uplift
+is intentionally **not renormalized** (`apply_bakery_profiles_clickhouse.py`
+skips renormalization when `use_raw_uplift_multiplier=True`), so per-hour
+SKU-forecast sums can now legitimately **exceed** what the bakery-day model
+predicted for that hour — observed up to `607` units summed across SKUs in
+a single bakery-hour on the new run. This is the intended mechanism (lift
+SKU-level forecasts above the aggregate to counter suspected undercounting),
+not a bug, but it means downstream consumers (baking plan, any capacity
+planning) will see materially higher SKU-hour numbers than under
+`base_no_sku_uplift` — worth watching closely during the pilot.
+
+Rollback: revert to scenario `base_no_sku_uplift` in VM `.env` (restore from
+`.env.bak_20260714_162514` or edit the three keys back) and re-run
+`forecast-production.service` — no code rollback needed, the smoothing
+script's floor-restoration only affects behavior when
+`use_raw_uplift_multiplier=True`, harmless with the old scenario active. If
+the smoothing code itself needs to be rolled back too:
+`src/experiments_v2/smooth_sku_hour_share_profile.py.bak_20260714_152419`
+on the VM.
 
 ## Do Not Do
 

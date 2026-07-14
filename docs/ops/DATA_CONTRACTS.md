@@ -1,15 +1,21 @@
 # Data Contracts
 
-Last updated: 2026-06-29
+Last updated: 2026-07-14
+
+**Note:** this file had drifted out of date (last content update 2026-06-29
+describing the `uplifted_norm` scenario) while `CURRENT_STATE.md` kept
+moving — always trust `CURRENT_STATE.md`'s "Active Forecast" section over
+this file if they disagree. Refreshed now as part of the 2026-07-14
+pilot-uplift reconfiguration.
 
 ## Forecast Run Contract
 
 Production forecast outputs are grouped by `run_id`.
 
-Current active run pattern:
+Current active run pattern (as of 2026-07-14):
 
 ```text
-prod_uplifted_bakery_norm_uplift_sku_YYYYMMDD_h14
+prod_base_bakery_raw_uplift_sku_YYYYMMDD_h14
 ```
 
 The active run must be represented in `forecast_runs_embedded` with
@@ -18,12 +24,17 @@ scenario.
 
 ## Current Scenario Contract
 
-- Scenario: `uplifted_norm`
+- Scenario: `base_raw_uplift` (base bakery-day model + raw SKU-hour uplift
+  multiplier, all bakeries — switched 2026-07-14 for the pilot, see
+  `docs/ops/DECISIONS.md`)
 - Horizon days: `14`
-- Active horizon observed on 2026-06-29: `2026-06-29` through `2026-07-12`
+- Active horizon observed on 2026-07-14: `2026-07-14` through `2026-07-27`
 - Recent correction mode: `runner_city_prior_soft_weekpart`
 - Recent correction days: `30`
 - Recent sales table: `mart_sales_60d`
+- SKU-hour uplift multiplier: `sku_hour_uplift_multiplier_embedded`,
+  `profile_version=weekly_20260714` (not renormalized — SKU-hour sums can
+  exceed the bakery-hour total, see `CURRENT_STATE.md`)
 
 ## Serving Tables
 
@@ -44,11 +55,11 @@ The production verification script checks snapshot tables for active runs:
 - `sku_forecast_hour_snapshots`
 
 Observed rows for active run
-`prod_uplifted_bakery_norm_uplift_sku_20260629_h14`:
+`prod_base_bakery_raw_uplift_sku_20260714_h14`:
 
-- bakery day snapshots: `2842`
-- SKU day snapshots: `460708`
-- SKU hour snapshots: `5014812`
+- bakery day snapshots: `2954`
+- SKU day snapshots: `445822`
+- SKU hour snapshots: `5017688`
 
 Lead-1 historical backfills use separate draft run ids:
 
