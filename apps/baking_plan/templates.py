@@ -1,8 +1,15 @@
 """Excel template selection and "комментарии" sheet parsing.
 
 Templates live in `apps/baking_plan/assets/`:
-- `template.xlsx` — base template (baking-plan sheet + "комментарии" sheet)
-- `individual/{bakery_id}_*.xlsx` — per-bakery override, takes priority
+- `template.xlsx` — base template, one sheet per bakery-revenue tier
+  (`до 1,5 млн`, `до 2,5 млн`, `от 2,5 млн`, `от 3млн`) plus "комментарии"
+- `individual/{bakery_id}_*.xlsx` — per-bakery override, takes priority over
+  the revenue-tier sheet selection entirely
+
+Each revenue-tier sheet's data rows (from `PLAN_START_ROW`) have some C:L
+window cells pre-filled by a technologist — that is the SKU's baking-window
+*assignment*; `allocation.read_row_schedule` reads it directly, this module
+never computes window placement.
 
 The "комментарии" sheet groups SKUs by dough (тесто-группа). A row is a
 group header when column C (кратность выпуска) is empty or literally
@@ -107,19 +114,21 @@ def parse_comments_sheet(workbook: Workbook) -> dict[str, SkuMeta]:
     return result
 
 
-WINDOWS_HEADER_ROW = 3
-WINDOW_LABEL_RE = re.compile(r"^(\d+):00-(\d+):00$")
+WINDOWS_HEADER_ROW = 5
+WINDOW_LABEL_RE = re.compile(r"^(\d{1,2})[:.]\d{2}\s*-\s*(\d{1,2})[:.]\d{2}$")
+PLAN_START_ROW = 6
 
 
 @dataclass(frozen=True)
 class Window:
     label: str
+    column: int
     start_hour: int
     end_hour: int
 
 
-def parse_windows(workbook: Workbook, sheet_name: str = "План выпекания") -> list[Window]:
-    """Parse the window column headers (row 3, columns from C onward) into Window objects."""
+def parse_windows(workbook: Workbook, sheet_name: str) -> list[Window]:
+    """Parse the window column headers (row 5, columns from C onward)."""
     sheet = workbook[sheet_name]
     windows: list[Window] = []
     for cell in sheet[WINDOWS_HEADER_ROW][2:]:
@@ -130,7 +139,9 @@ def parse_windows(workbook: Workbook, sheet_name: str = "План выпекан
         if not match:
             continue
         start_hour, end_hour = int(match.group(1)), int(match.group(2))
-        windows.append(Window(label=str(value).strip(), start_hour=start_hour, end_hour=end_hour))
+        windows.append(
+            Window(label=str(value).strip(), column=cell.column, start_hour=start_hour, end_hour=end_hour)
+        )
     return windows
 
 
@@ -138,3 +149,31 @@ def template_path_for_bakery(bakery_id: int) -> Path:
     for path in sorted(INDIVIDUAL_TEMPLATES_DIR.glob(f"{bakery_id}_*.xlsx")):
         return path
     return BASE_TEMPLATE_PATH
+
+
+# Revenue-tier sheet selection for the base template — individual templates
+# (matched above) bypass this entirely, they have their own single sheet.
+DEFAULT_BUCKET = "до 2,5 млн"
+REVENUE_BUCKETS = (
+    (1_500_000, "до 1,5 млн"),
+    (2_500_000, "до 2,5 млн"),
+    (3_000_000, "от 2,5 млн"),
+)
+
+
+def revenue_bucket(revenue: float | int | None) -> str:
+    if revenue is None:
+        return DEFAULT_BUCKET
+    value = float(revenue)
+    for threshold, bucket in REVENUE_BUCKETS:
+        if value < threshold:
+            return bucket
+    return "от 3млн"
+
+
+def select_sheet_name(bucket: str | None, sheet_names: list[str]) -> str:
+    if bucket and bucket in sheet_names:
+        return bucket
+    if DEFAULT_BUCKET in sheet_names:
+        return DEFAULT_BUCKET
+    return sheet_names[0]

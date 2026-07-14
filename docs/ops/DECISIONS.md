@@ -595,3 +595,107 @@ Implication:
   templates instead of MILP, individual per-bakery templates, current
   assortment with missing-from-template SKUs left blank) is explicitly out
   of scope for this decision and not yet started.
+
+## 2026-07-14 - Baking Plan Reverted From MILP To Template-Driven Window Assignment (Phase 2 Of Pilot Reconfiguration)
+
+Decision:
+
+- `apps/baking_plan/` no longer computes *which* window a SKU bakes in —
+  neither the pre-MILP peak-detection distribution nor the MILP solver.
+  Window assignment is read directly from the reference Excel template's
+  pre-filled C:L cells (`allocation.read_row_schedule`); the package's own
+  job is reduced to resolving each template row to a live assortment
+  product and sizing quantities from the **live** hourly forecast into
+  whichever windows the template already assigned. Quantities are still
+  dynamic (recomputed every request); only window placement is now static.
+- Individual per-bakery templates (pekарни 20/21/22) and the current
+  assortment mechanism (`assortment.py`, `bakeable_products` scope=city/
+  bakery, unchanged since the MILP era) are both kept. Assortment products
+  with no matching template row are appended at the end of the plan with
+  no window breakdown, only a raw (non-kratnost-rounded) `Итого` total.
+- Capacity/mощность checking (baker-minutes, tray-slots, daily caps,
+  shortfall highlighting) is removed entirely — matches the original
+  pre-MILP system's documented limitation, not a regression.
+- Night-defrost quantity reverts to the simple pre-MILP formula (tomorrow's
+  early-hour forecast, uncapped) — the MILP-era PDF-derived caps
+  (`NIGHT_STORAGE_DIRECT_UNITS_BY_SKU`/`NIGHT_PREP_LABOR_MINUTES_BY_SKU`)
+  are removed.
+- Revenue-tier sheet selection (`до 1,5 млн`/`до 2,5 млн`/`от 2,5 млн`/
+  `от 3млн`) is restored, reading the existing (stale, one-time May 2026
+  manual backfill) `bakery_month_revenue_embedded` table as-is — no
+  refresh pipeline added.
+
+This explicitly reverses three prior decisions: "2026-07-09 - Baking Plan
+Rebuilt As Its Own Package" (the teardown of the template system),
+"2026-07-10/11 - Baking Plan: MILP Allocator Chosen", and "2026-07-13 -
+Baking Plan: Дефрост/Двухдневка Merged Into A Single MILP Demand Pool".
+The package boundary and module-split conventions from those decisions
+(standalone package, `_clickhouse.py`/`assortment.py` untouched, one
+router-mount line into `forecast_embedded`) are kept — only the
+window-assignment algorithm and capacity model are reverted.
+
+Context:
+
+- User-driven pivot: the project is preparing a pilot launch and considers
+  the MILP's algorithmic sophistication unnecessary for it — explicit
+  instruction was to drop both the old distribution logic and MILP, use
+  the template's own window assignment, keep individual templates and the
+  current assortment, and accept that new/low-volume SKUs not in the
+  template get no window breakdown. The pilot targets top-selling SKUs, so
+  this gap was explicitly accepted rather than engineered around.
+- Confirmed via three explicit user choices before implementing: (1) drop
+  capacity/shortfall checking entirely rather than keep a lighter-weight
+  version without the solver; (2) use the simple pre-PDF defrost formula
+  rather than keep the PDF-derived caps; (3) restore revenue-tier sheet
+  selection from the existing stale `bakery_month_revenue_embedded` data
+  rather than fix its staleness first or skip tiering for the pilot.
+- Implementation ported the pre-teardown algorithm (git commit `8e3e79f~1`,
+  `apps/forecast_embedded/app/services/baking_plan.py`) into the current
+  package's module structure, but improved the SKU→forecast join: the old
+  code matched hourly forecast rows to template SKU names by fuzzy string
+  match; the new code first resolves the template SKU name to a
+  `product_id` via the (already fuzzy-matched) assortment lookup, then
+  fetches hourly forecast by exact `product_id` — the fuzzy matching only
+  has to happen once per row, not once per hourly-forecast row.
+- Verified end-to-end against live production data (read-only, no writes)
+  for both an individual-template bakery (21, whose template's own sheet
+  is labeled outside the standard four revenue tiers — confirmed the
+  `select_sheet_name` fallback handles that correctly) and a base-template
+  bakery (16, correctly matched to its "от 3млн" sheet). Confirmed
+  window-partial cell population (only some C:L columns filled per row,
+  matching the template's own pre-filled structure), leftover-assortment
+  rows (fastfood SKUs like Хот-дог/Сэндвич not in either reference
+  template) rendered with empty window cells and an unrounded raw total,
+  and defrost annotations rendering correctly.
+- Discovered but not fixed: `bakeable_products_dev` (the `_dev`-suffixed
+  ClickHouse table used for local/dev verification) is missing the
+  `scope`/`bakery_id` columns added to the production table on 2026-07-06
+  — a pre-existing schema-drift bug unrelated to this change (`assortment.py`
+  itself was not modified), meaning any local dev-environment testing of
+  the baking-plan feature currently fails regardless of MILP vs template.
+  Verification for this change was done against production tables
+  read-only instead (explicit user approval obtained first, since the
+  original plan called for dev-first testing).
+
+Implication:
+
+- `apps/baking_plan/capacity.py`, `apps/baking_plan/algorithms/` (milp.py,
+  greedy.py, common.py), and `apps/baking_plan/constants.py` (PDF-derived
+  night-storage constants) are deleted, not just unwired — the MILP
+  approach is fully removed from this package, not kept dormant.
+  `scripts/compare_baking_algorithms.py` (MILP vs greedy comparison,
+  referenced by the prior README) is now stale/orphaned; not deleted this
+  session, flagged for cleanup.
+- `docs/baking_plan_implementation.md` and `apps/baking_plan/README.md`
+  rewritten to describe the template-driven approach; both explicitly list
+  the dropped capabilities as deliberate limitations, not gaps to silently
+  rediscover later.
+- The `bakeable_products_dev` schema drift should be fixed (migrate the
+  `_dev` table to match prod's `scope`/`bakery_id` columns) before relying
+  on dev-environment testing for *any* future baking-plan or assortment
+  work — flagged, not fixed, out of scope for this change.
+- Deploy to Blackhole (the actual serving host for this feature) was not
+  done as part of this change — no VibeCode/Blackhole credentials were
+  available in this session's environment (only `.codex/prod_vm.env`, for
+  the unrelated forecast-writer VM). Deploying this change is a separate,
+  explicitly deferred follow-up.

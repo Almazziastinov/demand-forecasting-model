@@ -865,6 +865,48 @@ the smoothing code itself needs to be rolled back too:
 `src/experiments_v2/smooth_sku_hour_share_profile.py.bak_20260714_152419`
 on the VM.
 
+## Baking Plan Reverted To Template-Driven, Code Only — Not Yet Deployed (2026-07-14)
+
+Phase 2 of the pilot reconfiguration (phase 1 was the SKU-uplift
+reactivation above). `apps/baking_plan/` no longer computes window
+placement (dropped both the pre-MILP peak-detection distribution and the
+MILP solver) — window assignment is read directly from the reference Excel
+template's pre-filled cells. See `docs/ops/DECISIONS.md` (2026-07-14 entry,
+"Baking Plan Reverted From MILP To Template-Driven Window Assignment") for
+the full rationale and `docs/baking_plan_implementation.md` for the current
+spec.
+
+Restored `apps/baking_plan/assets/template.xlsx` (4 revenue-tier sheets +
+"комментарии") and `assets/individual/{20,21,22}_*.xlsx` from git history
+(pre-2026-07-09-teardown commit `8e3e79f~1`), replacing the MILP-era
+single-sheet template and empty `individual/` directory. Deleted
+`capacity.py`, `algorithms/` (milp.py/greedy.py/common.py), and
+`constants.py` (PDF-derived night-storage caps) — fully removed, not left
+dormant. Added `apps/baking_plan/allocation.py` (pure window-reading/
+allocation functions). Rewrote `demand.py`, `rendering.py`, `service.py`;
+`assortment.py` and `router.py` unchanged.
+
+Verified locally (read-only against **production** ClickHouse tables, not
+dev — `.env.dev`'s `bakeable_products_dev` is missing the `scope`/
+`bakery_id` columns added to prod on 2026-07-06, a pre-existing schema-drift
+bug unrelated to this change, flagged in `DECISIONS.md`): generated real
+`.xlsx` output for bakery 21 (individual template, non-standard sheet
+label, confirmed the sheet-selection fallback handles it) and bakery 16
+(base template, correctly matched "от 3млн" by revenue), both showing
+partial per-row window population matching the template's own pre-filled
+structure, and leftover (not-in-template) fastfood SKUs correctly appended
+with no window breakdown and a raw unrounded total.
+
+**Not yet deployed to Blackhole.** The running Blackhole app (`82bb03a8`,
+`/opt/app` + `/opt/baking_plan`) still serves the 2026-07-13 MILP version —
+this session had no VibeCode/Blackhole exec-API credentials available
+(only `.codex/prod_vm.env`, for the unrelated forecast-writer VM
+`201.51.7.24`). Code is committed to `origin/master` but the live baking-
+plan download endpoint (`/bakery/{id}/baking-plan.xlsx`) on Blackhole is
+still running the old MILP code until someone with Blackhole access
+deploys it using the established tarball-replace pattern (see the
+2026-07-11/13 entries above).
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.

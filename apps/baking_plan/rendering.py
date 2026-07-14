@@ -1,203 +1,148 @@
-"""Build the "План выпекания" xlsx sheet from scratch.
+"""Write the computed plan rows back into the loaded template sheet.
 
-Rows are generated fresh from live data every call — the reference file
-`assets/template.xlsx` is a filled *example*, not a blank template with a
-fixed row count, so we can't just overwrite cells in it (the SKU list size
-varies by bakery/date/assortment). Only the window-boundary layout is read
-from that file (`templates.parse_windows`); everything else (styling,
-category grouping, row order) is built here to match its visual style.
+Mutates the sheet in place (row snapshot/restore, unmerge, delete, rewrite)
+instead of building a fresh Workbook — the template's own row structure and
+cell styling (including the SKU rows' original C:L formatting) is exactly
+what "use the template" means for this feature, so it's preserved rather
+than rebuilt from scratch.
 """
 
 from __future__ import annotations
 
 # ruff: noqa: E501
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from copy import copy
+from typing import Any
+
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.worksheet import Worksheet
 
-from .demand import SkuDemand
-from .templates import Window
+from .templates import PLAN_START_ROW, WINDOWS_HEADER_ROW, Window
 
-SHEET_NAME = "План выпекания"
-CATEGORY_ORDER = [
-    "Выпечка сытная",
-    "Выпечка сладкая",
-    "Пироги сытные",
-    "Пироги сладкие",
-    "Фастфуд",
-]
-HEADER_FILL = PatternFill("solid", fgColor="FFD8D8D8")
-CATEGORY_FILL = PatternFill("solid", fgColor="FFD9EAF7")
-DEFROST_FILL = PatternFill("solid", fgColor="FFFCE4D6")
-TWO_DAY_FILL = PatternFill("solid", fgColor="FFE6D9F2")
-MANDATORY_FILL = PatternFill("solid", fgColor="FFFFFF00")
-# Итого-column fills for demand the plan couldn't fully cover — see the
-# shortfall handling in render_workbook() below. Not used on the
-# Стол/Наименование cells so they don't fight with MANDATORY_FILL when a
-# SKU is both mandatory and short.
-SHORTFALL_FULL_FILL = PatternFill("solid", fgColor="FFFFC7CE")  # zero produced, demand > 0
-SHORTFALL_PARTIAL_FILL = PatternFill("solid", fgColor="FFFFEB9C")  # produced < demand
-CAPACITY_NOTE_FILL = PatternFill("solid", fgColor="FFFFEB9C")
-DEFROST_SUFFIX = " (ночная дефр)"
-
-# Below this, a shortfall is solver/rounding noise, not a real gap — mirrors
-# service.SHORTFALL_TOLERANCE.
-SHORTFALL_TOLERANCE = 1e-6
-
-# SKUs management tracks as "обязательный ассортимент" — must always be on
-# the plan. No source table for this yet (only one SKU was marked yellow in
-# the reference file's "комментарии" sheet); this list was given directly
-# by the user 2026-07-10. Matched by exact product_name.
-MANDATORY_ASSORTMENT = {
-    "Треугольник курица безд",
-    "Треугольник говядина безд",
-    "Треугольник острый",
-    "Вак-бэлиш",
-    "Жар пицца с курицей",
-    "Сосиска в тесте",
-    "Элеш с курицей",
-    "Беккен капуста",
-    "Сосиска под шубой",
-    "Кыстыбый П",
+SHEET_TITLE = "План выпекания"
+CATEGORY_FILL = PatternFill("solid", fgColor="D9EAF7")
+GROUP_SORT_ORDER = {
+    "Выпечка сытная": 0,
+    "Выпечка сладкая": 1,
+    "Пироги сытные": 2,
+    "Пироги сладкие": 3,
+    "Фастфуд": 4,
 }
 
 
-def render_workbook(
+def snapshot_row(sheet: Worksheet, row_index: int, total_column: int) -> dict[str, Any]:
+    return {
+        "cells": [
+            {
+                "value": sheet.cell(row=row_index, column=column).value,
+                "style": copy(sheet.cell(row=row_index, column=column)._style),
+            }
+            for column in range(1, total_column)
+        ],
+        "height": sheet.row_dimensions[row_index].height,
+    }
+
+
+def _restore_row(
+    sheet: Worksheet,
+    row_index: int,
+    snapshot: dict[str, Any] | None,
+    prototype: dict[str, Any] | None,
+) -> None:
+    source = snapshot or prototype
+    if not source:
+        return
+    for column, cell_snapshot in enumerate(source["cells"], start=1):
+        cell = sheet.cell(row=row_index, column=column)
+        cell.value = cell_snapshot["value"] if snapshot else None
+        cell._style = copy(cell_snapshot["style"])
+    sheet.row_dimensions[row_index].height = source["height"]
+
+
+def write_plan(
     *,
+    sheet: Worksheet,
+    windows: list[Window],
+    plan_rows: list[dict[str, Any]],
     bakery_name: str,
     forecast_date: str,
-    windows: list[Window],
-    skus: list[SkuDemand],
-    regular_alloc: dict[tuple[str, str], float],
-    defrost_alloc: dict[tuple[str, str], float],
-    two_day_alloc: dict[tuple[str, str], float],
-    shortfall_by_sku: dict[str, float] | None = None,
-    defrost_shortfall_by_sku: dict[str, float] | None = None,
-    capacity_note: str | None = None,
-) -> Workbook:
-    shortfall_by_sku = shortfall_by_sku or {}
-    defrost_shortfall_by_sku = defrost_shortfall_by_sku or {}
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = SHEET_NAME
+    selected_sheet_name: str,
+) -> None:
+    """Rewrite `sheet`'s data rows (from `PLAN_START_ROW`) with `plan_rows`.
 
-    total_col = 3 + len(windows)  # A=Стол, B=Наименование, C..=windows, then Итого
+    Each plan row: {snapshot, product_id, product_name, category_name,
+    allocated: {column: value}, total: float, source_order: int}.
+    `snapshot` is `None` for assortment SKUs with no template row (see
+    `service.py`) — those get plain formatting, no window breakdown.
+    """
+    total_column = 3 + len(windows)  # A=Стол, B=Наименование, C..=windows, then Итого
 
-    sheet["A1"] = f"План выпекания: {bakery_name} на {forecast_date}."
-    sheet["A1"].font = Font(bold=True)
+    sheet["A1"] = f"План выпекания: {bakery_name} на {forecast_date}. Шаблон: {selected_sheet_name}"
     sheet["A2"] = (
-        "Количество по SKU-hour прогнозу активного run, разнесено по окнам "
-        "выпекания через MILP-оптимизацию; доп. партия на завтра (дефрост/"
-        "двухдневка) размещается в любом окне со свободной мощностью."
+        "Количество по SKU-hour прогнозу активного run, разнесено по расписанию "
+        "выпекания шаблона; ночная дефростация — по утреннему прогнозу след. дня."
     )
-    sheet["A2"].font = Font(bold=True)
 
-    header_row = 3
-    if capacity_note:
-        sheet.cell(row=3, column=1, value=capacity_note)
-        sheet.cell(row=3, column=1).font = Font(bold=True)
-        for col in range(1, total_col + 1):
-            sheet.cell(row=3, column=col).fill = CAPACITY_NOTE_FILL
-        header_row = 4
+    for merged_range in list(sheet.merged_cells.ranges):
+        if merged_range.max_row >= PLAN_START_ROW:
+            sheet.unmerge_cells(str(merged_range))
+    if sheet.max_row >= PLAN_START_ROW:
+        sheet.delete_rows(PLAN_START_ROW, sheet.max_row - PLAN_START_ROW + 1)
 
-    sheet.cell(row=header_row, column=1, value="Стол")
-    sheet.cell(row=header_row, column=2, value="Наименование")
-    for idx, window in enumerate(windows):
-        sheet.cell(row=header_row, column=3 + idx, value=window.label)
-    sheet.cell(row=header_row, column=total_col, value="Итого")
-    for col in range(1, total_col + 1):
-        cell = sheet.cell(row=header_row, column=col)
-        cell.font = Font(bold=True)
-        cell.fill = HEADER_FILL
+    sheet.cell(row=WINDOWS_HEADER_ROW, column=total_column).value = "Итого"
+    sheet.cell(row=WINDOWS_HEADER_ROW, column=total_column)._style = copy(
+        sheet.cell(row=WINDOWS_HEADER_ROW, column=total_column - 1)._style
+    )
+    if sheet.max_column > total_column:
+        sheet.delete_cols(total_column + 1, sheet.max_column - total_column)
+    sheet.column_dimensions[sheet.cell(row=1, column=total_column).column_letter].width = 14
+    sheet.column_dimensions[sheet.cell(row=1, column=total_column).column_letter].hidden = False
 
-    row = header_row
-    for category in CATEGORY_ORDER:
-        members = sorted(
-            (sku for sku in skus if sku.category_name == category),
-            key=lambda sku: sku.avg_daily_sales,
-            reverse=True,
-        )
-        if not members:
-            continue
+    prototype: dict[str, Any] | None = next(
+        (row["snapshot"] for row in plan_rows if row["snapshot"] is not None), None
+    )
 
-        row += 1
-        category_cell = sheet.cell(row=row, column=1, value=category)
-        category_cell.font = Font(bold=True)
-        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=total_col)
-        for col in range(1, total_col + 1):
-            sheet.cell(row=row, column=col).fill = CATEGORY_FILL
+    plan_rows = sorted(
+        plan_rows,
+        key=lambda row: (
+            GROUP_SORT_ORDER.get(str(row["category_name"]), 100),
+            str(row["category_name"]).casefold(),
+            int(row["source_order"]),
+            str(row["product_name"]).casefold(),
+        ),
+    )
 
-        for sku in members:
-            row += 1
-            station_cell = sheet.cell(row=row, column=1, value=sku.station or "")
-            name_cell = sheet.cell(row=row, column=2, value=sku.product_name)
-            if sku.product_name in MANDATORY_ASSORTMENT:
-                station_cell.fill = MANDATORY_FILL
-                name_cell.fill = MANDATORY_FILL
-            row_total = 0.0
-            for idx, window in enumerate(windows):
-                key = (sku.product_id, window.label)
-                two_day_qty = two_day_alloc.get(key, 0)
-                if two_day_qty:
-                    window_cell = sheet.cell(row=row, column=3 + idx, value=two_day_qty)
-                    window_cell.fill = TWO_DAY_FILL
-                    row_total += two_day_qty
-                    continue
-                qty = regular_alloc.get(key, 0)
-                defrost_qty = defrost_alloc.get(key, 0)
-                cell_value = _format_cell(qty, defrost_qty)
-                if cell_value != "":
-                    window_cell = sheet.cell(row=row, column=3 + idx, value=cell_value)
-                    if defrost_qty:
-                        window_cell.fill = DEFROST_FILL
-                    # Итого deliberately excludes the defrost component: it's
-                    # an extra batch for *tomorrow* morning, not part of
-                    # today's own demand, so it stays visible in the cell
-                    # (with its label/fill) but doesn't inflate today's total.
-                    row_total += qty
-            # Итого is normally the sum of what's actually scheduled across
-            # the windows for today's own demand (regular + двухдневка,
-            # kratnost-rounded) — not the raw model forecast, e.g. forecast
-            # 41.21 with 20+20 scheduled shows 40, not 41.21, and not the
-            # extra defrost batch (see above). When the plan couldn't fully
-            # cover today's demand (shortfall from the solver, see
-            # service.py's pace search) that's flipped: show the missed
-            # demand instead of a bare 0/partial number, so a
-            # capacity-starved SKU isn't visually indistinguishable from one
-            # with genuinely no demand.
-            shortfall = shortfall_by_sku.get(sku.product_id, 0.0) - defrost_shortfall_by_sku.get(
-                sku.product_id, 0.0
-            )
-            total_cell = sheet.cell(row=row, column=total_col)
-            forecast_total = row_total + shortfall
-            # Only colour/reformat the cell when the shortfall actually
-            # survives rounding — e.g. produced=6.6 vs forecast=7.0 both
-            # round to 7, so showing "7/7" in orange would look like a
-            # false alarm even though the raw LP shortfall is nonzero.
-            if shortfall > SHORTFALL_TOLERANCE and round(row_total) != round(forecast_total):
-                if row_total <= SHORTFALL_TOLERANCE:
-                    total_cell.value = round(forecast_total)
-                    total_cell.fill = SHORTFALL_FULL_FILL
-                else:
-                    total_cell.value = f"{round(row_total)}/{round(forecast_total)}"
-                    total_cell.fill = SHORTFALL_PARTIAL_FILL
-            else:
-                total_cell.value = row_total
+    current_row = PLAN_START_ROW
+    current_category: str | None = None
+    for plan_row in plan_rows:
+        category = str(plan_row["category_name"] or "Без группы")
+        if category != current_category:
+            sheet.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=total_column)
+            category_cell = sheet.cell(row=current_row, column=1)
+            category_cell.value = category
+            category_cell.fill = CATEGORY_FILL
+            category_cell.font = Font(bold=True)
+            category_cell.alignment = Alignment(horizontal="left")
+            sheet.row_dimensions[current_row].hidden = False
+            current_category = category
+            current_row += 1
 
-    _set_column_widths(sheet, total_col)
-    return workbook
+        _restore_row(sheet, current_row, plan_row["snapshot"], prototype)
+        if plan_row["snapshot"] is None:
+            for column in range(1, total_column + 1):
+                sheet.cell(row=current_row, column=column).fill = PatternFill()
+        sheet.cell(row=current_row, column=2).value = plan_row["product_name"]
+        for window in windows:
+            target_cell = sheet.cell(row=current_row, column=window.column)
+            target_cell.value = plan_row["allocated"].get(window.column)
+        total_cell = sheet.cell(row=current_row, column=total_column)
+        total_cell.value = plan_row["total"]
+        total_cell.number_format = "0"
+        total_cell.alignment = Alignment(horizontal="center")
+        sheet.row_dimensions[current_row].hidden = False
+        current_row += 1
 
-
-def _format_cell(qty: float, defrost_qty: float) -> object:
-    if defrost_qty:
-        return f"{qty + defrost_qty:g}{DEFROST_SUFFIX}"
-    if qty:
-        return qty
-    return ""
-
-
-def _set_column_widths(sheet: Worksheet, total_col: int) -> None:
-    sheet.column_dimensions["A"].width = 22
-    sheet.column_dimensions["B"].width = 34
-    for col in range(3, total_col + 1):
-        sheet.column_dimensions[sheet.cell(row=3, column=col).column_letter].width = 14
+    for row_index in range(1, sheet.max_row + 1):
+        sheet.row_dimensions[row_index].hidden = False
+    for column in range(1, total_column + 1):
+        column_letter = sheet.cell(row=1, column=column).column_letter
+        sheet.column_dimensions[column_letter].hidden = False
