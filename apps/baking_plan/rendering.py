@@ -141,8 +141,10 @@ def write_plan(
         sheet.row_dimensions[current_row].hidden = False
         current_row += 1
 
+    # Rows are unhidden (data rows we just wrote should never be hidden).
+    # Columns are deliberately left as the template set them — the base
+    # template hides a second, coarser window group (columns after the
+    # regular hourly ones) that some дефрост/Стол 2 rows schedule against;
+    # that's intentional in the reference file, not something to expose.
     for row_index in range(1, sheet.max_row + 1):
         sheet.row_dimensions[row_index].hidden = False
-    for column in range(1, total_column + 1):
-        column_letter = sheet.cell(row=1, column=column).column_letter
-        sheet.column_dimensions[column_letter].hidden = False
