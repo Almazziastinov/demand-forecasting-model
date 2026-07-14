@@ -230,14 +230,21 @@ cd /opt/demand-forecasting-model && sudo -u forecast .venv/bin/python \
 ```
 
 Failed twice on stale `root:root`-owned scratch files from an old backfill
-run before the ownership fixes described above; currently running clean.
-**As of writing this handoff, only `2026-07-01` had completed** (run id
-`backfill_base_bakery_no_sku_uplift_rollingbias_20260701_h1`, 211 bakeries,
-no errors) — the remaining `2026-07-02..12` were still in progress in a
-background process. At ~6 min/day this needs roughly another hour from
-`07-02` to finish.
+run before the ownership fixes described above; ran clean after that.
 
-**Next session: check whether this backfill completed.** Verify with:
+**Completed.** First attempt (`2026-07-01..12` in one shot) was killed
+partway through `07-02` when the local machine that owned the SSH session
+(and thus the paramiko `exec_command` channel) shut down — the remote
+process was not detached (no `nohup`), so closing the channel killed it
+too. `07-01` and `07-02` had already landed in ClickHouse by then and were
+left as-is. Resumed the remaining range with the same command but launched
+via `sudo -u forecast bash -c "nohup ... > logs/prod_lead1_rollingbias_20260703_20260712.log 2>&1 < /dev/null & echo STARTED_PID $!"`
+so it survives the SSH session ending; polled progress via a separate
+short-lived SSH connection every ~60s (grepping the log file) rather than
+holding one channel open. All `07-03..07-12` completed clean, no further
+permission errors.
+
+Verified final state — all 12 dates present, `n=211` bakeries each:
 
 ```sql
 select forecast_date, source_run_id, count() as n
@@ -249,18 +256,20 @@ group by forecast_date, source_run_id
 order by forecast_date
 ```
 
-Expect 12 rows (one run_id per date), `n=211` each. If some dates are
-missing, resume with the same command using only the missing date range
-(the script's `_existing_lead1_dates()` skip-check is not
-`_dev`/table-suffix-aware, so with `--replace-existing` omitted it would
-incorrectly check the prod-unsuffixed table regardless of `--table-suffix`
-— not a problem for this prod run, but worth knowing if reused against dev
-again). If it's still running, either wait or just re-run for the
-remaining dates — it's idempotent per date with `--replace-existing`.
+Run ids: `backfill_base_bakery_no_sku_uplift_rollingbias_{20260701..20260712}_h1`.
 
 This backfill is **cosmetic/historical only** — it does not affect the live
 active forecast (already fixed and verified above), only how far back the
 "fact vs forecast" history in the embedded app reflects the new correction.
+
+**Lesson for next time:** any VM background job expected to outlive a
+single tool call or SSH session must be launched detached (`nohup ... &
+disown`, or a real systemd unit for anything recurring) from the start,
+not just after the first interruption teaches you to. This project's own
+`SESSION_HANDOFF_2026-06-29_prod_recovery_weather_and_lead1_backfill.md`
+already hit the exact same "SSH connection closed mid-backfill" problem
+and used the same `nohup` fix — should have started there instead of
+re-discovering it.
 
 ## Code Changed (Committed, Pushed)
 
@@ -291,10 +300,10 @@ the new active run (see above).
 
 ## Immediate Next Steps
 
-1. Check whether the prod lead-1 backfill (`2026-07-01..12`) finished; if
-   not, resume it (see query above).
-2. Decide whether to push the local-only docs commit `a1b99f6` as-is, or
-   trim internal detail first.
+1. ~~Check whether the prod lead-1 backfill finished~~ — done, all 12 dates
+   (`2026-07-01..12`) confirmed loaded, 211 bakeries each.
+2. Decide whether to push the local-only docs commits `a1b99f6` (docs/ops)
+   and `ac7b166` (this handoff) as-is, or trim internal detail first.
 3. Someone should resolve the VM's `docs/ops/*.md` root ownership and the
    concurrent baking-plan working-tree drift, then do a real `git pull` on
    the VM so its `git log` reflects `0dcb638` (and whatever landed after).
