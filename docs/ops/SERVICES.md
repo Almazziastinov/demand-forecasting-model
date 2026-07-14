@@ -9,7 +9,7 @@ Last updated: 2026-07-14
 | Production forecast VM | `201.51.7.24` | Generates and publishes forecasts | Yes | Active |
 | ClickHouse | External database | Serving tables and snapshots | N/A | Active |
 | VibeCode/Blackhole app | `bakery-forecast-embedded` | Embedded read-only API/UI | No | Active |
-| Baking plan package | In-process, mounted on Blackhole app | Generates per-bakery baking-window Excel plan | No | Code reverted to template-driven 2026-07-14, **not yet deployed** to Blackhole (last deployed code there is still the 2026-07-13 MILP version) |
+| Baking plan package | In-process, mounted on Blackhole app | Generates per-bakery baking-window Excel plan | No | Active — reverted to template-driven 2026-07-14 and deployed to Blackhole same day (route-level smoke test not done, see `CURRENT_STATE.md`) |
 | Legacy Flask app | `web/app.py` | Local/demo legacy app | No prod role | Legacy |
 
 ## Production Forecast VM
@@ -48,9 +48,8 @@ as the production writer. Forecast timers there must stay disabled.
   `apps/forecast_embedded/app/main.py` (`baking_plan.router.router`).
 - Not a separate process/port. Rebuilt from scratch 2026-07-09, deployed as
   a MILP allocator 2026-07-11, **reverted to template-driven window
-  assignment 2026-07-14** (code only — not yet deployed to Blackhole, see
-  `DECISIONS.md` 2026-07-14 entry for the rationale and
-  `CURRENT_STATE.md` for what's left to deploy).
+  assignment and redeployed 2026-07-14** (see `DECISIONS.md` 2026-07-14
+  entry for the rationale and `CURRENT_STATE.md` for deploy detail).
 - On the Blackhole VM the sibling-package layout is mirrored as `/opt/app`
   (= local `apps/forecast_embedded/`) and `/opt/baking_plan` (= local
   `apps/baking_plan/`), both directly under `/opt` so `app/main.py`'s

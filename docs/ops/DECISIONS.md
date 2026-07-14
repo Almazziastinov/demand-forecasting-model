@@ -694,8 +694,11 @@ Implication:
   `_dev` table to match prod's `scope`/`bakery_id` columns) before relying
   on dev-environment testing for *any* future baking-plan or assortment
   work — flagged, not fixed, out of scope for this change.
-- Deploy to Blackhole (the actual serving host for this feature) was not
-  done as part of this change — no VibeCode/Blackhole credentials were
-  available in this session's environment (only `.codex/prod_vm.env`, for
-  the unrelated forecast-writer VM). Deploying this change is a separate,
-  explicitly deferred follow-up.
+- Deploy to Blackhole was completed later the same session once VibeCode
+  API credentials were provided (see `CURRENT_STATE.md` for the deploy
+  method and result) — the code is live, but the route-level endpoint
+  itself was not smoke-tested (would have required guessing/forging the
+  `x-vibe-user-*` admin auth headers, correctly blocked as credential
+  forgery against production with no explicit authorization for that
+  specific bypass). A real portal/admin session should exercise the actual
+  download endpoint at least once.
