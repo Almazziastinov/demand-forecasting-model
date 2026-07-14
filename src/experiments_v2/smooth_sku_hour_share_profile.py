@@ -136,7 +136,7 @@ def build_adjusted_applied_chunk(chunk: pd.DataFrame, profile_means: pd.DataFram
     work[PROFILE_MEAN_COL] = pd.to_numeric(work[PROFILE_MEAN_COL], errors="coerce").fillna(work[SKU_SHARE_COL])
     work[BAKERY_HOUR_SALES_COL] = pd.to_numeric(work[BAKERY_HOUR_SALES_COL], errors="coerce").fillna(0.0)
 
-    work[ADJUSTED_SHARE_COL] = work[SKU_SHARE_COL]
+    work[ADJUSTED_SHARE_COL] = np.maximum(work[SKU_SHARE_COL], work[PROFILE_MEAN_COL])
     work[UPLIFT_RAW_COL] = work[ADJUSTED_SHARE_COL] - work[SKU_SHARE_COL]
     work[UPLIFT_FLAG_COL] = (work[UPLIFT_RAW_COL] > 1e-12).astype(int)
     return work

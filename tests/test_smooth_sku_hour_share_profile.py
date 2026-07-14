@@ -22,7 +22,7 @@ def _tmp_dir() -> Path:
     return path
 
 
-def test_smooth_applied_chunk_passes_through_raw_share_and_renormalizes():
+def test_smooth_applied_chunk_lifts_weak_shares_to_mean_and_renormalizes():
     applied = pd.DataFrame(
         [
             {
@@ -64,14 +64,14 @@ def test_smooth_applied_chunk_passes_through_raw_share_and_renormalizes():
     p1 = result[result["product_id"] == "P1"].iloc[0]
     p2 = result[result["product_id"] == "P2"].iloc[0]
 
-    assert round(float(p1["sku_share_in_hour_adj"]), 4) == 0.25
+    assert round(float(p1["sku_share_in_hour_adj"]), 4) == 0.50
     assert round(float(p2["sku_share_in_hour_adj"]), 4) == 0.75
     assert round(float(result["sku_share_in_hour_adj_norm"].sum()), 4) == 1.0
-    assert round(float(p1["sku_share_in_hour_adj_norm"]), 4) == 0.25
-    assert round(float(p2["sku_share_in_hour_adj_norm"]), 4) == 0.75
-    assert round(float(p1["sku_share_uplift_raw"]), 4) == 0.0
-    assert int(p1["sku_share_uplift_flag"]) == 0
-    assert round(float(p1["sku_share_uplift_norm_delta"]), 4) == 0.0
+    assert round(float(p1["sku_share_in_hour_adj_norm"]), 4) == 0.40
+    assert round(float(p2["sku_share_in_hour_adj_norm"]), 4) == 0.60
+    assert round(float(p1["sku_share_uplift_raw"]), 4) == 0.25
+    assert int(p1["sku_share_uplift_flag"]) == 1
+    assert round(float(p1["sku_share_uplift_norm_delta"]), 4) == 0.15
 
 
 def test_load_profile_means_deduplicates_keys():
