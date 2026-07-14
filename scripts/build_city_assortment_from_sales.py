@@ -167,7 +167,14 @@ def build_layers(
     combined["is_bakeable"] = 1
     combined["source"] = SOURCE_NAME
     combined["source_file"] = f"mart_sales_60d:window_{DEFAULT_WINDOW_DAYS}d"
-    combined["valid_from"] = pd.to_datetime(valid_from).date().isoformat()
+    # Keep this a real date object, not a string: this frame is inserted
+    # directly into ClickHouse via client.insert_df (unlike
+    # build_bakeable_products_table.py's CSV-only sibling, where a string
+    # is fine). clickhouse-connect's Date serializer does
+    # `(value - epoch).days` on each cell, which raises
+    # "unsupported operand type(s) for -: 'str' and 'datetime.date'" if
+    # value is a str instead of a date.
+    combined["valid_from"] = pd.to_datetime(valid_from).date()
     combined["valid_to"] = pd.NA
     combined["is_active"] = 1
     combined["loaded_at"] = loaded_at
