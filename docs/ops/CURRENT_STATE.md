@@ -934,6 +934,35 @@ import are the only route-level confirmation for this deploy. Whoever has
 a real portal/admin session should click through the actual endpoint at
 least once before trusting it fully.
 
+## Lead-1 Backfill Rebuilt Under base_raw_uplift For 2026-07-01..13 (2026-07-14)
+
+Following the phase-1 scenario switch, rebuilt lead-1 (day-ahead)
+historical snapshots for the full 2026-07-01..2026-07-13 window under the
+new `base_raw_uplift` scenario, so fact-vs-forecast history reflects the
+pilot model instead of the old `base_no_sku_uplift` backfills that
+previously covered these dates. Used
+`scripts/build_prod_lead1_model_backfill.py --use-raw-uplift-multiplier
+--uplift-profile-version weekly_20260714 --use-rolling-bias
+--replace-existing` (matches the live scenario's rolling-bias correction
+and the newly-rebuilt profile version from the phase-1 floor restoration).
+Run ids: `backfill_base_bakery_raw_uplift_sku_rollingbias_YYYYMMDD_h1`.
+
+Split into two runs on the VM due to a background-process interruption
+(nohup'd child survived a first SSH channel drop but was later found dead
+mid-run — see `[[vm_ssh_access_and_deploy_gotchas]]`-style note, not fully
+root-caused): 2026-07-01..07 completed in the first run, 2026-07-08..13 in
+a second, restarted nohup'd run. Confirmed via direct ClickHouse query that
+all 13 dates now carry the new run_id in
+`bakery_forecast_day_snapshots`/`sku_forecast_day_snapshots`/
+`sku_forecast_hour_snapshots` (`lead_days = 1`); dates where the old
+no-uplift backfill row hasn't been merged away yet by
+`ReplacingMergeTree(generated_at)` show both run ids temporarily — the new
+(later `generated_at`) one wins once merged, per the documented engine
+behavior (see the 2026-07-13 "Discovered but did not fix" note above).
+
+These are draft backfill runs for historical comparison only — never
+activate them as the production forecast.
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.
