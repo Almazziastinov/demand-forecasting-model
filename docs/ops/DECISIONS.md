@@ -443,3 +443,86 @@ Implication:
   unreviewed work — see `CURRENT_STATE.md`'s "Known issue" note on VM git
   drift. Left alone; will get its first real run at the same 2026-07-14
   03:30 UTC timer.
+
+## 2026-07-14 - Fixed The Assortment-Threshold Insert Bug And Verified Both Fixes Live
+
+Decision:
+
+- Fixed `scripts/build_city_assortment_from_sales.py:build_layers()`:
+  `combined["valid_from"]` was built via
+  `pd.to_datetime(valid_from).date().isoformat()` — a Python `str`. That
+  function's output DataFrame is inserted straight into ClickHouse via
+  `client.insert_df()` against a `Date`-typed column;
+  `clickhouse-connect`'s Date serializer computes `(value - epoch).days`
+  per cell, which raises `unsupported operand type(s) for -: 'str' and
+  'datetime.date'` when `value` is a string instead of a real
+  `datetime.date`. Changed to `pd.to_datetime(valid_from).date()`.
+  Committed `1b29184`, deployed via SFTP, then manually triggered a full
+  production run (`systemctl start forecast-production.service`) to
+  verify rather than waiting for the next nightly timer.
+
+Context:
+
+- This turned out to be the real, sole cause of the 2026-07-13 finding
+  that `sales_window` (the 80%-threshold assortment source) had never
+  produced a single row: the 2026-07-14 03:30 UTC nightly timer gave the
+  assortment-refresh code its first real execution ever, and it failed
+  immediately with this exact error, confirming the hypothesis rather
+  than leaving it as "hasn't run yet, presumably fine."
+- Root-caused by copying the same construction pattern into an isolated
+  reproduction against a throwaway ClickHouse table via the `.env.dev`
+  (`_dev`-suffixed) environment — confirmed the exact production
+  traceback before the fix, and a clean insert after — without writing
+  test data to any real or shared table. The auto-mode safety classifier
+  correctly blocked a first attempt at reproducing this directly against
+  the production `bakeable_products` table; re-ran the reproduction
+  against dev instead.
+- This is a fix to already-shipped, committed code (`71465a1`, the
+  2026-07-06 "sales-based bakeable assortment" feature) — the VM's
+  seemingly-uncommitted copy of this file was never some other session's
+  unreviewed WIP; it's this same feature, present on the VM ahead of
+  `git` because the VM's git HEAD is stuck at `2c38e80` (predates
+  `71465a1`) — see `CURRENT_STATE.md`'s "Known issue" note on VM git
+  drift for why `git pull` doesn't work there.
+- Manually running the full pipeline (rather than waiting for the next
+  timer) surfaced a wider effect than anticipated: `sales_window` rows
+  landed for all 9 cities at once (not just Казань), with a `valid_from`
+  newer than the old `forecast_category_filter`/`partner_baking_markup`
+  rows' last update. Since `get_bakeable_products()` selects by
+  "freshest `valid_from` per city," this immediately switched every
+  city's served assortment from the old ~110-product unfiltered set to
+  the new, threshold-checked ~52-product city layer plus per-bakery
+  additions — a live, wide-blast-radius behavior change, not confined to
+  the one bakery the original report was about.
+- Also directly re-verified the 2026-07-13 SKU-hour fallback fix
+  (`e3f39e6`) against this same manually-triggered run: product 11465
+  (Пирог с Манго) at bakery 16 went from `0.043`/day (one dead hour) to
+  `2.97`/day (3 real hours) — a large improvement, though still below the
+  `~6.9`/day actual. Product 11213 (Роллы Вулкан с курицей) similarly
+  spread across 16 real hours but stayed at `0.048`/day vs `~2.0`/day
+  actual. Both SKUs still under-forecast relative to real demand — a
+  separate, not-yet-investigated issue in how the recent-sales
+  correction blend weights treat SKUs whose recent share sits below both
+  the "runner" (0.5%) and "core" (1%) boost thresholds documented in the
+  2026-07-13 entry above. Not fixed here.
+
+Implication:
+
+- The two 2026-07-13 findings ("assortment threshold never runs" and
+  "SKU-hour forecast collapses for thin SKUs") are now both confirmed
+  fixed and verified against a real, freshly-generated production run —
+  not just deployed-and-hoped. See `CURRENT_STATE.md` for the exact
+  verification numbers.
+- Anyone auditing individual bakeries' baking plans over the next few
+  days should watch for SKUs that quietly disappeared from a plan because
+  they no longer clear either the city 80% threshold or have their own
+  `scope='bakery'` row — this is expected behavior now working correctly
+  for the first time, not a new regression, but it will look like one if
+  nobody remembers this decision.
+- The remaining under-forecast gap for thin/low-volume SKUs (Пирог с
+  Манго, Роллы Вулкан с курицей) is a legitimate follow-up: the
+  recent-correction blend formula's "runner"/"core" thresholds may need a
+  lower tier for SKUs that sell daily but at very low volume relative to
+  the bakery's total, so they get *some* lift instead of falling through
+  to the un-boosted default blend. Not investigated further this
+  session.

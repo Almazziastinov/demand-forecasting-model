@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## Summary
 
@@ -687,6 +687,90 @@ someone else's in-flight, unreviewed change, not mine to touch. Its first
 real run will also be the 2026-07-14 03:30 UTC timer; worth checking then
 whether it actually drops the low-share SKUs (e.g. product 5105/10670/
 10628/5106/11213) from Казань's city scope as the 80% threshold intends.
+
+## SKU-Hour Fallback + Assortment-Threshold Fixes: Both Verified Live (2026-07-14)
+
+Follow-up to the two 2026-07-13 entries above. The 2026-07-14 03:30 UTC
+nightly timer fired as expected and surfaced the assortment code's first
+real execution — it failed immediately:
+
+```
+Assortment refresh FAILED: unsupported operand type(s) for -: 'str' and 'datetime.date'
+```
+
+Root-caused: `scripts/build_city_assortment_from_sales.py:build_layers()`
+built `combined["valid_from"]` via
+`pd.to_datetime(valid_from).date().isoformat()` — a **string**. That's
+fine for `build_bakeable_products_table.py`'s CSV-only sibling, but this
+function's output is inserted straight into ClickHouse via
+`client.insert_df()` against a `Date`-typed column; `clickhouse-connect`'s
+Date serializer does `(value - epoch).days` per cell, which raises
+exactly this error when `value` is a `str` instead of a `datetime.date`.
+This is the actual reason `sales_window` (the 80%-threshold source) had
+never produced a single row in production — every attempt crashed inside
+the try/except and got silently logged as `assortment_status: failed`.
+
+Reproduced the exact production traceback against a throwaway ClickHouse
+table (`.env.dev`, `_dev`-suffixed environment — not touching any real
+table) before and after the fix, to confirm root cause without writing
+to anything shared. Fix: `combined["valid_from"] = pd.to_datetime(valid_from).date()`
+(drop `.isoformat()`, keep it a real `date` object). This is a fix to
+already-committed, shipped code (`71465a1`, 2026-07-06) — the VM's
+uncommitted-looking copy of this file was not some other session's WIP,
+it was this same feature, manually placed on the VM ahead of `git`
+because the VM's git HEAD is stuck at `2c38e80` (see "Known issue" note
+above). Added a regression test asserting `valid_from` stays a
+`datetime.date`. Committed `1b29184`, pushed to `origin/master`, SFTP'd
+to the VM (backup `scripts/build_city_assortment_from_sales.py.bak_20260714_073303`),
+verified `py_compile` + live import.
+
+**Both fixes then manually triggered and verified together** via
+`systemctl start forecast-production.service` (full run, ~9 minutes,
+regenerated and re-activated `prod_base_bakery_no_sku_uplift_20260714_h14`):
+
+- Assortment: `Assortment refresh: city=318 bakery=2170 inserted=2488
+  valid_from=2026-07-13` — no more `FAILED`. Confirmed for Казань: the 5
+  originally-flagged low-share SKUs (product 5105/10670/10628/5106/11213)
+  now correctly resolve to `scope='bakery'` (source `sales_window`) rather
+  than `scope='city'` — they don't clear the 80% citywide threshold, but
+  do sell at specific bakeries.
+  - **Wide blast radius, not just Казань/bakery 16**: `sales_window`
+    rows now exist for all 9 cities (`318` city-scope rows total) with
+    `valid_from=2026-07-13`, newer than the old `forecast_category_filter`/
+    `partner_baking_markup` rows' last update (`2026-06-30`).
+    `get_bakeable_products()` selects rows by `valid_from = max(valid_from)
+    for that city` — so from this run onward, **every city's served
+    assortment switches from the old, unfiltered ~110-product set to the
+    new, threshold-checked ~52-product city layer plus per-bakery
+    additions**. The old rows are still in the table, just no longer the
+    "current" batch. This is the intended fix finally working, but it's a
+    live behavior change across the whole embedded app's baking plans,
+    not a narrow one-bakery correction — watch for SKUs unexpectedly
+    disappearing from plans at bakeries that don't have their own
+    `scope='bakery'` entry for something the old, looser filter used to
+    let through.
+- SKU-hour fallback (`e3f39e6`, deployed 2026-07-13): bakery 16, product
+  11465 (Пирог с Манго) forecast for 2026-07-14 = `2.97`/day across 3
+  hours (7-12), up from `0.043`/day in a single dead hour (22:00) before
+  the fix — actual recent demand is `~6.9`/day, so this is a large
+  improvement but not a full close of the gap. Product 11213 (Роллы
+  Вулкан с курицей) = `0.048`/day across 16 hours (6-21), properly spread
+  now but still far below actual (`~2.0`/day). The remaining under-forecast
+  for both is a separate, not-yet-investigated limitation in the
+  recent-sales correction blend weights (see `DECISIONS.md`), not
+  something this fix was meant to address.
+
+Commits this round: `1b29184` (assortment date-type fix),
+`6376930`/`e3f39e6` (SKU-hour fallback fix + its docs, 2026-07-13).
+
+Rollback: `scripts/build_city_assortment_from_sales.py.bak_20260714_073303`
+on the VM for the assortment fix; see the 2026-07-13 entry above for the
+SKU-hour fallback rollback path. There is no rollback for the assortment
+*data* itself (the old `forecast_category_filter`/`partner_baking_markup`
+rows are still present, just no longer selected) — if the new
+`sales_window` assortment turns out to be wrong for some city/bakery, the
+fix would need to be in the threshold/window-days parameters, not a data
+revert.
 
 ## Do Not Do
 
