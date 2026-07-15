@@ -1015,6 +1015,44 @@ Rollback: restore the two `.bak_20260715_082356` Python files and the matching
 `.env` backup, or remove `FORECAST_MAX_SKU_UPLIFT_RATIO` from `.env`, then
 rerun `forecast-production.service` and verify the intended active run.
 
+## Hierarchical Bakery/SKU Haircut Deployed (2026-07-15)
+
+The active `base_raw_uplift` scenario now applies a downward-only hierarchical
+post-processing coefficient after the SKU cap. Coefficients are derived from
+the latest seven days of lead-1 forecasts and UI-equivalent actual sales:
+
+- bakery coefficient targets a forecast/actual ratio of `1.15`;
+- bakery-product coefficients are shrunk toward the bakery coefficient with a
+  `7`-day prior;
+- maximum haircut is `15%` (`min_coefficient=0.85`);
+- if the bakery-level history is not over the target, the bakery and all its
+  SKUs are protected from any haircut.
+
+Code commit `3470678` was pushed to `origin/master`. VM `.env` now contains
+`FORECAST_HIERARCHICAL_HAIRCUT_TARGET_RATIO=1.15`, history days `7`, pair prior
+days `7`, and minimum coefficient `0.85`. Deployment backups use timestamp
+`20260715_104624` for both Python files and `.env`.
+
+Manually reran `forecast-production.service`; systemd finished with `success`
+and `ExecMainStatus=0`. Active run remains
+`prod_base_bakery_raw_uplift_sku_20260715_h14`, republished with generated time
+`2026-07-15 13:55:55+03:00`; `scripts.verify_prod_deploy` ended with
+`VERIFY OK`. Live allocation summary:
+
+- SKU cap: `130731 / 445950` SKU-days capped;
+- hierarchical haircut: `3714640 / 5020196` SKU-hour rows scaled;
+- total SKU forecast: `2820612.58 -> 2699153.09` (`0.956939`, a `4.31%`
+  reduction after the cap);
+- `63 / 212` bakeries protected from haircut;
+- `36562` bakery-product history pairs used.
+
+The production timer remains enabled and active. Historical lead-1 snapshots
+were not rebuilt with the haircut as part of this deploy; the deployed active
+`h14` run is the source of truth for current forecasts.
+
+Rollback: restore the two `.bak_20260715_104624` Python files and matching
+`.env` backup, rerun `forecast-production.service`, then require `VERIFY OK`.
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.

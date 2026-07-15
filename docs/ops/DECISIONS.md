@@ -820,3 +820,35 @@ Production verification:
 - The live allocation summary recorded `130139 / 445950` SKU-days capped and
   an average scale of `0.8172` among capped SKU-days; deployment verification
   ended with `VERIFY OK`.
+
+## 2026-07-15 - Add Hierarchical Bakery/SKU Downward Correction
+
+Decision:
+
+- After raw uplift, recent correction, assortment compensation, and the SKU
+  cap, apply a learned downward-only coefficient per bakery-product pair.
+- Estimate coefficients from the latest seven complete lead-1 days using the
+  same filtered/deduplicated actual-sales definition as the embedded UI.
+- Shrink pair coefficients toward their bakery coefficient with a seven-day
+  prior, target a `1.15` forecast/actual ratio, and limit haircut to `15%`.
+- If a bakery is not over the target in the calibration window, protect the
+  entire bakery from reduction, including all SKU-level coefficients.
+
+Rationale:
+
+- A fixed bakery coefficient corrected aggregate bias but could not address
+  heterogeneous SKU errors within the bakery. Fully independent SKU factors
+  were too unstable with only a short pilot history.
+- A walk-forward test on 2026-07-08..14 reduced pilot WMAPE from `37.15%` to
+  `35.73%` and bias from `+12.64%` to `+10.05%` with the conservative settings
+  above. The guardrail prevented the known underforecast bakery 257 from being
+  reduced.
+- Production summary after deployment showed an aggregate `4.31%` reduction
+  after the existing SKU cap while protecting `63 / 212` bakeries.
+
+Constraint:
+
+- The initial walk-forward evaluation covered only seven holdout days and was
+  performed on top of capped forecasts. Continue monitoring lead-1 results;
+  do not interpret it as proof that the SKU cap can be removed without a
+  separate uncapped backtest.
