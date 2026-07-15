@@ -194,6 +194,7 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         use_raw_uplift_multiplier=use_raw,
+        max_sku_uplift_ratio=args.max_sku_uplift_ratio,
     )
 
     model_is_base = Path(args.model_path).resolve() == BASE_MODEL_PATH.resolve()
@@ -293,6 +294,15 @@ def main() -> None:
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
     parser.add_argument("--use-raw-uplift-multiplier", action="store_true",
                         help="Use base model + raw uplift (base_raw_uplift scenario)")
+    parser.add_argument(
+        "--max-sku-uplift-ratio",
+        type=float,
+        default=None,
+        help=(
+            "Cap each per-(date, bakery, product) daily forecast to this "
+            "multiple of its recent rolling daily mean."
+        ),
+    )
     args = parser.parse_args()
 
     # When using base_raw scenario, default paths to base model unless overridden
