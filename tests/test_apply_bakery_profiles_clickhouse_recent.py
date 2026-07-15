@@ -6,6 +6,7 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     RAW_SALES_LINE_TABLE,
     _build_recent_correction_targets,
     _recent_sales_source_sql,
+    cap_sku_uplift_per_sku,
     cap_sku_uplift_to_bakery_forecast,
     compensate_for_assortment_exclusion,
     fill_missing_bakery_hours,
@@ -570,7 +571,8 @@ def test_compensate_leaves_fully_excluded_group_alone() -> None:
 
 
 def test_cap_sku_uplift_scales_down_when_over_ratio() -> None:
-    # bakery 1: SKU sum = 260, bakery-day = 200 → ratio 1.30 > cap 1.20 → scale = 1.20/1.30
+    # bakery 1: SKU sum=260, bakery-day=200, ratio 1.30 > cap 1.20,
+    # so scale = 1.20 / 1.30.
     # bakery 2: SKU sum = 220, bakery-day = 200 → ratio 1.10 < cap 1.20 → no scaling
     hourly = pd.DataFrame(
         {
@@ -593,8 +595,12 @@ def test_cap_sku_uplift_scales_down_when_over_ratio() -> None:
     )
     bak1 = result[result["bakery_id"] == 1]["sku_hour_forecast"].sum()
     bak2 = result[result["bakery_id"] == 2]["sku_hour_forecast"].sum()
-    assert abs(bak1 - 200.0 * 1.20) < 0.01, f"bakery 1 sum should be capped to 240, got {bak1}"
-    assert abs(bak2 - 220.0) < 0.01, f"bakery 2 sum should be unchanged at 220, got {bak2}"
+    assert abs(bak1 - 200.0 * 1.20) < 0.01, (
+        f"bakery 1 sum should be capped to 240, got {bak1}"
+    )
+    assert abs(bak2 - 220.0) < 0.01, (
+        f"bakery 2 sum should be unchanged at 220, got {bak2}"
+    )
     assert stats["bakery_days_capped"] == 1
     assert stats["bakery_days_total"] == 2
 
@@ -610,10 +616,93 @@ def test_cap_sku_uplift_is_noop_when_under_ratio() -> None:
         }
     )
     bakery_forecast = pd.DataFrame(
-        {"date": pd.to_datetime(["2026-07-01"]), "bakery_id": [1], "forecast_final": [200.0]}
+        {
+            "date": pd.to_datetime(["2026-07-01"]),
+            "bakery_id": [1],
+            "forecast_final": [200.0],
+        }
     )
     result, stats = cap_sku_uplift_to_bakery_forecast(
         hourly, bakery_forecast, max_ratio=1.35, forecast_col="forecast_final"
     )
     assert result["sku_hour_forecast"].sum() == 200.0
     assert stats["bakery_days_capped"] == 0
+
+
+def test_cap_sku_uplift_per_sku_scales_down_when_over_ratio() -> None:
+    # SKU 100: rolling_mean=100/day, cap=1.2x → sku_cap=120, fc_day=200 → scale=0.6
+    # SKU 200: rolling_mean=200/day, cap=1.2x → sku_cap=240, fc_day=100 → no cap
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01"] * 4),
+            "bakery_id": [1, 1, 1, 1],
+            "hour": [9, 10, 9, 10],
+            "product_id": [100, 100, 200, 200],
+            "sku_hour_forecast": [100.0, 100.0, 50.0, 50.0],
+        }
+    )
+    recent_stats = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [100, 200],
+            "recent_qty": [1000.0, 2000.0],
+            "recent_days_sold": [10, 10],
+        }
+    )
+    result, stats = cap_sku_uplift_per_sku(hourly, recent_stats, max_ratio=1.2)
+    sku100 = result[result["product_id"] == 100]["sku_hour_forecast"].sum()
+    sku200 = result[result["product_id"] == 200]["sku_hour_forecast"].sum()
+    assert abs(sku100 - 120.0) < 0.01, f"SKU 100 should be capped to 120, got {sku100}"
+    assert abs(sku200 - 100.0) < 0.01, (
+        f"SKU 200 should be unchanged at 100, got {sku200}"
+    )
+    assert stats["sku_days_capped"] == 1
+    assert stats["sku_days_total"] == 2
+
+
+def test_cap_sku_uplift_per_sku_is_noop_when_under_ratio() -> None:
+    # fc_day=120, rolling_mean=100, cap=1.2x, so sku_cap=120 and scale=1.0.
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01"] * 2),
+            "bakery_id": [1, 1],
+            "hour": [9, 10],
+            "product_id": [100, 100],
+            "sku_hour_forecast": [60.0, 60.0],
+        }
+    )
+    recent_stats = pd.DataFrame(
+        {
+            "bakery_id": [1],
+            "product_id": [100],
+            "recent_qty": [1000.0],
+            "recent_days_sold": [10],
+        }
+    )
+    result, stats = cap_sku_uplift_per_sku(hourly, recent_stats, max_ratio=1.2)
+    assert abs(result["sku_hour_forecast"].sum() - 120.0) < 0.01
+    assert stats["sku_days_capped"] == 0
+
+
+def test_cap_sku_uplift_per_sku_is_noop_when_no_recent_stats() -> None:
+    # SKU not in recent_stats → rolling_mean unknown → no cap
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01"] * 2),
+            "bakery_id": [1, 1],
+            "hour": [9, 10],
+            "product_id": [100, 100],
+            "sku_hour_forecast": [500.0, 500.0],
+        }
+    )
+    recent_stats = pd.DataFrame(
+        {
+            "bakery_id": pd.Series([], dtype="int64"),
+            "product_id": pd.Series([], dtype="int64"),
+            "recent_qty": pd.Series([], dtype="float64"),
+            "recent_days_sold": pd.Series([], dtype="int64"),
+        }
+    )
+    result, stats = cap_sku_uplift_per_sku(hourly, recent_stats, max_ratio=1.2)
+    assert abs(result["sku_hour_forecast"].sum() - 1000.0) < 0.01
+    assert stats["sku_days_capped"] == 0

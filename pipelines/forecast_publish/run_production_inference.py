@@ -73,6 +73,8 @@ DEFAULT_RECENT_CORRECTION_DAYS = int(os.getenv("FORECAST_RECENT_CORRECTION_DAYS"
 DEFAULT_RECENT_SALES_TABLE = os.getenv("FORECAST_RECENT_SALES_TABLE", "mart_sales_60d")
 DEFAULT_REFRESH_DATASETS = os.getenv("FORECAST_REFRESH_DATASETS", "").strip().lower() in {"1", "true", "yes", "on"}
 DEFAULT_REFRESH_WEATHER = os.getenv("FORECAST_REFRESH_WEATHER", "").strip().lower() in {"1", "true", "yes", "on"}
+_max_sku_uplift_env = os.getenv("FORECAST_MAX_SKU_UPLIFT_RATIO", "").strip()
+DEFAULT_MAX_SKU_UPLIFT_RATIO: float | None = float(_max_sku_uplift_env) if _max_sku_uplift_env else None
 
 
 SCENARIOS = {
@@ -237,6 +239,7 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         max_uplift_ratio=args.max_uplift_ratio,
+        max_sku_uplift_ratio=args.max_sku_uplift_ratio,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),
@@ -333,6 +336,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="Cap per-(date, bakery) SKU sum to at most this multiple of the bakery-day forecast. E.g. 1.35.",
+    )
+    parser.add_argument(
+        "--max-sku-uplift-ratio",
+        type=float,
+        default=DEFAULT_MAX_SKU_UPLIFT_RATIO,
+        help="Cap per-(date, bakery, product) SKU sum to at most this multiple of the rolling daily mean. E.g. 1.2.",
     )
     parser.add_argument(
         "--recent-category-upward-cap-pattern",

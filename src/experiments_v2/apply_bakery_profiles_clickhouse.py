@@ -307,6 +307,68 @@ def cap_sku_uplift_to_bakery_forecast(
     }
 
 
+def cap_sku_uplift_per_sku(
+    hourly: pd.DataFrame,
+    recent_stats: pd.DataFrame,
+    *,
+    max_ratio: float,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    """Cap each per-(date, bakery, product) SKU-hour sum at max_ratio times
+    its rolling daily mean from recent sales.  Only ever scales down.
+
+    recent_stats must have columns: bakery_id, product_id, recent_qty,
+    recent_days_sold  (from load_recent_assortment_stats).  SKUs with no
+    recent history are left uncapped.
+    """
+    sku_keys = [DATE_COL, BAKERY_ID_COL, PRODUCT_ID_COL]
+
+    rolling = recent_stats[
+        [BAKERY_ID_COL, PRODUCT_ID_COL, "recent_qty", "recent_days_sold"]
+    ].copy()
+    rolling["_rolling_mean"] = (
+        rolling["recent_qty"] / rolling["recent_days_sold"].replace(0, float("nan"))
+    ).fillna(0.0)
+
+    sku_sums = (
+        hourly.groupby(sku_keys, as_index=False)[SKU_HOUR_FORECAST_COL]
+        .sum()
+        .rename(columns={SKU_HOUR_FORECAST_COL: "_fc_sku_day"})
+    )
+    sku_sums[DATE_COL] = pd.to_datetime(sku_sums[DATE_COL])
+
+    sku_sums = sku_sums.merge(
+        rolling[[BAKERY_ID_COL, PRODUCT_ID_COL, "_rolling_mean"]],
+        on=[BAKERY_ID_COL, PRODUCT_ID_COL],
+        how="left",
+    )
+
+    # SKUs not in recent_stats get NaN rolling_mean → no cap → scale=1.0
+    sku_sums["_scale"] = np.where(
+        (sku_sums["_rolling_mean"].fillna(0.0) > 0) & (sku_sums["_fc_sku_day"] > 0),
+        ((sku_sums["_rolling_mean"] * max_ratio) / sku_sums["_fc_sku_day"]).clip(upper=1.0),
+        1.0,
+    )
+
+    n_capped = int((sku_sums["_scale"] < 1.0).sum())
+    avg_scale = (
+        float(sku_sums.loc[sku_sums["_scale"] < 1.0, "_scale"].mean())
+        if n_capped > 0
+        else 1.0
+    )
+
+    work = hourly.copy()
+    work[DATE_COL] = pd.to_datetime(work[DATE_COL])
+    work = work.merge(sku_sums[sku_keys + ["_scale"]], on=sku_keys, how="left")
+    work[SKU_HOUR_FORECAST_COL] = work[SKU_HOUR_FORECAST_COL] * work["_scale"].fillna(1.0)
+    work = work.drop(columns=["_scale"])
+    return work, {
+        "max_ratio": max_ratio,
+        "sku_days_capped": n_capped,
+        "sku_days_total": int(len(sku_sums)),
+        "avg_scale_when_capped": round(avg_scale, 4),
+    }
+
+
 def fill_missing_bakery_hours(
     sku_hourly: pd.DataFrame,
     bakery_hourly: pd.DataFrame,
@@ -1534,6 +1596,7 @@ def allocate_from_clickhouse(
     disable_assortment_filter: bool = False,
     disable_assortment_renormalization: bool = False,
     max_uplift_ratio: float | None = None,
+    max_sku_uplift_ratio: float | None = None,
     recent_category_upward_cap_pattern: str | None = DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
     recent_category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
     recent_category_absolute_cap_days: int | None = None,
@@ -1761,6 +1824,8 @@ def allocate_from_clickhouse(
     )
 
     source_summary = _finalize_source_stats(source_stats)
+    uplift_cap_stats: dict[str, float | int] = {}
+    sku_uplift_cap_stats: dict[str, float | int] = {}
     if recent_correction_mode != "none":
         sku_daily, sku_hour_rows, source_summary, recent_product_weights = (
             apply_recent_sku_hour_correction(
@@ -1790,7 +1855,6 @@ def allocate_from_clickhouse(
         renormalization_stats = {"groups_scaled": 0, "groups_without_sku": 0}
         gap_fill_stats = {"groups_filled": 0, "groups_unfilled": 0}
         assortment_compensation_stats = {"groups_scaled": 0, "groups_without_remaining_rows": 0}
-        uplift_cap_stats: dict[str, float | int] = {}
         if not use_raw_uplift_multiplier and not disable_assortment_renormalization:
             hourly_after_recent, gap_fill_stats = fill_missing_bakery_hours(
                 hourly_after_recent,
@@ -1823,11 +1887,26 @@ def allocate_from_clickhouse(
                 )
             )
         if use_raw_uplift_multiplier and max_uplift_ratio is not None:
+            # bakery_forecast always has BAKERY_FORECAST_COL regardless of the
+            # forecast_col parameter (load_bakery_day_forecast normalises it).
             hourly_after_recent, uplift_cap_stats = cap_sku_uplift_to_bakery_forecast(
                 hourly_after_recent,
                 bakery_forecast,
                 max_ratio=max_uplift_ratio,
-                forecast_col=forecast_col,
+                forecast_col=BAKERY_FORECAST_COL,
+            )
+        if use_raw_uplift_multiplier and max_sku_uplift_ratio is not None:
+            _forecast_start = pd.to_datetime(bakery_forecast[DATE_COL]).min()
+            _recent_for_sku_cap = load_recent_assortment_stats(
+                client,
+                forecast_start=_forecast_start,
+                recent_days=recent_correction_days,
+                sales_table=recent_sales_table,
+            )
+            hourly_after_recent, sku_uplift_cap_stats = cap_sku_uplift_per_sku(
+                hourly_after_recent,
+                _recent_for_sku_cap,
+                max_ratio=max_sku_uplift_ratio,
             )
         hourly_after_recent.to_csv(hourly_path, index=False, encoding="utf-8-sig")
         sku_daily = (
@@ -1882,6 +1961,8 @@ def allocate_from_clickhouse(
         summary["assortment_filter"]["exclusion_compensation"] = assortment_compensation_stats
     if use_raw_uplift_multiplier and uplift_cap_stats:
         summary["uplift_cap"] = uplift_cap_stats
+    if use_raw_uplift_multiplier and sku_uplift_cap_stats:
+        summary["sku_uplift_cap"] = sku_uplift_cap_stats
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -1925,6 +2006,17 @@ def main() -> None:
             "When --use-raw-uplift-multiplier is set, cap the per-(date, bakery) "
             "SKU-hour sum to at most this multiple of the bakery-day forecast. "
             "E.g. 1.35 limits uplift to +35%%. Default: no cap."
+        ),
+    )
+    parser.add_argument(
+        "--max-sku-uplift-ratio",
+        type=float,
+        default=None,
+        help=(
+            "When --use-raw-uplift-multiplier is set, cap each per-(date, bakery, "
+            "product) SKU-hour sum to at most this multiple of the rolling daily "
+            "mean from recent sales. E.g. 1.2 limits per-SKU uplift to +20%%. "
+            "Default: no cap."
         ),
     )
     parser.add_argument(
@@ -1975,6 +2067,7 @@ def main() -> None:
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         max_uplift_ratio=args.max_uplift_ratio,
+        max_sku_uplift_ratio=args.max_sku_uplift_ratio,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),
