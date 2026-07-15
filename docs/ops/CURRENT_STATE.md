@@ -963,6 +963,30 @@ behavior (see the 2026-07-13 "Discovered but did not fix" note above).
 These are draft backfill runs for historical comparison only — never
 activate them as the production forecast.
 
+## Assortment-Exclusion Demand Fix Under Raw Uplift (2026-07-14/15)
+
+See `docs/ops/DECISIONS.md` (2026-07-14/15 entry) for the full root-cause
+and fix. Summary of what's live now:
+
+- Two commits (`114bacd`, `488af38`) deployed to the VM the same session
+  they were found — `src/experiments_v2/apply_bakery_profiles_clickhouse.py`
+  now compensates for assortment-filtered-out demand under
+  `use_raw_uplift_multiplier=True`, instead of silently dropping it.
+- New active run after both fixes: `prod_base_bakery_raw_uplift_sku_20260715_h14`
+  (horizon `2026-07-15..2026-07-28`). Verified directly: bakery 257
+  (Ярмарочная 12, Чебоксары) SKU-day-sum-to-bakery-day-total ratio went
+  0.62 → 0.89 (first fix) → 1.30 (second fix), now matching every other
+  pilot bakery's 1.26-1.32 range.
+- The 2026-07-01..13 lead-1 backfill (built the previous day with the
+  un-fixed code, see the entry above) is being rebuilt with the fixed
+  code so historical dashboard views correct themselves too — run ids
+  unchanged (`backfill_base_bakery_raw_uplift_sku_rollingbias_YYYYMMDD_h1`),
+  `--replace-existing` so `ReplacingMergeTree(generated_at)` supersedes
+  the stale rows once merged.
+- Rollback: VM backups at
+  `src/experiments_v2/apply_bakery_profiles_clickhouse.py.bak_20260715_084030`
+  (pre-first-fix) and `.bak_20260715_085842` (pre-second-fix).
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.

@@ -702,3 +702,88 @@ Implication:
   forgery against production with no explicit authorization for that
   specific bypass). A real portal/admin session should exercise the actual
   download endpoint at least once.
+
+## 2026-07-14/15 - Assortment-Exclusion Demand Was Vanishing Under Raw Uplift, Fixed In Two Steps
+
+Decision:
+
+- Under `use_raw_uplift_multiplier=True` (`base_raw_uplift`), demand for
+  products excluded by assortment filtering (`assortment_city_products`)
+  was being **dropped entirely** instead of redistributed to the remaining
+  in-assortment SKUs — because `renormalize_hourly_to_bakery_forecast`
+  (the only existing mechanism that could have compensated for it) rescales
+  to the flat bakery-hour total and would cancel the uplift's own
+  deliberate inflation, so it's unconditionally skipped whenever
+  `use_raw_uplift_multiplier=True`.
+- Fixed in two commits: `114bacd` adds
+  `compensate_for_assortment_exclusion()` — rescales remaining rows by
+  `sum(pre-filter)/sum(post-filter)` per `(date, bakery, hour)`, which
+  isolates purely the assortment-removed fraction (both sides of that
+  ratio already carry the same uplift effect, so it doesn't touch the
+  uplift itself). `488af38` fixes a second-order bug found while verifying
+  the first: the *early* assortment filter (before recent-sales correction
+  reads the file back in as its own input) was still dropping
+  excluded-product demand before the new compensation step ever saw it, so
+  raw-uplift + recent-correction now defers all assortment filtering to
+  the single final pass where compensation immediately follows.
+
+Context:
+
+- User noticed a weekly-dashboard screenshot (bakery 257, Ярмарочная 12,
+  Чебоксары) showing forecast dramatically *below* actual sales, and
+  correctly pointed out this contradicted the pattern on every other pilot
+  bakery, where the SKU-day sum consistently reads ~120-130% of the
+  bakery-day total (the raw uplift's intended, accepted-as-of-yesterday
+  effect — see the entry above). Investigated and found: bakery 257 /
+  Чебоксары's SKU-day sum was 62% of its bakery-day total — the only
+  pilot bakery below 100%, all others between 117-127%.
+- Root cause traced via direct comparison: bakery-day total for bakery 257
+  (2026-07-08) was 686, matching the bakery-level model output correctly;
+  but summed SKU-day forecast was only 426 across 65 products —
+  `forecast_removed` in the allocation summary confirmed hundreds of units
+  per day were being dropped by assortment filtering with no
+  redistribution. Confirmed the same mechanism affects the *live* active
+  run, not just historical backfills — Чебоксары's assortment was cut more
+  aggressively than other cities by the 2026-07-14 assortment-threshold
+  fix (see that entry above), so it happened to be the city where this
+  pre-existing gap became visible.
+- First fix attempt (`114bacd`) improved bakery 257's ratio from 0.62 to
+  0.89 — better, but still the only pilot bakery below 1.0. Kept
+  investigating rather than accepting a partial fix, per explicit user
+  direction ("логика аплифта должна давать больше факта, как на других
+  пекарнях"). Found the second-order early-filter bug by checking
+  `exclusion_compensation.groups_without_remaining_rows` in the allocation
+  summary (`0` globally, ruling out "nothing left to redistribute onto" as
+  the explanation) and tracing that `apply_recent_sku_hour_correction`
+  reads back the *already-filtered* first-pass output as its own input.
+  After the second fix, bakery 257 reads 1.30 — squarely inside the
+  1.26-1.32 range of every other pilot bakery.
+- Verified end-to-end against a live, freshly-triggered production run
+  (`prod_base_bakery_raw_uplift_sku_20260715_h14`) both times, not just
+  unit tests — re-ran `systemctl start forecast-production.service` after
+  each deploy and re-queried ClickHouse directly to confirm the actual
+  ratio moved, rather than trusting the code change alone.
+
+Implication:
+
+- `forecast_sku_total` (the value the embedded weekly dashboard prefers
+  over the bakery-day total per `app/services/bakery.py`'s
+  `coalesce(sku.forecast_sku_total, b.forecast_final)`) should now
+  consistently read *above* the bakery-day total for every bakery under
+  `base_raw_uplift`, city-assortment-narrowing severity no longer matters.
+  If a bakery is ever found reading *below* its bakery-day total again
+  under this scenario, that's a regression, not expected variance.
+- A small residual exists: 36 `(date, bakery, hour)` groups (out of
+  ~45,000) across the full 14-day horizon have *zero* remaining
+  in-assortment products after filtering — nothing to redistribute onto,
+  so those specific bakery-hours still lose that demand. Not fixed;
+  flagged as an acceptable edge case given the scale (36 vs ~45k groups).
+- The historical lead-1 backfill runs for 2026-07-01..13 (built the day
+  before with the *un-fixed* code) were re-run with the fixed code
+  afterward so the dashboard's historical view corrects itself too — see
+  `CURRENT_STATE.md` for confirmation once that finishes.
+- Both fixes only change behavior when `use_raw_uplift_multiplier=True`
+  (i.e., `base_raw_uplift`); `base_no_sku_uplift` and any future
+  non-raw-uplift scenario are unaffected — the existing
+  `renormalize_hourly_to_bakery_forecast` path (and its own gap-filling)
+  still runs exactly as before for those.
