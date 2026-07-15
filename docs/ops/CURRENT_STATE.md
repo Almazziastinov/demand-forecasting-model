@@ -1053,6 +1053,40 @@ were not rebuilt with the haircut as part of this deploy; the deployed active
 Rollback: restore the two `.bak_20260715_104624` Python files and matching
 `.env` backup, rerun `forecast-production.service`, then require `VERIFY OK`.
 
+## SKU Cap / Assortment Compensation Ordering Regression Fixed (2026-07-15)
+
+The initial SKU-cap deployment applied the cap *after* assortment-exclusion
+compensation. That order regressed the 2026-07-15 bakery-257 fix: compensation
+redistributed excluded-SKU demand onto the remaining assortment, then the cap
+mistook the redistribution for excessive per-SKU uplift and removed it again.
+Bakery 257's active SKU/bakery ratio fell from the previously verified `1.30`
+to an average `0.787` (`0.702..0.869`). The later hierarchical haircut was not
+the cause; bakery 257 was correctly protected from it.
+
+Commit `0baf002` moves the SKU cap to the complete pre-assortment SKU set. The
+order is now cap -> assortment filter -> exclusion compensation -> protected
+hierarchical haircut. A regression test asserts that compensation preserves
+the already-capped pre-filter total. Backfill CLI wiring was extended with the
+hierarchical parameters in the same commit.
+
+Deployed to the production VM with backup timestamp `20260715_123751`, then
+manually reran `forecast-production.service`. Systemd finished with `success`,
+`ExecMainStatus=0`, and `scripts.verify_prod_deploy` ended with `VERIFY OK`.
+The active run remains `prod_base_bakery_raw_uplift_sku_20260715_h14`,
+republished at `2026-07-15 15:47:04+03:00`. Bakery 257 now has active
+SKU/bakery ratio average `1.142`, range `1.04..1.24`; the SKU sum is again
+above the bakery-day forecast while still respecting the cap on the complete
+SKU set.
+
+A replacement lead-1 rebuild for 2026-07-01..14 was started as transient unit
+`forecast-lead1-orderfix-backfill-20260715.service` with the full current
+production logic (rolling bias, raw uplift, SKU cap `1.2`, and hierarchical
+haircut settings). Its draft runs must never be activated.
+
+Rollback: restore the two `.bak_20260715_123751` runtime files, rerun
+`forecast-production.service`, and require `VERIFY OK`. This rollback would
+reintroduce the known ordering regression and is for emergency use only.
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.

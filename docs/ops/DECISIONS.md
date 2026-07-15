@@ -852,3 +852,26 @@ Constraint:
   performed on top of capped forecasts. Continue monitoring lead-1 results;
   do not interpret it as proof that the SKU cap can be removed without a
   separate uncapped backtest.
+
+## 2026-07-15 - Apply SKU Cap Before Assortment Compensation
+
+Decision:
+
+- Apply the per-SKU rolling-mean cap to the complete pre-assortment SKU set.
+- Only afterward filter to the active assortment and compensate the excluded
+  demand onto remaining SKUs.
+- Never reapply the SKU cap after assortment compensation; redistributed
+  demand is not an uplift outlier and must not be removed.
+
+Rationale and evidence:
+
+- The opposite order silently cancelled the existing assortment-exclusion fix
+  (`114bacd`, `488af38`) for bakery 257. Bakery-day lead-1 remained accurate
+  (`+0.5%` over 2026-07-01..14), while its summed SKU lead-1 fell to `-20.4%`.
+- The correctly rebuilt pre-cap history had previously restored bakery 257 to
+  a SKU/bakery ratio of `1.30`. Rebuilding it after the cap was introduced
+  overwrote those snapshots and lowered the ratio again, which made the issue
+  look like a missing/stale lead-1 problem.
+- After deploying corrected ordering, the live active ratio recovered from
+  `0.787` average to `1.142` (`1.04..1.24`) while retaining both the SKU cap
+  and the underforecast guardrail.
