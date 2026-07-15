@@ -6,6 +6,8 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     RAW_SALES_LINE_TABLE,
     _build_recent_correction_targets,
     _recent_sales_source_sql,
+    apply_hierarchical_haircut,
+    build_hierarchical_haircut_coefficients,
     cap_sku_uplift_per_sku,
     cap_sku_uplift_to_bakery_forecast,
     compensate_for_assortment_exclusion,
@@ -706,3 +708,74 @@ def test_cap_sku_uplift_per_sku_is_noop_when_no_recent_stats() -> None:
     result, stats = cap_sku_uplift_per_sku(hourly, recent_stats, max_ratio=1.2)
     assert abs(result["sku_hour_forecast"].sum() - 1000.0) < 0.01
     assert stats["sku_days_capped"] == 0
+
+
+def test_hierarchical_haircut_shrinks_pair_toward_bakery() -> None:
+    history = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01", "2026-07-02"] * 2),
+            "bakery_id": [1, 1, 1, 1],
+            "product_id": [10, 10, 20, 20],
+            "forecast_qty": [100.0, 100.0, 100.0, 100.0],
+            "actual_qty": [50.0, 50.0, 100.0, 100.0],
+        }
+    )
+    bakery, pair = build_hierarchical_haircut_coefficients(
+        history,
+        target_ratio=1.1,
+        min_coefficient=0.75,
+        pair_prior_days=2.0,
+    )
+    assert bakery.loc[0, "bakery_coefficient"] == 0.825
+    sku10 = pair.loc[pair["product_id"] == 10, "hierarchical_coefficient"].iloc[0]
+    assert abs(sku10 - 0.7875) < 1e-9
+
+
+def test_hierarchical_haircut_protects_underforecast_bakery() -> None:
+    history = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+            "bakery_id": [1, 1],
+            "product_id": [10, 10],
+            "forecast_qty": [50.0, 50.0],
+            "actual_qty": [100.0, 100.0],
+        }
+    )
+    bakery, pair = build_hierarchical_haircut_coefficients(
+        history,
+        target_ratio=1.15,
+        min_coefficient=0.85,
+        pair_prior_days=7.0,
+    )
+    assert bool(bakery.loc[0, "protect_from_haircut"])
+    assert pair.loc[0, "hierarchical_coefficient"] == 1.0
+
+
+def test_apply_hierarchical_haircut_uses_bakery_fallback_for_new_sku() -> None:
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-08", "2026-07-08"]),
+            "dow": [2, 2],
+            "bakery_id": [1, 1],
+            "hour": [9, 10],
+            "product_id": [99, 99],
+            "sku_hour_forecast": [50.0, 50.0],
+        }
+    )
+    bakery = pd.DataFrame(
+        {
+            "bakery_id": [1],
+            "bakery_coefficient": [0.9],
+            "protect_from_haircut": [False],
+        }
+    )
+    pair = pd.DataFrame(
+        {
+            "bakery_id": [1],
+            "product_id": [10],
+            "hierarchical_coefficient": [0.8],
+        }
+    )
+    result, stats = apply_hierarchical_haircut(hourly, bakery, pair)
+    assert result["sku_hour_forecast"].sum() == 90.0
+    assert stats["overall_coefficient"] == 0.9

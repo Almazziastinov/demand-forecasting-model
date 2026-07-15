@@ -369,6 +369,172 @@ def cap_sku_uplift_per_sku(
     }
 
 
+def build_hierarchical_haircut_coefficients(
+    history: pd.DataFrame,
+    *,
+    target_ratio: float,
+    min_coefficient: float,
+    pair_prior_days: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build downward-only bakery and bakery-SKU correction coefficients."""
+    if target_ratio <= 0:
+        raise ValueError("target_ratio must be positive")
+    if not 0 < min_coefficient <= 1:
+        raise ValueError("min_coefficient must be in (0, 1]")
+    if pair_prior_days <= 0:
+        raise ValueError("pair_prior_days must be positive")
+    keys = [BAKERY_ID_COL, PRODUCT_ID_COL]
+    work = history.copy()
+    work["forecast_qty"] = pd.to_numeric(work["forecast_qty"], errors="coerce").fillna(0.0)
+    work["actual_qty"] = pd.to_numeric(work["actual_qty"], errors="coerce").fillna(0.0)
+
+    bakery = (
+        work.groupby(BAKERY_ID_COL, as_index=False)
+        .agg(history_forecast=("forecast_qty", "sum"), history_actual=("actual_qty", "sum"))
+    )
+    bakery["_raw_bakery_coefficient"] = np.where(
+        bakery["history_forecast"] > 0,
+        target_ratio * bakery["history_actual"] / bakery["history_forecast"],
+        1.0,
+    )
+    bakery["protect_from_haircut"] = bakery["_raw_bakery_coefficient"] >= 1.0
+    bakery["bakery_coefficient"] = bakery["_raw_bakery_coefficient"].clip(
+        lower=min_coefficient,
+        upper=1.0,
+    )
+
+    pair = (
+        work.groupby(keys, as_index=False)
+        .agg(
+            history_forecast=("forecast_qty", "sum"),
+            history_actual=("actual_qty", "sum"),
+            history_days=(DATE_COL, "nunique"),
+        )
+    )
+    pair["pair_coefficient"] = np.where(
+        pair["history_forecast"] > 0,
+        target_ratio * pair["history_actual"] / pair["history_forecast"],
+        1.0,
+    )
+    pair["pair_coefficient"] = pair["pair_coefficient"].clip(
+        lower=min_coefficient,
+        upper=1.0,
+    )
+    pair = pair.merge(
+        bakery[[BAKERY_ID_COL, "bakery_coefficient", "protect_from_haircut"]],
+        on=BAKERY_ID_COL,
+        how="left",
+        validate="many_to_one",
+    )
+    weight = pair["history_days"] / (pair["history_days"] + pair_prior_days)
+    pair["hierarchical_coefficient"] = (
+        weight * pair["pair_coefficient"]
+        + (1.0 - weight) * pair["bakery_coefficient"]
+    ).clip(lower=min_coefficient, upper=1.0)
+    pair.loc[pair["protect_from_haircut"], "hierarchical_coefficient"] = 1.0
+    return bakery, pair
+
+
+def load_hierarchical_haircut_history(
+    client,
+    *,
+    forecast_start: pd.Timestamp,
+    history_days: int,
+) -> pd.DataFrame:
+    """Load latest lead-1 raw-uplift forecasts and UI-equivalent actuals."""
+    history_end = forecast_start - pd.Timedelta(days=1)
+    history_start = forecast_start - pd.Timedelta(days=history_days)
+    params = {
+        "history_start": str(history_start.date()),
+        "history_end": str(history_end.date()),
+    }
+    forecast = client.query_df(
+        """
+        select
+            forecast_date as date,
+            bakery_id,
+            product_id,
+            argMax(forecast_qty, generated_at) as forecast_qty
+        from sku_forecast_day_snapshots
+        where lead_days = 1
+          and forecast_date between %(history_start)s and %(history_end)s
+          and source_run_id like '%%_raw_uplift_%%'
+        group by date, bakery_id, product_id
+        """,
+        parameters=params,
+    )
+    actual = client.query_df(
+        f"""
+        select
+            check_date as date,
+            toInt64(bakery_id) as bakery_id,
+            toInt64(product_id) as product_id,
+            sum(toFloat64(quantity)) as actual_qty
+        from (
+            select distinct
+                check_datetime,
+                check_date,
+                bakery_id,
+                product_id,
+                quantity,
+                price,
+                line_amount,
+                cash_event_type
+            from {SALES_LINE_TABLE}
+            where hex(cash_event_type) = '{SALES_EVENT_HEX}'
+              and check_date between %(history_start)s and %(history_end)s
+        )
+        group by date, bakery_id, product_id
+        """,
+        parameters=params,
+    )
+    keys = [DATE_COL, BAKERY_ID_COL, PRODUCT_ID_COL]
+    history = forecast.merge(actual, on=keys, how="outer")
+    history["forecast_qty"] = history["forecast_qty"].fillna(0.0)
+    history["actual_qty"] = history["actual_qty"].fillna(0.0)
+    return history
+
+
+def apply_hierarchical_haircut(
+    hourly: pd.DataFrame,
+    bakery_coefficients: pd.DataFrame,
+    pair_coefficients: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    """Apply fixed per-bakery/SKU coefficients while preserving hourly shape."""
+    work = hourly.copy()
+    before = float(work[SKU_HOUR_FORECAST_COL].sum())
+    work = work.merge(
+        pair_coefficients[[BAKERY_ID_COL, PRODUCT_ID_COL, "hierarchical_coefficient"]],
+        on=[BAKERY_ID_COL, PRODUCT_ID_COL],
+        how="left",
+    ).merge(
+        bakery_coefficients[[BAKERY_ID_COL, "bakery_coefficient", "protect_from_haircut"]],
+        on=BAKERY_ID_COL,
+        how="left",
+    )
+    coefficient = work["hierarchical_coefficient"].fillna(work["bakery_coefficient"]).fillna(1.0)
+    coefficient = np.where(work["protect_from_haircut"].fillna(True), 1.0, coefficient)
+    work["_haircut_coefficient"] = coefficient
+    work[SKU_HOUR_FORECAST_COL] = work[SKU_HOUR_FORECAST_COL] * work["_haircut_coefficient"]
+    after = float(work[SKU_HOUR_FORECAST_COL].sum())
+    rows_scaled = int((work["_haircut_coefficient"] < 1.0).sum())
+    work = work.drop(
+        columns=[
+            "hierarchical_coefficient",
+            "bakery_coefficient",
+            "protect_from_haircut",
+            "_haircut_coefficient",
+        ]
+    )
+    return work, {
+        "rows_scaled": rows_scaled,
+        "rows_total": int(len(work)),
+        "forecast_before": round(before, 6),
+        "forecast_after": round(after, 6),
+        "overall_coefficient": round(after / before, 6) if before else 1.0,
+    }
+
+
 def fill_missing_bakery_hours(
     sku_hourly: pd.DataFrame,
     bakery_hourly: pd.DataFrame,
@@ -1597,6 +1763,10 @@ def allocate_from_clickhouse(
     disable_assortment_renormalization: bool = False,
     max_uplift_ratio: float | None = None,
     max_sku_uplift_ratio: float | None = None,
+    hierarchical_haircut_target_ratio: float | None = None,
+    hierarchical_haircut_history_days: int = 7,
+    hierarchical_haircut_pair_prior_days: float = 7.0,
+    hierarchical_haircut_min_coefficient: float = 0.85,
     recent_category_upward_cap_pattern: str | None = DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
     recent_category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
     recent_category_absolute_cap_days: int | None = None,
@@ -1826,6 +1996,7 @@ def allocate_from_clickhouse(
     source_summary = _finalize_source_stats(source_stats)
     uplift_cap_stats: dict[str, float | int] = {}
     sku_uplift_cap_stats: dict[str, float | int] = {}
+    hierarchical_haircut_stats: dict[str, float | int] = {}
     if recent_correction_mode != "none":
         sku_daily, sku_hour_rows, source_summary, recent_product_weights = (
             apply_recent_sku_hour_correction(
@@ -1908,6 +2079,37 @@ def allocate_from_clickhouse(
                 _recent_for_sku_cap,
                 max_ratio=max_sku_uplift_ratio,
             )
+        if use_raw_uplift_multiplier and hierarchical_haircut_target_ratio is not None:
+            _forecast_start = pd.to_datetime(bakery_forecast[DATE_COL]).min()
+            _haircut_history = load_hierarchical_haircut_history(
+                client,
+                forecast_start=_forecast_start,
+                history_days=hierarchical_haircut_history_days,
+            )
+            _bakery_coefficients, _pair_coefficients = (
+                build_hierarchical_haircut_coefficients(
+                    _haircut_history,
+                    target_ratio=hierarchical_haircut_target_ratio,
+                    min_coefficient=hierarchical_haircut_min_coefficient,
+                    pair_prior_days=hierarchical_haircut_pair_prior_days,
+                )
+            )
+            hourly_after_recent, hierarchical_haircut_stats = apply_hierarchical_haircut(
+                hourly_after_recent,
+                _bakery_coefficients,
+                _pair_coefficients,
+            )
+            hierarchical_haircut_stats.update(
+                {
+                    "target_ratio": hierarchical_haircut_target_ratio,
+                    "history_days": hierarchical_haircut_history_days,
+                    "pair_prior_days": hierarchical_haircut_pair_prior_days,
+                    "min_coefficient": hierarchical_haircut_min_coefficient,
+                    "bakeries_protected": int(_bakery_coefficients["protect_from_haircut"].sum()),
+                    "bakeries_total": int(len(_bakery_coefficients)),
+                    "pairs_total": int(len(_pair_coefficients)),
+                }
+            )
         hourly_after_recent.to_csv(hourly_path, index=False, encoding="utf-8-sig")
         sku_daily = (
             hourly_after_recent.groupby(
@@ -1963,6 +2165,8 @@ def allocate_from_clickhouse(
         summary["uplift_cap"] = uplift_cap_stats
     if use_raw_uplift_multiplier and sku_uplift_cap_stats:
         summary["sku_uplift_cap"] = sku_uplift_cap_stats
+    if use_raw_uplift_multiplier and hierarchical_haircut_stats:
+        summary["hierarchical_haircut"] = hierarchical_haircut_stats
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -2019,6 +2223,10 @@ def main() -> None:
             "Default: no cap."
         ),
     )
+    parser.add_argument("--hierarchical-haircut-target-ratio", type=float, default=None)
+    parser.add_argument("--hierarchical-haircut-history-days", type=int, default=7)
+    parser.add_argument("--hierarchical-haircut-pair-prior-days", type=float, default=7.0)
+    parser.add_argument("--hierarchical-haircut-min-coefficient", type=float, default=0.85)
     parser.add_argument(
         "--recent-category-upward-cap-pattern",
         default=DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
@@ -2068,6 +2276,10 @@ def main() -> None:
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         max_uplift_ratio=args.max_uplift_ratio,
         max_sku_uplift_ratio=args.max_sku_uplift_ratio,
+        hierarchical_haircut_target_ratio=args.hierarchical_haircut_target_ratio,
+        hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
+        hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
+        hierarchical_haircut_min_coefficient=args.hierarchical_haircut_min_coefficient,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),

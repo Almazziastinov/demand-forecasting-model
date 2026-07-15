@@ -75,6 +75,19 @@ DEFAULT_REFRESH_DATASETS = os.getenv("FORECAST_REFRESH_DATASETS", "").strip().lo
 DEFAULT_REFRESH_WEATHER = os.getenv("FORECAST_REFRESH_WEATHER", "").strip().lower() in {"1", "true", "yes", "on"}
 _max_sku_uplift_env = os.getenv("FORECAST_MAX_SKU_UPLIFT_RATIO", "").strip()
 DEFAULT_MAX_SKU_UPLIFT_RATIO: float | None = float(_max_sku_uplift_env) if _max_sku_uplift_env else None
+_hierarchical_target_env = os.getenv("FORECAST_HIERARCHICAL_HAIRCUT_TARGET_RATIO", "").strip()
+DEFAULT_HIERARCHICAL_HAIRCUT_TARGET_RATIO: float | None = (
+    float(_hierarchical_target_env) if _hierarchical_target_env else None
+)
+DEFAULT_HIERARCHICAL_HAIRCUT_HISTORY_DAYS = int(
+    os.getenv("FORECAST_HIERARCHICAL_HAIRCUT_HISTORY_DAYS", "7")
+)
+DEFAULT_HIERARCHICAL_HAIRCUT_PAIR_PRIOR_DAYS = float(
+    os.getenv("FORECAST_HIERARCHICAL_HAIRCUT_PAIR_PRIOR_DAYS", "7")
+)
+DEFAULT_HIERARCHICAL_HAIRCUT_MIN_COEFFICIENT = float(
+    os.getenv("FORECAST_HIERARCHICAL_HAIRCUT_MIN_COEFFICIENT", "0.85")
+)
 
 
 SCENARIOS = {
@@ -240,6 +253,10 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         max_uplift_ratio=args.max_uplift_ratio,
         max_sku_uplift_ratio=args.max_sku_uplift_ratio,
+        hierarchical_haircut_target_ratio=args.hierarchical_haircut_target_ratio,
+        hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
+        hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
+        hierarchical_haircut_min_coefficient=args.hierarchical_haircut_min_coefficient,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),
@@ -342,6 +359,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_MAX_SKU_UPLIFT_RATIO,
         help="Cap per-(date, bakery, product) SKU sum to at most this multiple of the rolling daily mean. E.g. 1.2.",
+    )
+    parser.add_argument(
+        "--hierarchical-haircut-target-ratio",
+        type=float,
+        default=DEFAULT_HIERARCHICAL_HAIRCUT_TARGET_RATIO,
+    )
+    parser.add_argument(
+        "--hierarchical-haircut-history-days",
+        type=int,
+        default=DEFAULT_HIERARCHICAL_HAIRCUT_HISTORY_DAYS,
+    )
+    parser.add_argument(
+        "--hierarchical-haircut-pair-prior-days",
+        type=float,
+        default=DEFAULT_HIERARCHICAL_HAIRCUT_PAIR_PRIOR_DAYS,
+    )
+    parser.add_argument(
+        "--hierarchical-haircut-min-coefficient",
+        type=float,
+        default=DEFAULT_HIERARCHICAL_HAIRCUT_MIN_COEFFICIENT,
     )
     parser.add_argument(
         "--recent-category-upward-cap-pattern",
