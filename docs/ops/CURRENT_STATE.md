@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
 
 ## Summary
 
@@ -986,6 +986,34 @@ and fix. Summary of what's live now:
 - Rollback: VM backups at
   `src/experiments_v2/apply_bakery_profiles_clickhouse.py.bak_20260715_084030`
   (pre-first-fix) and `.bak_20260715_085842` (pre-second-fix).
+
+## Per-SKU Raw-Uplift Cap Deployed (2026-07-15)
+
+The `base_raw_uplift` production scenario now caps each
+`(forecast date, bakery, product)` daily SKU forecast at `1.2` times that
+SKU's recent rolling daily mean. The cap only scales forecasts down; SKUs
+without recent history are left unchanged. This replaces the proposed
+bakery-level cap for the pilot because a bakery-level scale reduced every SKU
+equally and did not remove the large SKU-specific positive-bias outliers.
+
+- Code: commit `466217c` (`cap_sku_uplift_per_sku` plus production CLI/env
+  wiring and tests), pushed to `origin/master`.
+- VM `.env`: `FORECAST_MAX_SKU_UPLIFT_RATIO=1.2`.
+- Deployment backup timestamp: `20260715_082356` for both changed Python
+  files and `.env` under `/opt/demand-forecasting-model`.
+- Manually triggered `forecast-production.service`; systemd result was
+  `success` with `ExecMainStatus=0`.
+- Active run remains
+  `prod_base_bakery_raw_uplift_sku_20260715_h14`, republished with
+  `generated_at=2026-07-15 11:33:21+03:00`; verification ended with
+  `VERIFY OK`.
+- Allocation summary confirms the cap ran: `130139` of `445950` SKU-days
+  capped (`29.2%`), average scale among capped SKU-days `0.8172`.
+- `forecast-production.timer` remains enabled and active.
+
+Rollback: restore the two `.bak_20260715_082356` Python files and the matching
+`.env` backup, or remove `FORECAST_MAX_SKU_UPLIFT_RATIO` from `.env`, then
+rerun `forecast-production.service` and verify the intended active run.
 
 ## Do Not Do
 

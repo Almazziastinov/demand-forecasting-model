@@ -787,3 +787,36 @@ Implication:
   non-raw-uplift scenario are unaffected — the existing
   `renormalize_hourly_to_bakery_forecast` path (and its own gap-filling)
   still runs exactly as before for those.
+
+## 2026-07-15 - Cap Raw Uplift Per SKU Against Recent Daily Sales
+
+Decision:
+
+- Under `base_raw_uplift`, cap each `(date, bakery, product)` daily forecast
+  at `1.2 * recent rolling daily mean` for that bakery-product pair.
+- Apply one scale factor to all hourly rows of the affected SKU-day, preserving
+  its intraday distribution. Never scale upward, and do not cap SKUs without
+  recent history.
+- Configure production through `FORECAST_MAX_SKU_UPLIFT_RATIO=1.2` rather
+  than hard-coding the pilot threshold.
+
+Rationale:
+
+- Lead-1 analysis across 10 pilot SKUs and 10 bakeries showed that the raw
+  uplift's error was uneven within a bakery: some SKU-bakery pairs were close
+  to fact while others remained `45-70%` high.
+- A bakery-level cap applies the same scale to every SKU. It reduces total
+  overforecast but preserves the bad within-bakery allocation and can make
+  already-good SKU forecasts worse.
+- The simulated per-SKU cap at `1.2` reduced aggregate bias to about `14.5%`
+  and removed nearly all SKU-bakery cells above `20%` (excluding the known
+  bakery-257/backfill anomaly). It was more selective than the bakery-level
+  alternative.
+
+Production verification:
+
+- Deployed commit `466217c` to the production VM and republished
+  `prod_base_bakery_raw_uplift_sku_20260715_h14`.
+- The live allocation summary recorded `130139 / 445950` SKU-days capped and
+  an average scale of `0.8172` among capped SKU-days; deployment verification
+  ended with `VERIFY OK`.
