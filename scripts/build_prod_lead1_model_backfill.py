@@ -195,6 +195,10 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         use_raw_uplift_multiplier=use_raw,
         max_sku_uplift_ratio=args.max_sku_uplift_ratio,
+        hierarchical_haircut_target_ratio=args.hierarchical_haircut_target_ratio,
+        hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
+        hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
+        hierarchical_haircut_min_coefficient=args.hierarchical_haircut_min_coefficient,
     )
 
     model_is_base = Path(args.model_path).resolve() == BASE_MODEL_PATH.resolve()
@@ -303,6 +307,10 @@ def main() -> None:
             "multiple of its recent rolling daily mean."
         ),
     )
+    parser.add_argument("--hierarchical-haircut-target-ratio", type=float, default=None)
+    parser.add_argument("--hierarchical-haircut-history-days", type=int, default=7)
+    parser.add_argument("--hierarchical-haircut-pair-prior-days", type=float, default=7.0)
+    parser.add_argument("--hierarchical-haircut-min-coefficient", type=float, default=0.85)
     args = parser.parse_args()
 
     # When using base_raw scenario, default paths to base model unless overridden

@@ -2015,6 +2015,22 @@ def allocate_from_clickhouse(
             )
         )
         hourly_after_recent = pd.read_csv(hourly_path, encoding="utf-8-sig")
+        if use_raw_uplift_multiplier and max_sku_uplift_ratio is not None:
+            # Cap the complete pre-assortment SKU set. Applying this after
+            # assortment compensation would cut away the demand that
+            # compensation just redistributed onto the remaining SKUs.
+            _forecast_start = pd.to_datetime(bakery_forecast[DATE_COL]).min()
+            _recent_for_sku_cap = load_recent_assortment_stats(
+                client,
+                forecast_start=_forecast_start,
+                recent_days=recent_correction_days,
+                sales_table=recent_sales_table,
+            )
+            hourly_after_recent, sku_uplift_cap_stats = cap_sku_uplift_per_sku(
+                hourly_after_recent,
+                _recent_for_sku_cap,
+                max_ratio=max_sku_uplift_ratio,
+            )
         pre_assortment_hourly = hourly_after_recent.copy()
         hourly_after_recent, hour_filter_stats = filter_by_active_assortment(
             hourly_after_recent,
@@ -2065,19 +2081,6 @@ def allocate_from_clickhouse(
                 bakery_forecast,
                 max_ratio=max_uplift_ratio,
                 forecast_col=BAKERY_FORECAST_COL,
-            )
-        if use_raw_uplift_multiplier and max_sku_uplift_ratio is not None:
-            _forecast_start = pd.to_datetime(bakery_forecast[DATE_COL]).min()
-            _recent_for_sku_cap = load_recent_assortment_stats(
-                client,
-                forecast_start=_forecast_start,
-                recent_days=recent_correction_days,
-                sales_table=recent_sales_table,
-            )
-            hourly_after_recent, sku_uplift_cap_stats = cap_sku_uplift_per_sku(
-                hourly_after_recent,
-                _recent_for_sku_cap,
-                max_ratio=max_sku_uplift_ratio,
             )
         if use_raw_uplift_multiplier and hierarchical_haircut_target_ratio is not None:
             _forecast_start = pd.to_datetime(bakery_forecast[DATE_COL]).min()

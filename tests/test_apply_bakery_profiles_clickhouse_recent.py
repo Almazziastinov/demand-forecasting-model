@@ -779,3 +779,33 @@ def test_apply_hierarchical_haircut_uses_bakery_fallback_for_new_sku() -> None:
     result, stats = apply_hierarchical_haircut(hourly, bakery, pair)
     assert result["sku_hour_forecast"].sum() == 90.0
     assert stats["overall_coefficient"] == 0.9
+
+
+def test_sku_cap_before_assortment_compensation_preserves_capped_total() -> None:
+    pre_filter = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-08", "2026-07-08"]),
+            "bakery_id": [257, 257],
+            "hour": [9, 9],
+            "product_id": [100, 200],
+            "sku_hour_forecast": [100.0, 100.0],
+        }
+    )
+    recent_stats = pd.DataFrame(
+        {
+            "bakery_id": [257, 257],
+            "product_id": [100, 200],
+            "recent_qty": [1000.0, 500.0],
+            "recent_days_sold": [10, 10],
+        }
+    )
+    capped, _ = cap_sku_uplift_per_sku(pre_filter, recent_stats, max_ratio=1.2)
+    post_filter = capped[capped["product_id"] == 100].copy()
+    compensated, _ = compensate_for_assortment_exclusion(
+        capped,
+        post_filter,
+        group_keys=["date", "bakery_id", "hour"],
+        forecast_col="sku_hour_forecast",
+    )
+    assert capped["sku_hour_forecast"].sum() == 160.0
+    assert compensated["sku_hour_forecast"].sum() == 160.0
