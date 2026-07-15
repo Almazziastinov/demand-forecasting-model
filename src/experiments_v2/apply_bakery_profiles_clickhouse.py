@@ -1508,6 +1508,13 @@ def allocate_from_clickhouse(
         "rows_removed": 0,
         "forecast_removed": 0.0,
     }
+    # Under raw uplift + recent-correction, filtering here (before
+    # recent-correction reads this file back in) would drop excluded-product
+    # demand before compensate_for_assortment_exclusion ever gets a chance to
+    # redistribute it — defer to the single final filter+compensate pass
+    # below instead. Without recent-correction there is no later pass, so
+    # filtering must still happen here.
+    defer_assortment_filter = use_raw_uplift_multiplier and recent_correction_mode != "none"
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1592,12 +1599,19 @@ def allocate_from_clickhouse(
         merged[SKU_HOUR_FORECAST_COL] = (
             merged[BAKERY_HOUR_FORECAST_COL] * merged[SKU_SHARE_COL]
         )
-        merged, filter_stats = filter_by_active_assortment(
-            merged,
-            allowed_pairs=allowed_assortment_pairs,
-            bakery_city_lookup=bakery_city_lookup,
-            forecast_col=SKU_HOUR_FORECAST_COL,
-        )
+        if defer_assortment_filter:
+            # Raw uplift + recent-correction: filtering here would drop
+            # excluded-product demand before compensate_for_assortment_exclusion
+            # ever sees it (recent-correction reads this file back in as its
+            # own input) — defer to the single final pass instead.
+            filter_stats = {"rows_removed": 0, "forecast_removed": 0.0}
+        else:
+            merged, filter_stats = filter_by_active_assortment(
+                merged,
+                allowed_pairs=allowed_assortment_pairs,
+                bakery_city_lookup=bakery_city_lookup,
+                forecast_col=SKU_HOUR_FORECAST_COL,
+            )
         _merge_filter_stats(assortment_filter_stats, filter_stats)
         merged = merged[[*HOURLY_OUTPUT_COLS, "_row_id", "source"]]
         _write_hourly_chunk(merged, hourly_path, header=not wrote_header)
@@ -1648,12 +1662,15 @@ def allocate_from_clickhouse(
             "bakery_hour_fallback_thin",
             "bakery_hour_fallback",
         )
-        fallback_merged, filter_stats = filter_by_active_assortment(
-            fallback_merged,
-            allowed_pairs=allowed_assortment_pairs,
-            bakery_city_lookup=bakery_city_lookup,
-            forecast_col=SKU_HOUR_FORECAST_COL,
-        )
+        if defer_assortment_filter:
+            filter_stats = {"rows_removed": 0, "forecast_removed": 0.0}
+        else:
+            fallback_merged, filter_stats = filter_by_active_assortment(
+                fallback_merged,
+                allowed_pairs=allowed_assortment_pairs,
+                bakery_city_lookup=bakery_city_lookup,
+                forecast_col=SKU_HOUR_FORECAST_COL,
+            )
         _merge_filter_stats(assortment_filter_stats, filter_stats)
         fallback_merged = fallback_merged[[*HOURLY_OUTPUT_COLS, "_row_id", "source"]]
         _write_hourly_chunk(fallback_merged, hourly_path, header=not wrote_header)
