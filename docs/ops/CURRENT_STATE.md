@@ -1087,6 +1087,49 @@ Rollback: restore the two `.bak_20260715_123751` runtime files, rerun
 `forecast-production.service`, and require `VERIFY OK`. This rollback would
 reintroduce the known ordering regression and is for emergency use only.
 
+## Stockout-Aware Hourly Uplift Deployed (2026-07-15)
+
+Evidence-based per-(bakery, product, hour) correction factors are now applied
+after the hierarchical haircut in the `base_raw_uplift` scenario. Corrections
+address systematic undercounting in hours after the last baking window runs
+out of product — the "dropout" pattern where hourly sales drop to zero while
+the bakery is still open and selling other items.
+
+**Algorithm**: for each pilot bakery × SKU × coverage window, count stockout
+days (продано/выпуск ≥ 0.90), detect last-sale hour within window, estimate
+missed demand from avg selling rate × hours after dropout (where bakery was
+still active). Correction = `1 + stockout_rate × avg_missed / avg_daily_sold`,
+capped at 2.0. Applied only where factor > 1.0 (never scales down).
+
+**Result on prod run**:
+- `13,198` of `5,667,202` SKU-hour rows corrected (pilot bakeries only)
+- Avg correction factor: `1.205` (+20.5%) where applied
+- Evening hours (16-23h) get highest correction (~1.23) — last window covering
+  8 hours is the dominant source of missed demand (57% of estimated misses)
+
+**Files changed** (via base64-SSH, VM git still blocked):
+- `scripts/build_stockout_correction.py` — new script; uploaded to VM
+- `src/experiments_v2/apply_bakery_profiles_clickhouse.py` — backup
+  `.bak_20260715_165257`
+- `pipelines/forecast_publish/run_production_inference.py` — backup
+  `.bak_20260715_165355`
+- `apps/baking_plan/allocation.py` — uploaded to VM (needed by build script;
+  file existed locally from 2026-07-14 baking-plan revert but was absent
+  from VM's older git state)
+
+**ClickHouse**: `sku_hour_stockout_correction_embedded` table created and
+populated in prod with `4446` rows (`profile_version=stockout_20260715`,
+5 pilot bakeries, 58 SKUs).
+
+**VM `.env`**: `FORECAST_STOCKOUT_CORRECTION_VERSION=stockout_20260715` added.
+
+Active run `prod_base_bakery_raw_uplift_sku_20260715_h14` republished at
+`2026-07-15 17:14:18+03:00`; `VERIFY OK`.
+
+Rollback: restore the two `.bak_20260715_165257` / `.bak_20260715_165355`
+Python files, remove `FORECAST_STOCKOUT_CORRECTION_VERSION` from VM `.env`,
+rerun `forecast-production.service`, verify.
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.

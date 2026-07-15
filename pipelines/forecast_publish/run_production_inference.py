@@ -75,6 +75,7 @@ DEFAULT_REFRESH_DATASETS = os.getenv("FORECAST_REFRESH_DATASETS", "").strip().lo
 DEFAULT_REFRESH_WEATHER = os.getenv("FORECAST_REFRESH_WEATHER", "").strip().lower() in {"1", "true", "yes", "on"}
 _max_sku_uplift_env = os.getenv("FORECAST_MAX_SKU_UPLIFT_RATIO", "").strip()
 DEFAULT_MAX_SKU_UPLIFT_RATIO: float | None = float(_max_sku_uplift_env) if _max_sku_uplift_env else None
+DEFAULT_STOCKOUT_CORRECTION_VERSION: str | None = os.getenv("FORECAST_STOCKOUT_CORRECTION_VERSION", "").strip() or None
 _hierarchical_target_env = os.getenv("FORECAST_HIERARCHICAL_HAIRCUT_TARGET_RATIO", "").strip()
 DEFAULT_HIERARCHICAL_HAIRCUT_TARGET_RATIO: float | None = (
     float(_hierarchical_target_env) if _hierarchical_target_env else None
@@ -253,6 +254,7 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         max_uplift_ratio=args.max_uplift_ratio,
         max_sku_uplift_ratio=args.max_sku_uplift_ratio,
+        stockout_correction_version=args.stockout_correction_version,
         hierarchical_haircut_target_ratio=args.hierarchical_haircut_target_ratio,
         hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
         hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
@@ -359,6 +361,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_MAX_SKU_UPLIFT_RATIO,
         help="Cap per-(date, bakery, product) SKU sum to at most this multiple of the rolling daily mean. E.g. 1.2.",
+    )
+    parser.add_argument(
+        "--stockout-correction-version",
+        default=DEFAULT_STOCKOUT_CORRECTION_VERSION,
+        help="Profile version from sku_hour_stockout_correction_embedded. Env: FORECAST_STOCKOUT_CORRECTION_VERSION.",
     )
     parser.add_argument(
         "--hierarchical-haircut-target-ratio",

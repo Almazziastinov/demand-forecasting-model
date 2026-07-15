@@ -53,6 +53,7 @@ from src.experiments_v2.apply_bakery_profiles import load_bakery_hour_profile
 
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "processed"
 SKU_UPLIFT_MULTIPLIER_COL = "sku_uplift_multiplier"
+STOCKOUT_CORRECTION_TABLE = "sku_hour_stockout_correction_embedded"
 SALES_LINE_TABLE = "mart_sales_60d"
 RAW_SALES_LINE_TABLE = "Svezhar.fct_check_lines"
 SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
@@ -366,6 +367,79 @@ def cap_sku_uplift_per_sku(
         "sku_days_capped": n_capped,
         "sku_days_total": int(len(sku_sums)),
         "avg_scale_when_capped": round(avg_scale, 4),
+    }
+
+
+def load_stockout_correction(
+    client,
+    *,
+    table: str = STOCKOUT_CORRECTION_TABLE,
+    profile_version: str,
+) -> pd.DataFrame:
+    """Load per-(bakery_id, product_id, hour) correction factors from ClickHouse.
+
+    Returns a DataFrame with columns [bakery_id, product_id, hour, correction_factor].
+    Returns an empty DataFrame if the table does not exist or has no rows for the version.
+    """
+    try:
+        df = client.query_df(
+            f"""
+            SELECT bakery_id, product_id, hour,
+                   argMax(correction_factor, generated_at) AS correction_factor
+            FROM {table}
+            WHERE profile_version = %(version)s
+            GROUP BY bakery_id, product_id, hour
+            """,
+            parameters={"version": profile_version},
+        )
+    except Exception:
+        return pd.DataFrame(columns=["bakery_id", "product_id", "hour", "correction_factor"])
+    return df
+
+
+def apply_stockout_hour_correction(
+    hourly: pd.DataFrame,
+    correction: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    """Multiply SKU-hour forecasts by pre-computed per-(bakery, product, hour) factors.
+
+    Only rows where correction_factor > 1.0 are lifted; never scales down. The
+    correction is applied in-place on a copy so the caller's DataFrame is not
+    mutated.
+    """
+    if correction.empty or hourly.empty:
+        return hourly, {"rows_corrected": 0, "avg_factor_when_applied": 1.0}
+
+    work = hourly.copy()
+    work["_bakery_id_int"] = pd.to_numeric(work[BAKERY_ID_COL], errors="coerce")
+    work["_product_id_int"] = pd.to_numeric(work[PRODUCT_ID_COL], errors="coerce")
+
+    cf = correction[correction["correction_factor"] > 1.0].copy()
+    cf["bakery_id"]  = cf["bakery_id"].astype("int64")
+    cf["product_id"] = cf["product_id"].astype("int64")
+    cf["hour"]       = cf["hour"].astype("int16")
+
+    work = work.merge(
+        cf.rename(columns={"bakery_id": "_bakery_id_int", "product_id": "_product_id_int"}),
+        on=["_bakery_id_int", "_product_id_int", HOUR_COL],
+        how="left",
+    )
+    applied_mask = work["correction_factor"].notna() & (work["correction_factor"] > 1.0)
+    n_corrected = int(applied_mask.sum())
+    avg_factor = (
+        float(work.loc[applied_mask, "correction_factor"].mean()) if n_corrected > 0 else 1.0
+    )
+
+    work[SKU_HOUR_FORECAST_COL] = np.where(
+        applied_mask,
+        work[SKU_HOUR_FORECAST_COL] * work["correction_factor"].fillna(1.0),
+        work[SKU_HOUR_FORECAST_COL],
+    )
+    work = work.drop(columns=["_bakery_id_int", "_product_id_int", "correction_factor"])
+    return work, {
+        "rows_corrected": n_corrected,
+        "rows_total": len(work),
+        "avg_factor_when_applied": round(avg_factor, 4),
     }
 
 
@@ -1763,6 +1837,7 @@ def allocate_from_clickhouse(
     disable_assortment_renormalization: bool = False,
     max_uplift_ratio: float | None = None,
     max_sku_uplift_ratio: float | None = None,
+    stockout_correction_version: str | None = None,
     hierarchical_haircut_target_ratio: float | None = None,
     hierarchical_haircut_history_days: int = 7,
     hierarchical_haircut_pair_prior_days: float = 7.0,
@@ -1839,6 +1914,14 @@ def allocate_from_clickhouse(
             client,
             uplift_table=uplift_table,
             profile_version=uplift_profile_version,
+        )
+
+    stockout_correction_df = pd.DataFrame()
+    if stockout_correction_version:
+        stockout_correction_df = load_stockout_correction(
+            client,
+            table=STOCKOUT_CORRECTION_TABLE,
+            profile_version=stockout_correction_version,
         )
 
     daily_parts: list[pd.DataFrame] = []
@@ -1996,6 +2079,7 @@ def allocate_from_clickhouse(
     source_summary = _finalize_source_stats(source_stats)
     uplift_cap_stats: dict[str, float | int] = {}
     sku_uplift_cap_stats: dict[str, float | int] = {}
+    stockout_correction_stats: dict[str, float | int] = {}
     hierarchical_haircut_stats: dict[str, float | int] = {}
     if recent_correction_mode != "none":
         sku_daily, sku_hour_rows, source_summary, recent_product_weights = (
@@ -2030,6 +2114,10 @@ def allocate_from_clickhouse(
                 hourly_after_recent,
                 _recent_for_sku_cap,
                 max_ratio=max_sku_uplift_ratio,
+            )
+        if use_raw_uplift_multiplier and not stockout_correction_df.empty:
+            hourly_after_recent, stockout_correction_stats = apply_stockout_hour_correction(
+                hourly_after_recent, stockout_correction_df,
             )
         pre_assortment_hourly = hourly_after_recent.copy()
         hourly_after_recent, hour_filter_stats = filter_by_active_assortment(
@@ -2168,6 +2256,8 @@ def allocate_from_clickhouse(
         summary["uplift_cap"] = uplift_cap_stats
     if use_raw_uplift_multiplier and sku_uplift_cap_stats:
         summary["sku_uplift_cap"] = sku_uplift_cap_stats
+    if use_raw_uplift_multiplier and stockout_correction_stats:
+        summary["stockout_correction"] = stockout_correction_stats
     if use_raw_uplift_multiplier and hierarchical_haircut_stats:
         summary["hierarchical_haircut"] = hierarchical_haircut_stats
     summary_path.write_text(
@@ -2226,6 +2316,15 @@ def main() -> None:
             "Default: no cap."
         ),
     )
+    parser.add_argument(
+        "--stockout-correction-version",
+        default=None,
+        help=(
+            "Profile version from sku_hour_stockout_correction_embedded. "
+            "When set, applies per-(bakery, product, hour) stockout correction "
+            "after the SKU cap step. Only active with --use-raw-uplift-multiplier."
+        ),
+    )
     parser.add_argument("--hierarchical-haircut-target-ratio", type=float, default=None)
     parser.add_argument("--hierarchical-haircut-history-days", type=int, default=7)
     parser.add_argument("--hierarchical-haircut-pair-prior-days", type=float, default=7.0)
@@ -2279,6 +2378,7 @@ def main() -> None:
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         max_uplift_ratio=args.max_uplift_ratio,
         max_sku_uplift_ratio=args.max_sku_uplift_ratio,
+        stockout_correction_version=args.stockout_correction_version,
         hierarchical_haircut_target_ratio=args.hierarchical_haircut_target_ratio,
         hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
         hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
