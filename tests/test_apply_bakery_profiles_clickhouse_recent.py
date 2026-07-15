@@ -6,6 +6,7 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     RAW_SALES_LINE_TABLE,
     _build_recent_correction_targets,
     _recent_sales_source_sql,
+    compensate_for_assortment_exclusion,
     fill_missing_bakery_hours,
     filter_by_active_assortment,
     renormalize_hourly_to_bakery_forecast,
@@ -486,3 +487,82 @@ def test_assortment_filter_keeps_unconfigured_city() -> None:
 
     assert filtered["product_id"].tolist() == [999]
     assert stats == {"rows_removed": 0, "forecast_removed": 0.0}
+
+
+def test_compensate_for_assortment_exclusion_redistributes_dropped_demand() -> None:
+    # product 3 was excluded by assortment filtering (present pre-filter,
+    # absent post-filter) — its 15.0 units should land proportionally on
+    # products 1 and 2, not vanish.
+    pre_filter = pd.DataFrame(
+        {
+            "date": ["2026-07-08"] * 3,
+            "bakery_id": [257, 257, 257],
+            "hour": [9, 9, 9],
+            "product_id": [1, 2, 3],
+            "sku_hour_forecast": [10.0, 5.0, 15.0],
+        }
+    )
+    post_filter = pre_filter[pre_filter["product_id"] != 3].copy()
+
+    compensated, stats = compensate_for_assortment_exclusion(
+        pre_filter,
+        post_filter,
+        group_keys=["date", "bakery_id", "hour"],
+        forecast_col="sku_hour_forecast",
+    )
+
+    assert stats == {"groups_scaled": 1, "groups_without_remaining_rows": 0}
+    result = dict(zip(compensated["product_id"], compensated["sku_hour_forecast"]))
+    assert result[1] == 20.0  # 10 * (30/15)
+    assert result[2] == 10.0  # 5 * (30/15)
+    # full pre-filter total preserved, not just cancelled by the filter
+    assert round(compensated["sku_hour_forecast"].sum(), 6) == 30.0
+
+
+def test_compensate_for_assortment_exclusion_is_noop_when_nothing_removed() -> None:
+    pre_filter = pd.DataFrame(
+        {
+            "date": ["2026-07-08"],
+            "bakery_id": [257],
+            "hour": [9],
+            "product_id": [1],
+            "sku_hour_forecast": [42.0],
+        }
+    )
+    post_filter = pre_filter.copy()
+
+    compensated, stats = compensate_for_assortment_exclusion(
+        pre_filter,
+        post_filter,
+        group_keys=["date", "bakery_id", "hour"],
+        forecast_col="sku_hour_forecast",
+    )
+
+    assert stats == {"groups_scaled": 1, "groups_without_remaining_rows": 0}
+    assert compensated["sku_hour_forecast"].tolist() == [42.0]
+
+
+def test_compensate_leaves_fully_excluded_group_alone() -> None:
+    # Every product in this group got filtered out — nothing left to
+    # redistribute onto, so the group is reported but left as an empty gap
+    # rather than fabricating a row.
+    pre_filter = pd.DataFrame(
+        {
+            "date": ["2026-07-08"],
+            "bakery_id": [257],
+            "hour": [9],
+            "product_id": [1],
+            "sku_hour_forecast": [42.0],
+        }
+    )
+    post_filter = pre_filter.iloc[0:0].copy()
+
+    compensated, stats = compensate_for_assortment_exclusion(
+        pre_filter,
+        post_filter,
+        group_keys=["date", "bakery_id", "hour"],
+        forecast_col="sku_hour_forecast",
+    )
+
+    assert stats == {"groups_scaled": 0, "groups_without_remaining_rows": 1}
+    assert compensated.empty

@@ -203,6 +203,58 @@ def renormalize_hourly_to_bakery_forecast(
     }
 
 
+def compensate_for_assortment_exclusion(
+    pre_filter: pd.DataFrame,
+    post_filter: pd.DataFrame,
+    *,
+    group_keys: list[str],
+    forecast_col: str,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    """Redistribute demand dropped by assortment filtering back onto the
+    remaining (in-assortment) rows of each group, without touching whatever
+    the raw SKU-hour uplift already did to those rows.
+
+    Unlike `renormalize_hourly_to_bakery_forecast` (which rescales to the
+    flat bakery-hour forecast and would silently cancel the uplift's
+    deliberate inflation), the scale here is
+    `sum(pre_filter) / sum(post_filter)` per group — purely the fraction
+    lost to assortment exclusion, since both sides of that ratio already
+    carry the same uplift effect. Only used when
+    `use_raw_uplift_multiplier=True`, where assortment-filtered demand
+    would otherwise vanish instead of being redistributed (see
+    `docs/ops/DECISIONS.md`, 2026-07-14 entry).
+    """
+    if pre_filter.empty:
+        return post_filter, {"groups_scaled": 0, "groups_without_remaining_rows": 0}
+
+    pre_totals = (
+        pre_filter.groupby(group_keys, as_index=False)[forecast_col]
+        .sum()
+        .rename(columns={forecast_col: "_pre_total"})
+    )
+    post_totals = (
+        post_filter.groupby(group_keys, as_index=False)[forecast_col]
+        .sum()
+        .rename(columns={forecast_col: "_post_total"})
+    )
+    scales = pre_totals.merge(post_totals, on=group_keys, how="left")
+    scales["_post_total"] = scales["_post_total"].fillna(0.0)
+    has_remaining = scales["_post_total"].gt(0.0)
+    scales["_compensation_scale"] = 1.0
+    scales.loc[has_remaining, "_compensation_scale"] = (
+        scales.loc[has_remaining, "_pre_total"] / scales.loc[has_remaining, "_post_total"]
+    )
+    work = post_filter.merge(
+        scales[[*group_keys, "_compensation_scale"]], on=group_keys, how="left"
+    )
+    work[forecast_col] = work[forecast_col] * work["_compensation_scale"].fillna(1.0)
+    work = work.drop(columns=["_compensation_scale"])
+    return work, {
+        "groups_scaled": int(has_remaining.sum()),
+        "groups_without_remaining_rows": int((~has_remaining).sum()),
+    }
+
+
 def fill_missing_bakery_hours(
     sku_hourly: pd.DataFrame,
     bakery_hourly: pd.DataFrame,
@@ -1657,6 +1709,7 @@ def allocate_from_clickhouse(
             )
         )
         hourly_after_recent = pd.read_csv(hourly_path, encoding="utf-8-sig")
+        pre_assortment_hourly = hourly_after_recent.copy()
         hourly_after_recent, hour_filter_stats = filter_by_active_assortment(
             hourly_after_recent,
             allowed_pairs=allowed_assortment_pairs,
@@ -1666,6 +1719,7 @@ def allocate_from_clickhouse(
         _merge_filter_stats(assortment_filter_stats, hour_filter_stats)
         renormalization_stats = {"groups_scaled": 0, "groups_without_sku": 0}
         gap_fill_stats = {"groups_filled": 0, "groups_unfilled": 0}
+        assortment_compensation_stats = {"groups_scaled": 0, "groups_without_remaining_rows": 0}
         if not use_raw_uplift_multiplier and not disable_assortment_renormalization:
             hourly_after_recent, gap_fill_stats = fill_missing_bakery_hours(
                 hourly_after_recent,
@@ -1678,6 +1732,23 @@ def allocate_from_clickhouse(
                 renormalize_hourly_to_bakery_forecast(
                     hourly_after_recent,
                     hourly_forecast,
+                )
+            )
+        elif use_raw_uplift_multiplier and not disable_assortment_renormalization:
+            # Raw uplift never renormalizes to the flat bakery-hour total by
+            # design (that's the whole point of the uplift), but assortment
+            # exclusion still needs *some* compensation — otherwise demand
+            # for now-excluded products just vanishes instead of landing on
+            # the remaining in-assortment SKUs. See
+            # compensate_for_assortment_exclusion's docstring and
+            # docs/ops/DECISIONS.md (2026-07-14 entry) for why this is a
+            # separate step from renormalize_hourly_to_bakery_forecast.
+            hourly_after_recent, assortment_compensation_stats = (
+                compensate_for_assortment_exclusion(
+                    pre_assortment_hourly,
+                    hourly_after_recent,
+                    group_keys=[DATE_COL, BAKERY_ID_COL, HOUR_COL],
+                    forecast_col=SKU_HOUR_FORECAST_COL,
                 )
             )
         hourly_after_recent.to_csv(hourly_path, index=False, encoding="utf-8-sig")
@@ -1729,6 +1800,8 @@ def allocate_from_clickhouse(
     if recent_correction_mode != "none" and not use_raw_uplift_multiplier:
         summary["assortment_filter"]["renormalization"] = renormalization_stats
         summary["assortment_filter"]["hour_gap_fallback"] = gap_fill_stats
+    if recent_correction_mode != "none" and use_raw_uplift_multiplier:
+        summary["assortment_filter"]["exclusion_compensation"] = assortment_compensation_stats
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
