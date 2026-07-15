@@ -6,6 +6,7 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     RAW_SALES_LINE_TABLE,
     _build_recent_correction_targets,
     _recent_sales_source_sql,
+    cap_sku_uplift_to_bakery_forecast,
     compensate_for_assortment_exclusion,
     fill_missing_bakery_hours,
     filter_by_active_assortment,
@@ -566,3 +567,53 @@ def test_compensate_leaves_fully_excluded_group_alone() -> None:
 
     assert stats == {"groups_scaled": 0, "groups_without_remaining_rows": 1}
     assert compensated.empty
+
+
+def test_cap_sku_uplift_scales_down_when_over_ratio() -> None:
+    # bakery 1: SKU sum = 260, bakery-day = 200 → ratio 1.30 > cap 1.20 → scale = 1.20/1.30
+    # bakery 2: SKU sum = 220, bakery-day = 200 → ratio 1.10 < cap 1.20 → no scaling
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01"] * 4),
+            "bakery_id": [1, 1, 2, 2],
+            "hour": [9, 10, 9, 10],
+            "product_id": [100, 100, 100, 100],
+            "sku_hour_forecast": [130.0, 130.0, 110.0, 110.0],
+        }
+    )
+    bakery_forecast = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01", "2026-07-01"]),
+            "bakery_id": [1, 2],
+            "forecast_final": [200.0, 200.0],
+        }
+    )
+    result, stats = cap_sku_uplift_to_bakery_forecast(
+        hourly, bakery_forecast, max_ratio=1.20, forecast_col="forecast_final"
+    )
+    bak1 = result[result["bakery_id"] == 1]["sku_hour_forecast"].sum()
+    bak2 = result[result["bakery_id"] == 2]["sku_hour_forecast"].sum()
+    assert abs(bak1 - 200.0 * 1.20) < 0.01, f"bakery 1 sum should be capped to 240, got {bak1}"
+    assert abs(bak2 - 220.0) < 0.01, f"bakery 2 sum should be unchanged at 220, got {bak2}"
+    assert stats["bakery_days_capped"] == 1
+    assert stats["bakery_days_total"] == 2
+
+
+def test_cap_sku_uplift_is_noop_when_under_ratio() -> None:
+    hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-07-01"] * 2),
+            "bakery_id": [1, 1],
+            "hour": [9, 10],
+            "product_id": [100, 100],
+            "sku_hour_forecast": [100.0, 100.0],
+        }
+    )
+    bakery_forecast = pd.DataFrame(
+        {"date": pd.to_datetime(["2026-07-01"]), "bakery_id": [1], "forecast_final": [200.0]}
+    )
+    result, stats = cap_sku_uplift_to_bakery_forecast(
+        hourly, bakery_forecast, max_ratio=1.35, forecast_col="forecast_final"
+    )
+    assert result["sku_hour_forecast"].sum() == 200.0
+    assert stats["bakery_days_capped"] == 0

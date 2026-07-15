@@ -236,6 +236,7 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         assortment_table=args.assortment_table,
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
+        max_uplift_ratio=args.max_uplift_ratio,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),
@@ -327,6 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--assortment-table", default="assortment_city_products")
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument(
+        "--max-uplift-ratio",
+        type=float,
+        default=None,
+        help="Cap per-(date, bakery) SKU sum to at most this multiple of the bakery-day forecast. E.g. 1.35.",
+    )
     parser.add_argument(
         "--recent-category-upward-cap-pattern",
         default=DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,

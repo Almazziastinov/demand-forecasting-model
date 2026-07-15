@@ -255,6 +255,58 @@ def compensate_for_assortment_exclusion(
     }
 
 
+def cap_sku_uplift_to_bakery_forecast(
+    hourly: pd.DataFrame,
+    bakery_forecast: pd.DataFrame,
+    *,
+    max_ratio: float,
+    forecast_col: str,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    """Scale SKU-hour forecasts down when their per-(date, bakery) sum exceeds
+    max_ratio × bakery-day total.  Only ever scales down (clip upper=1.0).
+
+    Preserves relative SKU distribution within each bakery-day — all rows for
+    the same (date, bakery) receive the same multiplicative factor, so the
+    shape of the hour/SKU breakdown is unchanged.  Used after assortment
+    compensation under ``use_raw_uplift_multiplier=True`` to soft-cap the
+    bakery-level bias introduced by the mean-share floor uplift.
+    """
+    group_keys = [DATE_COL, BAKERY_ID_COL]
+    sku_sums = (
+        hourly.groupby(group_keys, as_index=False)[SKU_HOUR_FORECAST_COL]
+        .sum()
+        .rename(columns={SKU_HOUR_FORECAST_COL: "_sku_day_sum"})
+    )
+    bak_day = (
+        bakery_forecast[[DATE_COL, BAKERY_ID_COL, forecast_col]]
+        .copy()
+        .rename(columns={forecast_col: "_bak_day"})
+    )
+    bak_day[DATE_COL] = pd.to_datetime(bak_day[DATE_COL])
+    sku_sums[DATE_COL] = pd.to_datetime(sku_sums[DATE_COL])
+
+    ratio_df = sku_sums.merge(bak_day, on=group_keys, how="left")
+    ratio_df["_ratio"] = ratio_df["_sku_day_sum"] / ratio_df["_bak_day"].replace(0.0, float("nan"))
+    ratio_df["_scale"] = (max_ratio / ratio_df["_ratio"]).clip(upper=1.0).fillna(1.0)
+
+    n_capped = int((ratio_df["_scale"] < 1.0).sum())
+    avg_scale = (
+        float(ratio_df.loc[ratio_df["_scale"] < 1.0, "_scale"].mean())
+        if n_capped > 0
+        else 1.0
+    )
+
+    work = hourly.merge(ratio_df[group_keys + ["_scale"]], on=group_keys, how="left")
+    work[SKU_HOUR_FORECAST_COL] = work[SKU_HOUR_FORECAST_COL] * work["_scale"].fillna(1.0)
+    work = work.drop(columns=["_scale"])
+    return work, {
+        "max_ratio": max_ratio,
+        "bakery_days_capped": n_capped,
+        "bakery_days_total": int(len(ratio_df)),
+        "avg_scale_when_capped": round(avg_scale, 4),
+    }
+
+
 def fill_missing_bakery_hours(
     sku_hourly: pd.DataFrame,
     bakery_hourly: pd.DataFrame,
@@ -1481,6 +1533,7 @@ def allocate_from_clickhouse(
     assortment_table: str = ASSORTMENT_TABLE,
     disable_assortment_filter: bool = False,
     disable_assortment_renormalization: bool = False,
+    max_uplift_ratio: float | None = None,
     recent_category_upward_cap_pattern: str | None = DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
     recent_category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
     recent_category_absolute_cap_days: int | None = None,
@@ -1737,6 +1790,7 @@ def allocate_from_clickhouse(
         renormalization_stats = {"groups_scaled": 0, "groups_without_sku": 0}
         gap_fill_stats = {"groups_filled": 0, "groups_unfilled": 0}
         assortment_compensation_stats = {"groups_scaled": 0, "groups_without_remaining_rows": 0}
+        uplift_cap_stats: dict[str, float | int] = {}
         if not use_raw_uplift_multiplier and not disable_assortment_renormalization:
             hourly_after_recent, gap_fill_stats = fill_missing_bakery_hours(
                 hourly_after_recent,
@@ -1767,6 +1821,13 @@ def allocate_from_clickhouse(
                     group_keys=[DATE_COL, BAKERY_ID_COL, HOUR_COL],
                     forecast_col=SKU_HOUR_FORECAST_COL,
                 )
+            )
+        if use_raw_uplift_multiplier and max_uplift_ratio is not None:
+            hourly_after_recent, uplift_cap_stats = cap_sku_uplift_to_bakery_forecast(
+                hourly_after_recent,
+                bakery_forecast,
+                max_ratio=max_uplift_ratio,
+                forecast_col=forecast_col,
             )
         hourly_after_recent.to_csv(hourly_path, index=False, encoding="utf-8-sig")
         sku_daily = (
@@ -1819,6 +1880,8 @@ def allocate_from_clickhouse(
         summary["assortment_filter"]["hour_gap_fallback"] = gap_fill_stats
     if recent_correction_mode != "none" and use_raw_uplift_multiplier:
         summary["assortment_filter"]["exclusion_compensation"] = assortment_compensation_stats
+    if use_raw_uplift_multiplier and uplift_cap_stats:
+        summary["uplift_cap"] = uplift_cap_stats
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -1854,6 +1917,16 @@ def main() -> None:
     parser.add_argument("--assortment-table", default=ASSORTMENT_TABLE)
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument(
+        "--max-uplift-ratio",
+        type=float,
+        default=None,
+        help=(
+            "When --use-raw-uplift-multiplier is set, cap the per-(date, bakery) "
+            "SKU-hour sum to at most this multiple of the bakery-day forecast. "
+            "E.g. 1.35 limits uplift to +35%%. Default: no cap."
+        ),
+    )
     parser.add_argument(
         "--recent-category-upward-cap-pattern",
         default=DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
@@ -1901,6 +1974,7 @@ def main() -> None:
         assortment_table=args.assortment_table,
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
+        max_uplift_ratio=args.max_uplift_ratio,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),
