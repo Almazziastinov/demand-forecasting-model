@@ -5,6 +5,14 @@ __pycache__/
 .venv/
 .venv-ai/
 .pytest_cache/
+
+# Node / frontend
+node_modules/
+
+# Script outputs
+outputs/
+_tmp_*.py
+_tmp_*.txt
 .pytest_tmp/
 .pytest_tmp_local/
 tmp_pytest_codex/

@@ -276,3 +276,5 @@ log_experiment(name="my_exp", metrics={...})
 ```bash
 docker build -t demand-forecast . && docker run -p 5000:5000 demand-forecast
 ```
+
+## Imported Claude Cowork project instructions

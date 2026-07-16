@@ -1,11 +1,18 @@
 # Current Project State
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 ## Summary
 
 The production forecast writer is the VM only. VibeCode/Blackhole is a
 read-only embedded UI/API over ClickHouse and must not run forecast generation.
+
+**Current pilot state (as of 2026-07-16):** Pilot bakeries {16, 20, 21, 22, 257}
+run under scenario `base_raw_uplift` with stockout-aware hourly correction as the
+sole uplift mechanism (mean-share floor disabled for pilots). Overall pilot bias
+vs 60-day avg: **+9.6%** (was +22% before 2026-07-15 double-uplift fix). SKU cap
+at 1.2× rolling mean, hierarchical haircut target 1.15. Verified working in
+Bitrix24 UI.
 
 ## Production Source Of Truth
 
@@ -39,7 +46,10 @@ read-only embedded UI/API over ClickHouse and must not run forecast generation.
 
 ## Active Forecast
 
-- Active run on 2026-07-14: `prod_base_bakery_raw_uplift_sku_20260714_h14`
+- Active run: `prod_base_bakery_raw_uplift_sku_20260715_h14`
+  (last generated `2026-07-15 19:40:56 UTC` — manual trigger after
+  `pilots_evening_20260715` deploy; same run_id as previous, later
+  `generated_at` wins in `argMax` queries)
 - Scenario: `base_raw_uplift` (switched from `base_no_sku_uplift` on
   2026-07-14 for the pilot launch — see "SKU-Level Uplift Reactivated For
   Pilot" below for the full rationale)
@@ -48,12 +58,17 @@ read-only embedded UI/API over ClickHouse and must not run forecast generation.
     **with the mean-share floor restored** (see below — floor-uplift is
     back after being removed 2026-07-01)
   - SKU-hour uplift multiplier: **enabled** (`use_raw_uplift_multiplier=True`),
-    `profile_version=weekly_20260714`
-- `.env` on the VM updated: `FORECAST_SCENARIO=base_raw_uplift`,
+    `profile_version=pilots_evening_20260715` for pilot bakeries {16,20,21,22,257};
+    non-pilot bakeries effectively still use `weekly_20260714` values (their
+    rows are copied into `pilots_evening_20260715` unchanged)
+  - Stockout correction: **enabled**, `profile_version=stockout_20260715`
+    (4,446 rows, pilot bakeries, hours 6–23 where dropout detected)
+- `.env` on the VM: `FORECAST_SCENARIO=base_raw_uplift`,
   `FORECAST_ACTIVATE_RUN=base_raw_uplift`,
-  `FORECAST_UPLIFT_PROFILE_VERSION=weekly_20260714` (nightly timer will keep
-  using this scenario going forward; old `.env` backed up as
-  `.env.bak_20260714_162514` on the VM)
+  `FORECAST_UPLIFT_PROFILE_VERSION=pilots_evening_20260715`,
+  `FORECAST_STOCKOUT_CORRECTION_VERSION=stockout_20260715`,
+  `FORECAST_MAX_SKU_UPLIFT_RATIO=1.2`,
+  `FORECAST_HIERARCHICAL_HAIRCUT_TARGET_RATIO=1.15`
 - Horizon days: `14`
 - Recent correction mode: `runner_city_prior_soft_weekpart`
 - Recent correction days: `30`
@@ -1128,6 +1143,59 @@ Active run `prod_base_bakery_raw_uplift_sku_20260715_h14` republished at
 
 Rollback: restore the two `.bak_20260715_165257` / `.bak_20260715_165355`
 Python files, remove `FORECAST_STOCKOUT_CORRECTION_VERSION` from VM `.env`,
+rerun `forecast-production.service`, verify.
+
+## Double-Uplift Fix: Pilots Evening Profile Deployed (2026-07-15)
+
+**Problem identified**: pilot bakeries were receiving two simultaneous uplifts:
+1. `weekly_20260714` mean-share floor multiplier (~×1.28 avg) — applied to
+   **all hours** of pilot bakeries
+2. Stockout correction (`stockout_20260715`) — applied only to dropout hours
+   (16-23h, where product runs out)
+
+This double-counting meant the stockout correction had zero net effect on total
+daily forecast vs baseline — the mean-share floor was already uplifting all
+hours beyond what the stockout correction added, and both ran simultaneously.
+The overall pilot bias was +22.1% against 60-day avg, not meaningfully
+different from baseline.
+
+**Fix**: built `pilots_evening_20260715` uplift profile from `weekly_20260714`
+with all 654 pilot-bakery rows set to `sku_uplift_multiplier = 1.0`. Non-pilot
+bakeries (26,501 rows, avg `1.294`) copied unchanged. Stockout correction is
+now the **sole** uplift mechanism for pilot bakeries.
+
+Script: `scripts/build_pilots_evening_uplift.py` (runs locally against prod
+ClickHouse; writes directly to `sku_hour_uplift_multiplier_embedded`).
+
+**Result after deploy** (pilot bakeries {16,20,21,22,257}, vs 60-day avg):
+
+| Bakery | Before | After |
+|--------|-------:|------:|
+| 16 | +19.8% | +3.8% |
+| 20 | +17.9% | +7.5% |
+| 21 | +22.0% | +8.5% |
+| 22 | +25.0% | +17.8% |
+| 257 | +26.5% | +13.3% |
+| **Total** | **+22.1%** | **+9.6%** |
+
+Note: positive bias vs 60-day avg in evening hours (16-19) is **expected** —
+the historical avg includes censored stockout days where actual sold was lower
+than true demand. The correction estimates uncensored demand, so FC > hist_avg
+is the intended behavior for those hours. The remaining +9.6% overall is an
+aggregate of slight over-correction in evenings and slight under-forecast in
+mornings (h9-11 for bakery 21: −14 to −19%).
+
+**CF distribution** (`stockout_20260715`, 2,010 correction rows > 1.0):
+- Mean CF: 1.227; p50: 1.173; p90: 1.459; max: 2.0 (8 rows, all bakery 21 pid 10662)
+- By hour: h06-07 (16 SKU, mean 1.10), h16-23 (58 SKU, mean 1.23)
+- By bakery (evening): bak16=1.158, bak20=1.289, bak21=1.213, bak22=1.190, bak257=1.303
+
+VM `.env` updated: `FORECAST_UPLIFT_PROFILE_VERSION=pilots_evening_20260715`
+(was `weekly_20260714`). Service manually triggered 2026-07-15 19:33 UTC,
+completed at 19:40 UTC (7m39s CPU). Run_id unchanged:
+`prod_base_bakery_raw_uplift_sku_20260715_h14`.
+
+Rollback: set `FORECAST_UPLIFT_PROFILE_VERSION=weekly_20260714` in VM `.env`,
 rerun `forecast-production.service`, verify.
 
 ## Do Not Do

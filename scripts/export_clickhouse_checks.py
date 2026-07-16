@@ -242,6 +242,10 @@ def export_windows(
             flush=True,
         )
         df = client.query_df(sql)
+        # clickhouse-connect returns columnless DataFrame for empty result sets
+        if df.empty or len(df.columns) == 0:
+            print(f"    rows: 0 (skipped)", flush=True)
+            continue
         validate_columns(df)
         df = reorder_columns(df)
         rows = len(df)

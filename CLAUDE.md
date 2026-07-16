@@ -2,6 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Start Here For Production Or Ops Work
+
+Before changing code or production state, read `docs/ops/CURRENT_STATE.md`
+and `docs/ops/SERVICES.md`. For deployment or incident work, also read
+`docs/ops/RUNBOOK.md` and `docs/ops/LLM_WORKFLOW.md`. `docs/ops/` is the
+current operational source of truth, kept up to date after every production
+change — `handoffs/` is historical session log only and must not override it
+without fresh verification.
+
+This repo now has two parts:
+
+- **Legacy local ML pipeline** (`src/`, `run_pipeline.py`, `web/app.py`) —
+  the LightGBM training/experiment codebase described below. No production
+  role today (see `docs/ops/SERVICES.md`).
+- **Live production system** — a VM (`root@201.51.7.24`,
+  `/opt/demand-forecasting-model`) is the only forecast writer, publishing
+  to ClickHouse on a nightly systemd timer
+  (`pipelines/forecast_publish/`). A read-only embedded FastAPI/UI
+  (`apps/forecast_embedded/`) serves Bitrix24 users from VibeCode/Blackhole
+  and must never generate forecasts itself. `apps/baking_plan/` is a
+  standalone package (MILP-based baking-window planner) mounted in-process
+  into the embedded app — see its `README.md` and
+  `docs/baking_plan_implementation.md` for the business-rule spec.
+
+Do not infer current production state (active run, deployed scenario, timer
+status) from this file or from memory — always check `docs/ops/CURRENT_STATE.md`
+or live systems.
+
 ## Quick Reference
 
 ```bash
@@ -55,4 +83,7 @@ Bakery demand forecasting for the Beigl chain (Tatarstan/Chuvashia, Russia). Pre
 
 ## See Also
 
-`AGENTS.md` contains detailed ML infrastructure docs, data column reference, code style guidelines, and typical development scenarios.
+- `AGENTS.md` contains detailed ML infrastructure docs, data column reference, code style guidelines, and typical development scenarios for the legacy pipeline.
+- `docs/ops/` contains live production state, service ownership, runbooks, data contracts, and durable architecture decisions for the VM/ClickHouse/Blackhole system.
+- `docs/baking_plan_implementation.md` is the canonical business-rule spec for the `apps/baking_plan/` MILP allocator.
+- `docs/dev_environment.md` explains the `_dev`-suffixed ClickHouse dev environment for the embedded app.
