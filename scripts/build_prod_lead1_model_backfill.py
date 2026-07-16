@@ -91,11 +91,14 @@ def _load_dataset_until(
     dataset_path: Path,
     forecast_date: str,
     output_path: Path,
+    bakery_ids: set[int] | None = None,
 ) -> int:
     df = pd.read_csv(dataset_path, encoding="utf-8-sig")
     df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors="coerce")
     cutoff = pd.Timestamp(forecast_date)
     history = df[df[DATE_COL] < cutoff].copy()
+    if bakery_ids:
+        history = history[history[BAKERY_ID_COL].isin(bakery_ids)].copy()
     if history.empty:
         raise ValueError(f"No history before {forecast_date}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,13 +121,16 @@ def _resolve_backfill_bias_path(
     if not getattr(args, "use_rolling_bias", False):
         return static_path
 
+    filter_ids = getattr(args, "bakery_ids", None)
     bakery_ids = sorted(
-        pd.read_csv(history_path, encoding="utf-8-sig", usecols=[BAKERY_ID_COL])[
+        id_
+        for id_ in pd.read_csv(history_path, encoding="utf-8-sig", usecols=[BAKERY_ID_COL])[
             BAKERY_ID_COL
         ]
         .dropna()
         .unique()
         .tolist()
+        if not filter_ids or id_ in filter_ids
     )
     static_bias_df = load_bias_table(static_path)
     effective = build_rolling_bias_table(
@@ -154,6 +160,7 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         Path(args.dataset_path),
         forecast_date,
         history_path,
+        bakery_ids=getattr(args, "bakery_ids", None),
     )
     apply_bias = not getattr(args, "no_bias_correction", False)
     bias_path = (
@@ -294,6 +301,13 @@ def main() -> None:
         default="reports/prod_lead1_model_backfill_summary.json",
     )
     parser.add_argument("--replace-existing", action="store_true")
+    parser.add_argument(
+        "--bakery-ids",
+        default=None,
+        help="Comma-separated bakery IDs to restrict the backfill (e.g. 16,20,21). "
+             "Omit to run all bakeries.",
+        type=lambda s: {int(x.strip()) for x in s.split(",") if x.strip()},
+    )
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
     parser.add_argument("--use-raw-uplift-multiplier", action="store_true",
