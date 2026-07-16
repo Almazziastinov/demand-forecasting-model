@@ -1111,10 +1111,21 @@ def load_recent_assortment_stats(
     forecast_start: pd.Timestamp,
     recent_days: int,
     sales_table: str,
+    bakery_ids: list[int] | None = None,
 ) -> pd.DataFrame:
     recent_end = forecast_start - pd.Timedelta(days=1)
     recent_start = forecast_start - pd.Timedelta(days=recent_days)
     source_sql = _recent_sales_source_sql(sales_table)
+    bakery_clause = (
+        "  and toInt64OrNull(toString(bakery_id)) in %(bakery_ids)s\n"
+        if bakery_ids else ""
+    )
+    params: dict = {
+        "recent_start": str(recent_start.date()),
+        "recent_end": str(recent_end.date()),
+    }
+    if bakery_ids:
+        params["bakery_ids"] = list(bakery_ids)
     stats = client.query_df(
         f"""
         select
@@ -1130,12 +1141,9 @@ def load_recent_assortment_stats(
           and toInt64OrNull(toString(bakery_id)) is not null
           and toInt64OrNull(toString(product_id)) is not null
           and toFloat64(quantity) > 0
-        group by bakery_id, product_id
+{bakery_clause}        group by bakery_id, product_id
         """,
-        parameters={
-            "recent_start": str(recent_start.date()),
-            "recent_end": str(recent_end.date()),
-        },
+        parameters=params,
     )
     if stats.empty:
         stats["bakery_recent_qty"] = pd.Series(dtype=float)
@@ -1172,10 +1180,21 @@ def load_recent_daily_share_stats(
     forecast_start: pd.Timestamp,
     recent_days: int,
     sales_table: str,
+    bakery_ids: list[int] | None = None,
 ) -> pd.DataFrame:
     recent_end = forecast_start - pd.Timedelta(days=1)
     recent_start = forecast_start - pd.Timedelta(days=recent_days)
     source_sql = _recent_sales_source_sql(sales_table)
+    bakery_clause = (
+        "  and toInt64OrNull(toString(bakery_id)) in %(bakery_ids)s\n"
+        if bakery_ids else ""
+    )
+    params: dict = {
+        "recent_start": str(recent_start.date()),
+        "recent_end": str(recent_end.date()),
+    }
+    if bakery_ids:
+        params["bakery_ids"] = list(bakery_ids)
     daily = client.query_df(
         f"""
         select
@@ -1188,12 +1207,9 @@ def load_recent_daily_share_stats(
           and toInt64OrNull(toString(bakery_id)) is not null
           and toInt64OrNull(toString(product_id)) is not null
           and toFloat64(quantity) > 0
-        group by check_date, bakery_id, product_id
+{bakery_clause}        group by check_date, bakery_id, product_id
         """,
-        parameters={
-            "recent_start": str(recent_start.date()),
-            "recent_end": str(recent_end.date()),
-        },
+        parameters=params,
     )
     if daily.empty:
         return pd.DataFrame(columns=[BAKERY_ID_COL, PRODUCT_ID_COL])
@@ -1686,6 +1702,7 @@ def apply_recent_sku_hour_correction(
     category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
     category_recent_absolute_cap_days: int | None = None,
     category_recent_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+    bakery_ids: list[int] | None = None,
 ) -> tuple[pd.DataFrame, int, list[dict], pd.DataFrame]:
     hourly = pd.read_csv(hourly_path, encoding="utf-8-sig", parse_dates=[DATE_COL])
     hourly[DATE_COL] = pd.to_datetime(hourly[DATE_COL], errors="coerce")
@@ -1703,6 +1720,7 @@ def apply_recent_sku_hour_correction(
         forecast_start=forecast_start,
         recent_days=recent_days,
         sales_table=sales_table,
+        bakery_ids=bakery_ids,
     )
     if recent.empty:
         return (
@@ -1719,6 +1737,7 @@ def apply_recent_sku_hour_correction(
             forecast_start=forecast_start,
             recent_days=recent_days,
             sales_table=sales_table,
+            bakery_ids=bakery_ids,
         )
 
     targets = _build_recent_correction_targets(
@@ -1846,6 +1865,7 @@ def allocate_from_clickhouse(
     recent_category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
     recent_category_absolute_cap_days: int | None = None,
     recent_category_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+    bakery_ids: list[int] | None = None,
 ) -> dict[str, Path]:
     if recent_correction_mode not in RECENT_CORRECTION_MODES:
         raise ValueError(
@@ -2096,6 +2116,7 @@ def allocate_from_clickhouse(
                 recent_category_absolute_cap_days or recent_correction_days
             ),
             category_recent_absolute_cap_multiplier=recent_category_absolute_cap_multiplier,
+            bakery_ids=bakery_ids,
             )
         )
         hourly_after_recent = pd.read_csv(hourly_path, encoding="utf-8-sig")
@@ -2109,6 +2130,7 @@ def allocate_from_clickhouse(
                 forecast_start=_forecast_start,
                 recent_days=recent_correction_days,
                 sales_table=recent_sales_table,
+                bakery_ids=bakery_ids,
             )
             hourly_after_recent, sku_uplift_cap_stats = cap_sku_uplift_per_sku(
                 hourly_after_recent,

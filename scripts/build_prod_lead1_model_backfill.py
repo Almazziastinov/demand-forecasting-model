@@ -206,6 +206,7 @@ def build_day(args: argparse.Namespace, forecast_date: str) -> dict[str, object]
         hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
         hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
         hierarchical_haircut_min_coefficient=args.hierarchical_haircut_min_coefficient,
+        bakery_ids=sorted(getattr(args, "bakery_ids", None) or []) or None,
     )
 
     model_is_base = Path(args.model_path).resolve() == BASE_MODEL_PATH.resolve()
