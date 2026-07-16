@@ -44,7 +44,7 @@ import clickhouse_connect
 
 TABLE          = "sku_hour_uplift_multiplier_embedded"
 SOURCE_VERSION = "weekly_20260714"
-PILOT_IDS      = {16, 20, 21, 22, 257}
+PILOT_IDS      = {16, 20, 21, 22, 28, 80, 89, 107, 221, 222, 257}
 # All hours set to 1.0 for pilot bakeries — stockout correction is the sole
 # uplift mechanism for them; mean-share floor would double-count.
 

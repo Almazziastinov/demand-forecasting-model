@@ -7,12 +7,13 @@ Last updated: 2026-07-16
 The production forecast writer is the VM only. VibeCode/Blackhole is a
 read-only embedded UI/API over ClickHouse and must not run forecast generation.
 
-**Current pilot state (as of 2026-07-16):** Pilot bakeries {16, 20, 21, 22, 257}
-run under scenario `base_raw_uplift` with stockout-aware hourly correction as the
-sole uplift mechanism (mean-share floor disabled for pilots). Overall pilot bias
-vs 60-day avg: **+9.6%** (was +22% before 2026-07-15 double-uplift fix). SKU cap
-at 1.2× rolling mean, hierarchical haircut target 1.15. Verified working in
-Bitrix24 UI.
+**Current pilot state (as of 2026-07-16):** Pilot expanded from 5 to **11
+bakeries** — {16, 20, 21, 22, 28, 80, 89, 107, 221, 222, 257}. All run under
+scenario `base_raw_uplift` with stockout-aware hourly correction as the sole
+uplift mechanism (mean-share floor = 1.0 for all pilot rows). Overall pilot
+bias vs 60-day avg: **+6.7%** (new bakeries +2.5%, old bakeries +11.4%). SKU
+cap at 1.2× rolling mean, hierarchical haircut target 1.15. Active run:
+`prod_base_bakery_raw_uplift_sku_20260716_h14`.
 
 ## Production Source Of Truth
 
@@ -46,10 +47,8 @@ Bitrix24 UI.
 
 ## Active Forecast
 
-- Active run: `prod_base_bakery_raw_uplift_sku_20260715_h14`
-  (last generated `2026-07-15 19:40:56 UTC` — manual trigger after
-  `pilots_evening_20260715` deploy; same run_id as previous, later
-  `generated_at` wins in `argMax` queries)
+- Active run: `prod_base_bakery_raw_uplift_sku_20260716_h14`
+  (generated `2026-07-16 09:23:30 UTC`, 7m53s CPU)
 - Scenario: `base_raw_uplift` (switched from `base_no_sku_uplift` on
   2026-07-14 for the pilot launch — see "SKU-Level Uplift Reactivated For
   Pilot" below for the full rationale)
@@ -58,15 +57,15 @@ Bitrix24 UI.
     **with the mean-share floor restored** (see below — floor-uplift is
     back after being removed 2026-07-01)
   - SKU-hour uplift multiplier: **enabled** (`use_raw_uplift_multiplier=True`),
-    `profile_version=pilots_evening_20260715` for pilot bakeries {16,20,21,22,257};
-    non-pilot bakeries effectively still use `weekly_20260714` values (their
-    rows are copied into `pilots_evening_20260715` unchanged)
-  - Stockout correction: **enabled**, `profile_version=stockout_20260715`
-    (4,446 rows, pilot bakeries, hours 6–23 where dropout detected)
+    `profile_version=pilots_evening_20260716` for pilot bakeries
+    {16,20,21,22,28,80,89,107,221,222,257}; non-pilot bakeries use
+    `weekly_20260714` values (copied unchanged into the profile)
+  - Stockout correction: **enabled**, `profile_version=stockout_20260716`
+    (10,152 rows, 11 pilot bakeries, 79 SKU, hours 6–23 where dropout detected)
 - `.env` on the VM: `FORECAST_SCENARIO=base_raw_uplift`,
   `FORECAST_ACTIVATE_RUN=base_raw_uplift`,
-  `FORECAST_UPLIFT_PROFILE_VERSION=pilots_evening_20260715`,
-  `FORECAST_STOCKOUT_CORRECTION_VERSION=stockout_20260715`,
+  `FORECAST_UPLIFT_PROFILE_VERSION=pilots_evening_20260716`,
+  `FORECAST_STOCKOUT_CORRECTION_VERSION=stockout_20260716`,
   `FORECAST_MAX_SKU_UPLIFT_RATIO=1.2`,
   `FORECAST_HIERARCHICAL_HAIRCUT_TARGET_RATIO=1.15`
 - Horizon days: `14`
@@ -1197,6 +1196,37 @@ completed at 19:40 UTC (7m39s CPU). Run_id unchanged:
 
 Rollback: set `FORECAST_UPLIFT_PROFILE_VERSION=weekly_20260714` in VM `.env`,
 rerun `forecast-production.service`, verify.
+
+## Pilot Expanded To 11 Bakeries (2026-07-16)
+
+Pilot set expanded from 5 to 11 bakeries. Added: {28, 80, 89, 107, 221, 222}.
+Kept existing: {16, 20, 21, 22, 257}.
+
+| ID | Пекарня | Bias vs 60d avg |
+|----|---------|----------------|
+| 16 | Кулагина 4 Казань | +9.3% |
+| 20 | Мира 45 Дербышки Казань | −0.5% |
+| 21 | Парковая 7 Казань | +10.4% |
+| 22 | Сибирский Тракт 25 Казань | +17.6% |
+| 28 | Гудованцева 27 Казань | +7.3% *(новая)* |
+| 80 | Калинина 63 Казань | −5.6% *(новая)* |
+| 89 | Парина 6 Казань | −5.0% *(новая)* |
+| 107 | Четаева 46А Казань | −4.4% *(новая)* |
+| 221 | Салиха Батыева 15 Казань | +10.7% *(новая)* |
+| 222 | Габдуллы Тукая 62А Казань | +20.4% *(новая, наблюдать)* |
+| 257 | Ярмарочная 12 Чебоксары | +16.1% |
+
+Итого: **+6.7%** (новые +2.5%, старые +11.4%).
+
+Changes deployed:
+- `scripts/build_stockout_correction.py` + `scripts/build_pilots_evening_uplift.py`:
+  `PILOT_BAKERY_IDS` обновлён до 11 пекарен.
+- `stockout_20260716`: 10,152 строки, 79 SKU (было 4,446 / 58 SKU для 5 пекарен).
+- `pilots_evening_20260716`: 1,437 пилотных строк = 1.0 (было 654).
+- VM `.env` backup: `.env.bak_20260716_pilots11`.
+
+Rollback: restore `.env.bak_20260716_pilots11`, rerun `forecast-production.service`.
+To reduce pilot: rebuild both tables with a smaller `PILOT_BAKERY_IDS` set.
 
 ## Do Not Do
 
