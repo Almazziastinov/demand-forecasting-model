@@ -1,0 +1,7 @@
+label,mae,bias,wmape
+0_baseline,1.4685,-0.3509,35.4
+1_additive_static,1.833,0.7216,44.19
+2_additive_dynamic,1.7234,0.5061,41.55
+3_multiplicative_cf,1.8068,0.8464,43.56
+4_soft_blend_cf,1.6966,0.6057,40.9
+5_dow_aware_cf,1.6652,0.5327,40.14

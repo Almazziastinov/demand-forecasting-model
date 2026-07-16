@@ -1,0 +1,195 @@
+{
+  "results": {
+    "fold1_apr": {
+      "0_baseline": {
+        "mae": 1.527,
+        "bias": -0.3884
+      },
+      "A1_yoy_cf_raw": {
+        "mae": 1.5825,
+        "bias": 0.1071,
+        "delta": 0.0554
+      },
+      "A2_yoy_cf_blend": {
+        "mae": 1.5609,
+        "bias": 0.008,
+        "delta": 0.0339
+      },
+      "B_model_lag365": {
+        "mae": 1.5268,
+        "bias": -0.4051,
+        "delta": -0.0003
+      }
+    },
+    "fold2_may": {
+      "0_baseline": {
+        "mae": 1.5602,
+        "bias": -0.0792
+      },
+      "A1_yoy_cf_raw": {
+        "mae": 1.6726,
+        "bias": 0.3756,
+        "delta": 0.1124
+      },
+      "A2_yoy_cf_blend": {
+        "mae": 1.6425,
+        "bias": 0.2837,
+        "delta": 0.0824
+      },
+      "B_model_lag365": {
+        "mae": 1.5585,
+        "bias": -0.0602,
+        "delta": -0.0017
+      }
+    },
+    "fold3_jun": {
+      "0_baseline": {
+        "mae": 1.2357,
+        "bias": -0.1796
+      },
+      "A1_yoy_cf_raw": {
+        "mae": 1.3339,
+        "bias": 0.1841,
+        "delta": 0.0982
+      },
+      "A2_yoy_cf_blend": {
+        "mae": 1.3085,
+        "bias": 0.1098,
+        "delta": 0.0728
+      },
+      "B_model_lag365": {
+        "mae": 1.2278,
+        "bias": -0.2017,
+        "delta": -0.0078
+      }
+    }
+  },
+  "importances": {
+    "fold1_apr": {
+      "Пекарня": 1.961,
+      "Номенклатура": 16.323,
+      "Категория": 7.04,
+      "Город": 0.018,
+      "ДеньНедели": 2.494,
+      "День": 1.64,
+      "IsWeekend": 0.523,
+      "Месяц": 2.607,
+      "НомерНедели": 0.746,
+      "sales_lag1": 0.043,
+      "sales_lag2": 0.008,
+      "sales_lag3": 0.007,
+      "sales_lag7": 0.014,
+      "sales_lag14": 0.018,
+      "sales_lag30": 0.045,
+      "sales_roll_mean3": 0.262,
+      "sales_roll_mean7": 15.956,
+      "sales_roll_std7": 14.477,
+      "sales_roll_mean14": 10.513,
+      "sales_roll_mean30": 20.603,
+      "is_holiday": 0.021,
+      "is_pre_holiday": 0.017,
+      "is_post_holiday": 0.037,
+      "is_payday_week": 0.018,
+      "is_month_start": 0.029,
+      "is_month_end": 0.017,
+      "temp_mean": 0.553,
+      "temp_range": 0.146,
+      "precipitation": 0.048,
+      "rain": 0.053,
+      "snowfall": 0.046,
+      "windspeed_max": 0.234,
+      "is_rainy": 0.0,
+      "is_snowy": 0.002,
+      "is_cold": 0.01,
+      "is_warm": 0.004,
+      "is_windy": 0.0,
+      "is_bad_weather": 0.002,
+      "weather_cat_code": 0.005,
+      "sales_lag365": 3.459
+    },
+    "fold2_may": {
+      "Пекарня": 2.529,
+      "Номенклатура": 11.841,
+      "Категория": 6.878,
+      "Город": 0.021,
+      "ДеньНедели": 2.096,
+      "День": 1.611,
+      "IsWeekend": 0.436,
+      "Месяц": 2.598,
+      "НомерНедели": 0.92,
+      "sales_lag1": 0.041,
+      "sales_lag2": 0.006,
+      "sales_lag3": 0.005,
+      "sales_lag7": 0.014,
+      "sales_lag14": 0.023,
+      "sales_lag30": 0.018,
+      "sales_roll_mean3": 0.23,
+      "sales_roll_mean7": 17.646,
+      "sales_roll_std7": 15.916,
+      "sales_roll_mean14": 11.759,
+      "sales_roll_mean30": 21.926,
+      "is_holiday": 0.031,
+      "is_pre_holiday": 0.024,
+      "is_post_holiday": 0.037,
+      "is_payday_week": 0.021,
+      "is_month_start": 0.024,
+      "is_month_end": 0.033,
+      "temp_mean": 0.489,
+      "temp_range": 0.118,
+      "precipitation": 0.044,
+      "rain": 0.048,
+      "snowfall": 0.038,
+      "windspeed_max": 0.219,
+      "is_rainy": 0.001,
+      "is_snowy": 0.001,
+      "is_cold": 0.005,
+      "is_warm": 0.004,
+      "is_windy": 0.0,
+      "is_bad_weather": 0.002,
+      "weather_cat_code": 0.005,
+      "sales_lag365": 2.342
+    },
+    "fold3_jun": {
+      "Пекарня": 2.351,
+      "Номенклатура": 9.289,
+      "Категория": 7.78,
+      "Город": 0.019,
+      "ДеньНедели": 1.238,
+      "День": 1.729,
+      "IsWeekend": 0.213,
+      "Месяц": 2.647,
+      "НомерНедели": 0.94,
+      "sales_lag1": 0.047,
+      "sales_lag2": 0.012,
+      "sales_lag3": 0.008,
+      "sales_lag7": 0.03,
+      "sales_lag14": 0.018,
+      "sales_lag30": 0.026,
+      "sales_roll_mean3": 0.166,
+      "sales_roll_mean7": 10.882,
+      "sales_roll_std7": 18.447,
+      "sales_roll_mean14": 19.714,
+      "sales_roll_mean30": 21.039,
+      "is_holiday": 0.018,
+      "is_pre_holiday": 0.026,
+      "is_post_holiday": 0.039,
+      "is_payday_week": 0.026,
+      "is_month_start": 0.017,
+      "is_month_end": 0.03,
+      "temp_mean": 0.505,
+      "temp_range": 0.107,
+      "precipitation": 0.043,
+      "rain": 0.046,
+      "snowfall": 0.025,
+      "windspeed_max": 0.217,
+      "is_rainy": 0.0,
+      "is_snowy": 0.001,
+      "is_cold": 0.006,
+      "is_warm": 0.006,
+      "is_windy": 0.0,
+      "is_bad_weather": 0.0,
+      "weather_cat_code": 0.002,
+      "sales_lag365": 2.293
+    }
+  }
+}
