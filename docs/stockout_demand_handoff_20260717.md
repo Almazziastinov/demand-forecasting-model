@@ -155,6 +155,36 @@ These inputs are not committed to Git and must be copied separately or regenerat
 - `data/raw/moves_clickhouse_2025-01-15_2026-05-12.csv`;
 - `data/processed/preprocessed_data_merged.csv`.
 
+### How to regenerate `sales_stg_2025_2026.csv`
+
+The local file was exported from `Svezhar.stg_check_lines`. Its observed range is 2025-01-20 through 2026-07-05 and its size is about 14.06 GB. Use the repository exporter together with the `stg_check_lines` SQL template:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\export_clickhouse_checks.py `
+  --env-file .env `
+  --sql-template scripts\clickhouse_export_template_stg.sql `
+  --date-from 2025-01-20 `
+  --date-to 2026-07-05 `
+  --batch-mode weekly `
+  --output data\raw\sales_stg_2025_2026.csv
+```
+
+The `.env` file must provide the ClickHouse connection settings and must be transferred securely, never committed to Git:
+
+```dotenv
+CLICKHOUSE_HOST=...
+CLICKHOUSE_PORT=...
+CLICKHOUSE_USER=...
+CLICKHOUSE_PASSWORD=...
+CLICKHOUSE_DATABASE=...
+CLICKHOUSE_SECURE=true
+CLICKHOUSE_VERIFY=false
+```
+
+The exporter selects sales rows, excludes soft-deleted check lines, joins bakery and product dimensions, and writes a UTF-8 CSV with the canonical English column names expected by the experiment. Weekly batching is recommended for this volume.
+
+Important: the exporter deletes an existing file at the path passed through `--output` before starting. Use a different output path when validating the export or preserving an existing copy. The comment in `scripts/clickhouse_export_template_stg.sql` that says data is available only from 2025-06-01 is stale relative to the existing local file, which starts on 2025-01-20. Confirm the source's actual minimum date if recreating the dataset later.
+
 Reports are ignored by `.gitignore`. Relevant local directories:
 
 - `reports/stockout_inventory_balance_10/`
