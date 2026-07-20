@@ -69,3 +69,17 @@ Final production inference activated
 ended with `VERIFY OK`. All 12 control bakery/SKU pairs have non-zero forecasts
 on all 14 horizon days. Both `forecast-production.timer` and
 `weekly-profile-refresh.timer` are enabled and active.
+
+## Repeated-run cleanup
+
+A same-day rerun exposed stale keys from an earlier attempt because the
+ReplacingMergeTree snapshot was append-only. Refresh now removes only older
+rows for the same `valid_from` and the two refresh-managed sources, after the
+new snapshot has been inserted successfully. City values equal to `unknown`
+also no longer override a valid bakery-city fallback. Cutoff timestamps must
+be timezone-aware.
+
+The production snapshot was rebuilt and verified again at 19:30 MSK: 2,190
+rows across 10 cities, zero `unknown` rows. The active forecast still has
+489,130 SKU-day and 5,499,898 SKU-hour rows, all 12 controls remain non-zero on
+14/14 days, and deployment verification ends with `VERIFY OK`.
