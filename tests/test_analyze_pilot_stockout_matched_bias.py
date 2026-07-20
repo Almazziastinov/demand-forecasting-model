@@ -29,10 +29,13 @@ def _row(
         "daily_sold": sold,
         "forecast_qty": forecast,
         "qty_produced": produced,
+        "stock_balance": 0.0 if group == "clear_stockout" else 3.0,
         "bias_qty": forecast - sold,
         "last_sale_hour": 16,
         "normal_last_hour": 20,
+        "bakery_sales_after_last": 100.0,
         "normal_days": 4,
+        "source_run_id": "run",
     }
 
 

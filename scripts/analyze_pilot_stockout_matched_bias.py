@@ -75,10 +75,15 @@ def build_matches(
         selected["stockout_sold"] = stockout["daily_sold"]
         selected["stockout_forecast"] = stockout["forecast_qty"]
         selected["stockout_produced"] = stockout["qty_produced"]
+        selected["stockout_stock_balance"] = stockout["stock_balance"]
         selected["stockout_bias_qty"] = stockout["bias_qty"]
         selected["stockout_last_sale_hour"] = stockout["last_sale_hour"]
         selected["stockout_normal_last_hour"] = stockout["normal_last_hour"]
+        selected["stockout_bakery_sales_after_last"] = stockout[
+            "bakery_sales_after_last"
+        ]
         selected["stockout_normal_days"] = stockout["normal_days"]
+        selected["stockout_source_run_id"] = stockout["source_run_id"]
         selected["stockout_forecast_to_sales"] = (
             stockout["forecast_qty"] / stockout["daily_sold"]
             if stockout["daily_sold"] > 0
@@ -109,10 +114,13 @@ def aggregate_matched_cases(matches: pd.DataFrame) -> pd.DataFrame:
         "stockout_sold",
         "stockout_forecast",
         "stockout_produced",
+        "stockout_stock_balance",
         "stockout_bias_qty",
         "stockout_last_sale_hour",
         "stockout_normal_last_hour",
+        "stockout_bakery_sales_after_last",
         "stockout_normal_days",
+        "stockout_source_run_id",
         "stockout_forecast_to_sales",
     ]
     cases = matches.groupby(group_columns, as_index=False, dropna=False).agg(
