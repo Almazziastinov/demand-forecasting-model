@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-07-20T18:07:04.869379+00:00",
+  "mode": "offline_read_only_shadow",
+  "production_write": false,
+  "classification": {
+    "cases": 397,
+    "date_from": "2026-06-01",
+    "date_to": "2026-07-19",
+    "counterfactual_history_from": "2026-05-03",
+    "class_counts": {
+      "allocation": 240,
+      "uncertain": 100,
+      "demand_loss": 57
+    },
+    "robust_class_counts": {
+      "allocation": 231,
+      "uncertain": 140,
+      "demand_loss": 26
+    },
+    "class_shortfall": {
+      "allocation": 961.1965097256359,
+      "demand_loss": 213.48664654586645,
+      "uncertain": 334.6015754250991
+    },
+    "median_bakery_ratio": 0.9609669522186807,
+    "median_substitution_ratio": 0.0,
+    "clickhouse_mode": "read_only"
+  },
+  "demand_adjustment": {
+    "robust_demand_loss_cases": 26,
+    "cases_with_adjustment": 25,
+    "imputed_demand_units": 140.31317172608948,
+    "median_case_imputation": 3.75,
+    "max_case_imputation": 15.0,
+    "reference_coverage": 0.9615384615384616,
+    "adjusted_sku_day_rows": 110671,
+    "adjusted_bakery_day_rows": 825,
+    "profile_rows": 15724,
+    "max_profile_share_delta_pp": 0.17895197439373073,
+    "production_write": false
+  },
+  "combined_replay": {
+    "scenarios": [
+      {
+        "scenario": "historical_baseline",
+        "forecast_column": "forecast_qty",
+        "cases": 397,
+        "shortfall_qty": 1509.2847316966013,
+        "cases_fixed": 0,
+        "cases_improved": 0,
+        "cases_worsened": 0,
+        "added_bakery_demand": 0.0,
+        "segment": NaN
+      },
+      {
+        "scenario": "demand_only",
+        "forecast_column": "demand_only_forecast",
+        "cases": 397,
+        "shortfall_qty": 1453.584647466562,
+        "cases_fixed": 23,
+        "cases_improved": 25,
+        "cases_worsened": 0,
+        "added_bakery_demand": 140.31317172608948,
+        "segment": NaN
+      },
+      {
+        "scenario": "current_profile_diagnostic",
+        "forecast_column": "current_profile_forecast",
+        "cases": 397,
+        "shortfall_qty": 1005.8570992331613,
+        "cases_fixed": 133,
+        "cases_improved": 282,
+        "cases_worsened": 112,
+        "added_bakery_demand": 0.0,
+        "segment": NaN
+      },
+      {
+        "scenario": "current_profile_plus_demand_diagnostic",
+        "forecast_column": "current_profile_plus_demand",
+        "cases": 397,
+        "shortfall_qty": 973.2232092916781,
+        "cases_fixed": 143,
+        "cases_improved": 286,
+        "cases_worsened": 108,
+        "added_bakery_demand": 140.31317172608948,
+        "segment": NaN
+      },
+      {
+        "scenario": "dynamic_walk_forward",
+        "forecast_column": "dynamic_forecast",
+        "cases": 397,
+        "shortfall_qty": 1525.4068392275526,
+        "cases_fixed": 2,
+        "cases_improved": 39,
+        "cases_worsened": 113,
+        "added_bakery_demand": 0.0,
+        "segment": NaN
+      },
+      {
+        "scenario": "dynamic_walk_forward_plus_demand",
+        "forecast_column": "dynamic_plus_demand",
+        "cases": 397,
+        "shortfall_qty": 1469.4777839958726,
+        "cases_fixed": 25,
+        "cases_improved": 62,
+        "cases_worsened": 106,
+        "added_bakery_demand": 140.31317172608948,
+        "segment": NaN
+      }
+    ],
+    "recommended_shadow_components": [
+      "robust_demand_loss_preprocessing"
+    ],
+    "rejected_for_shadow": [
+      "dynamic_walk_forward_allocation"
+    ],
+    "diagnostic_only": [
+      "current_profile_replay_due_to_profile_lookahead"
+    ],
+    "production_write": false
+  },
+  "decision": {
+    "shadow_enabled_components": [
+      "robust_demand_loss_preprocessing"
+    ],
+    "shadow_rejected_components": [
+      "dynamic_walk_forward_allocation"
+    ]
+  }
+}

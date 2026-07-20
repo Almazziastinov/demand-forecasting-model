@@ -1,0 +1,80 @@
+{
+  "scenarios": [
+    {
+      "scenario": "historical_baseline",
+      "forecast_column": "forecast_qty",
+      "cases": 397,
+      "shortfall_qty": 1509.2847316966013,
+      "cases_fixed": 0,
+      "cases_improved": 0,
+      "cases_worsened": 0,
+      "added_bakery_demand": 0.0,
+      "segment": NaN
+    },
+    {
+      "scenario": "demand_only",
+      "forecast_column": "demand_only_forecast",
+      "cases": 397,
+      "shortfall_qty": 1453.584647466562,
+      "cases_fixed": 23,
+      "cases_improved": 25,
+      "cases_worsened": 0,
+      "added_bakery_demand": 140.31317172608948,
+      "segment": NaN
+    },
+    {
+      "scenario": "current_profile_diagnostic",
+      "forecast_column": "current_profile_forecast",
+      "cases": 397,
+      "shortfall_qty": 1005.8570992331613,
+      "cases_fixed": 133,
+      "cases_improved": 282,
+      "cases_worsened": 112,
+      "added_bakery_demand": 0.0,
+      "segment": NaN
+    },
+    {
+      "scenario": "current_profile_plus_demand_diagnostic",
+      "forecast_column": "current_profile_plus_demand",
+      "cases": 397,
+      "shortfall_qty": 973.2232092916781,
+      "cases_fixed": 143,
+      "cases_improved": 286,
+      "cases_worsened": 108,
+      "added_bakery_demand": 140.31317172608948,
+      "segment": NaN
+    },
+    {
+      "scenario": "dynamic_walk_forward",
+      "forecast_column": "dynamic_forecast",
+      "cases": 397,
+      "shortfall_qty": 1525.4068392275526,
+      "cases_fixed": 2,
+      "cases_improved": 39,
+      "cases_worsened": 113,
+      "added_bakery_demand": 0.0,
+      "segment": NaN
+    },
+    {
+      "scenario": "dynamic_walk_forward_plus_demand",
+      "forecast_column": "dynamic_plus_demand",
+      "cases": 397,
+      "shortfall_qty": 1469.4777839958726,
+      "cases_fixed": 25,
+      "cases_improved": 62,
+      "cases_worsened": 106,
+      "added_bakery_demand": 140.31317172608948,
+      "segment": NaN
+    }
+  ],
+  "recommended_shadow_components": [
+    "robust_demand_loss_preprocessing"
+  ],
+  "rejected_for_shadow": [
+    "dynamic_walk_forward_allocation"
+  ],
+  "diagnostic_only": [
+    "current_profile_replay_due_to_profile_lookahead"
+  ],
+  "production_write": false
+}

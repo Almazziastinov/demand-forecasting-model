@@ -1,0 +1,13 @@
+{
+  "robust_demand_loss_cases": 26,
+  "cases_with_adjustment": 25,
+  "imputed_demand_units": 140.31317172608948,
+  "median_case_imputation": 3.75,
+  "max_case_imputation": 15.0,
+  "reference_coverage": 0.9615384615384616,
+  "adjusted_sku_day_rows": 110671,
+  "adjusted_bakery_day_rows": 825,
+  "profile_rows": 15724,
+  "max_profile_share_delta_pp": 0.17895197439373073,
+  "production_write": false
+}

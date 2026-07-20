@@ -1,0 +1,21 @@
+{
+  "best_scenario": "model_log_ratio_strength_0.25",
+  "best_metrics": {
+    "scenario": "model_log_ratio_strength_0.25",
+    "correction": "model_log_ratio",
+    "strength": 0.25,
+    "baseline_shortfall_qty": 1530.2903083330193,
+    "adjusted_shortfall_qty": 1553.065018405142,
+    "underforecast_cases_removed": 2,
+    "new_underforecast_cases": 5,
+    "normal_bias_before": 2.8099619818165866,
+    "normal_bias_after": 2.806304665714308,
+    "normal_mae_before": 4.680591096640825,
+    "normal_mae_after": 4.696196840868795,
+    "max_bakery_total_delta": 1.1368683772161603e-13,
+    "net_cases_improved": -3
+  },
+  "training": "walk_forward_non_stockout_only",
+  "bakery_total_constrained": true,
+  "production_write": false
+}

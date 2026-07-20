@@ -1,0 +1,24 @@
+{
+  "cases": 397,
+  "date_from": "2026-06-01",
+  "date_to": "2026-07-19",
+  "counterfactual_history_from": "2026-05-03",
+  "class_counts": {
+    "allocation": 240,
+    "uncertain": 100,
+    "demand_loss": 57
+  },
+  "robust_class_counts": {
+    "allocation": 231,
+    "uncertain": 140,
+    "demand_loss": 26
+  },
+  "class_shortfall": {
+    "allocation": 961.1965097256359,
+    "demand_loss": 213.48664654586645,
+    "uncertain": 334.6015754250991
+  },
+  "median_bakery_ratio": 0.9609669522186807,
+  "median_substitution_ratio": 0.0,
+  "clickhouse_mode": "read_only"
+}
