@@ -18,6 +18,7 @@ Optional:
     --date-from 2025-09-01   # default: 12 months back from today
     --date-to   2026-06-30   # default: yesterday
     --profile-version weekly_YYYYMMDD  # default: auto-generated
+    --skip-export            # reuse an existing raw export
     --dry-run                # print plan, skip ClickHouse writes
 """
 
@@ -79,6 +80,7 @@ def main() -> None:
     parser.add_argument("--profile-version", default=None, help="default: weekly_YYYYMMDD")
     parser.add_argument("--raw-output", default=str(DEFAULT_RAW_OUTPUT))
     parser.add_argument("--output-dir", default=str(DEFAULT_PROCESSED_DIR))
+    parser.add_argument("--skip-export", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -97,14 +99,20 @@ def main() -> None:
     log.info("date_from=%s date_to=%s profile_version=%s", date_from, date_to, profile_version)
 
     # 1. Export raw checks from ClickHouse
-    run([
-        PYTHON, "scripts/export_clickhouse_checks.py",
-        "--env-file", args.env_file,
-        "--sql-template", str(DEFAULT_SQL_TEMPLATE),
-        "--date-from", date_from,
-        "--date-to", date_to,
-        "--output", str(raw_output),
-    ], step="1/5 export_checks", dry_run=args.dry_run)
+    if args.skip_export:
+        if not raw_output.exists():
+            parser.error(f"--skip-export requires an existing raw file: {raw_output}")
+        log.info("=== STEP: 1/5 export_checks ===")
+        log.info("SKIPPED: reusing %s", raw_output)
+    else:
+        run([
+            PYTHON, "scripts/export_clickhouse_checks.py",
+            "--env-file", args.env_file,
+            "--sql-template", str(DEFAULT_SQL_TEMPLATE),
+            "--date-from", date_from,
+            "--date-to", date_to,
+            "--output", str(raw_output),
+        ], step="1/5 export_checks", dry_run=args.dry_run)
 
     # 2. Build SKU hour share profile
     run([
@@ -139,7 +147,6 @@ def main() -> None:
         "--schema-path", str(DEFAULT_SCHEMA_PATH),
         "--applied-path", str(profile_applied_smoothed),
         "--profile-version", profile_version,
-        "--truncate",
     ], step="5/5 load_uplift_multipliers_to_clickhouse", dry_run=args.dry_run)
 
     log.info("weekly_profile_refresh DONE profile_version=%s", profile_version)

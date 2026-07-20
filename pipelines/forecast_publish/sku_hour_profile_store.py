@@ -239,6 +239,12 @@ def load_uplift_multipliers_to_clickhouse(
     load_schema(client, Path(schema_path))
     if truncate:
         truncate_table(client, table)
+    else:
+        client.command(
+            f"alter table {table} delete where profile_version = {{profile_version:String}} "
+            "settings mutations_sync = 2",
+            parameters={"profile_version": profile_version},
+        )
 
     multipliers = build_uplift_multiplier_frame(
         applied_path,
