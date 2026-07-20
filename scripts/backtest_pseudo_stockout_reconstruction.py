@@ -95,6 +95,30 @@ def evaluate_method(
     return cases
 
 
+def build_guarded_hybrid(
+    good: pd.DataFrame,
+    share: pd.DataFrame,
+    *,
+    max_case_uplift_ratio: float = 0.75,
+    max_case_uplift_units: float = 20.0,
+) -> pd.DataFrame:
+    """Combine both estimates and cap total imputation using observed demand."""
+    hybrid = share.copy()
+    hybrid["sold_demand"] = np.maximum(good["sold_demand"], share["sold_demand"])
+    hybrid["imputed_demand"] = hybrid["sold_demand"] - hybrid["sold"]
+    keys = ["date", "bakery_id", "product_id"]
+    observed = hybrid.groupby(keys)["sold"].transform("sum")
+    imputed = hybrid.groupby(keys)["imputed_demand"].transform("sum")
+    case_cap = np.minimum(
+        max_case_uplift_units,
+        np.maximum(observed, 4.0) * max_case_uplift_ratio,
+    )
+    scale = np.minimum(1.0, case_cap / imputed.replace(0.0, np.nan)).fillna(0.0)
+    hybrid["sold_demand"] = hybrid["sold"] + hybrid["imputed_demand"] * scale
+    hybrid["imputed_demand"] = hybrid["sold_demand"] - hybrid["sold"]
+    return hybrid
+
+
 def summarize(cases: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for keys, group in cases.groupby(["gap_hours", "method", "volume_band"]):
@@ -133,9 +157,13 @@ def main() -> None:
         share = reconstruct_stockout_demand_from_bakery_share(
             synthetic, share_reference
         )
+        hybrid = build_guarded_hybrid(good, share)
         results.append(evaluate_method(good, method="good_day", gap_hours=gap_hours))
         results.append(
             evaluate_method(share, method="bakery_share", gap_hours=gap_hours)
+        )
+        results.append(
+            evaluate_method(hybrid, method="guarded_hybrid", gap_hours=gap_hours)
         )
 
     cases = pd.concat(results, ignore_index=True)

@@ -1,0 +1,33 @@
+{
+  "mode": "offline_read_only_shadow",
+  "production_write": false,
+  "classification": {
+    "normal_bakery_ratio": 0.95,
+    "demand_loss_bakery_ratio": 0.85,
+    "robust_demand_loss_ratio": 0.8,
+    "noise_z": 0.5,
+    "loss_z": 1.0,
+    "min_reference_days": 3,
+    "weekday_lags": [7, 14, 21, 28, 35, 42]
+  },
+  "demand_adjustment": {
+    "eligible_case_type": "robust_demand_loss",
+    "lookback_days": 42,
+    "min_reference_days": 3,
+    "min_bakery_hour_sales": 3.0,
+    "max_hour_rate_ratio": 2.0,
+    "max_case_uplift_ratio": 0.75,
+    "max_case_uplift_units": 20.0
+  },
+  "allocation": {
+    "candidate": "walk_forward_log_ratio_lightgbm",
+    "status": "rejected_from_shadow",
+    "reason": "worse shortfall and normal-day MAE than baseline"
+  },
+  "promotion_gates": {
+    "minimum_shadow_days": 21,
+    "no_normal_day_bias_regression": true,
+    "no_new_underforecast_cases": true,
+    "manual_review_required": true
+  }
+}
