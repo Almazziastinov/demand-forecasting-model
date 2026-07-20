@@ -51,13 +51,38 @@ The post-fix window is only five calendar days, so it is sufficient to prove
 that zero-allocation coverage gaps remain, but not to estimate their stable
 rate.
 
+## New-product eligibility check
+
+Zero allocation is not automatically a defect: the production logic is
+allowed to exclude a newly introduced SKU until it has enough history to enter
+the assortment/profile allocation. The 126 positive-sales SKU-days behind the
+1,064-unit `missing_allocation` total were therefore checked against sales
+history available strictly before each forecast date.
+
+None of these rows is a cold-start case:
+
+- every row had more than 21 prior selling days;
+- the minimum prior-history count for an affected bakery/SKU pair was 26 days;
+- the largest cases had 30 selling days within the preceding 30 calendar days;
+- `ЖарПицца Пикантная` at bakery 257 had 34 prior selling days at its first
+  zero-allocation event and up to 76 by the last one;
+- `Капуста и курица` had at least 28 prior selling days in every affected
+  bakery and usually 30 selling days in the preceding 30-day window.
+
+The profile consumer requires at least three observations for its fallback
+hour profile and eight same-weekday observations for the exact tier. These
+cases have ample product-level history; the next trace must establish whether
+that history is absent from the profile keys, removed by assortment/product-id
+mapping, or lost while the forecast grid is constructed.
+
 ## Interpretation and next actions
 
 The candidates require separate mechanisms:
 
 1. `missing_allocation` must be traced through assortment membership, profile
-   coverage, and forecast-grid construction. An uplift cannot repair a missing
-   row or a zero base share.
+   coverage, product-id mapping, and forecast-grid construction. The observed
+   cases have already passed the new-product history test. An uplift cannot
+   repair a missing row or a zero base share.
 2. `persistent_local_underallocation` should be corrected at bakery/SKU level,
    with shrinkage and minimum evidence rather than a global SKU multiplier.
 3. `stockout_regime_shift` should be tested with leakage-free prior-stockout
