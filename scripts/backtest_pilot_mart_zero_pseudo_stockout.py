@@ -104,7 +104,7 @@ def apply_policy(
 ) -> pd.DataFrame:
     work = reconstructed.copy()
     hidden = work[work["is_hidden_hour"]]
-    daily_normal = hidden.groupby(["date", "bakery_id", "product_id"])["daily_sold_hourly"].transform("first")
+    daily_normal = hidden["normal_daily_sold"]
     day_added = hidden.groupby(["date", "bakery_id", "product_id"])["imputed_demand"].transform("sum")
     low_volume = daily_normal <= low_volume_threshold
     cap = np.maximum(4.0, 0.5 * daily_normal)
@@ -114,6 +114,21 @@ def apply_policy(
     work["policy_imputed_demand"] = work["policy_imputed_demand"].fillna(0.0)
     work["sold_demand_policy"] = work["sold_observed"] + work["policy_imputed_demand"]
     return work
+
+
+def build_normal_daily_benchmark(train: pd.DataFrame) -> pd.DataFrame:
+    """Build the volume guardrail from observable training days only."""
+    daily = train.groupby(
+        ["date", "bakery_id", "product_id", "dow"],
+        as_index=False,
+    )["sold"].sum()
+    return daily.groupby(
+        ["bakery_id", "product_id", "dow"],
+        as_index=False,
+    ).agg(
+        normal_daily_sold=("sold", "median"),
+        normal_days=("date", "nunique"),
+    )
 
 
 def evaluate_cases(
@@ -194,11 +209,17 @@ def run_backtest(
         & ~frame["is_inventory_stockout"]
     ].copy()
     reference = build_bakery_share_reference(train)
+    normal_daily = build_normal_daily_benchmark(train)
     synthetic, _ = build_synthetic_cases(
         frame,
         holdout_start=holdout_start,
         gap_hours=gap_hours,
         min_daily_sold=min_daily_sold,
+    )
+    synthetic = synthetic.merge(
+        normal_daily,
+        on=["bakery_id", "product_id", "dow"],
+        how="inner",
     )
     reconstructed = reconstruct_stockout_demand_from_bakery_share(synthetic, reference)
     reconstructed = apply_policy(reconstructed)

@@ -55,34 +55,43 @@ def load_daily(path: Path) -> pd.DataFrame:
 
 def load_hourly(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     usecols = ["check_datetime", "check_date", "quantity", "bakery_id", "product_id", "category_name"]
-    parts: list[pd.DataFrame] = []
+    sku_parts: list[pd.DataFrame] = []
+    bakery_parts: list[pd.DataFrame] = []
     for chunk in pd.read_csv(path, encoding="utf-8-sig", usecols=usecols, chunksize=250_000):
         chunk["bakery_id"] = pd.to_numeric(chunk["bakery_id"], errors="coerce").astype("Int64")
         chunk["product_id"] = pd.to_numeric(chunk["product_id"], errors="coerce").astype("Int64")
-        chunk = chunk[
-            chunk["bakery_id"].isin(PILOT_BAKERY_IDS)
-            & chunk["category_name"].isin(BAKEABLE_CATEGORIES)
-        ].copy()
+        chunk = chunk[chunk["bakery_id"].isin(PILOT_BAKERY_IDS)].copy()
         if chunk.empty:
             continue
         chunk["date"] = pd.to_datetime(chunk["check_date"], errors="coerce").dt.normalize()
         dt = pd.to_datetime(chunk["check_datetime"], errors="coerce", utc=True)
         chunk["hour"] = dt.dt.tz_convert("Europe/Moscow").dt.hour
         chunk["sold"] = _to_numeric(chunk["quantity"]).clip(lower=0.0)
-        parts.append(chunk[["date", "bakery_id", "product_id", "hour", "sold"]])
+        bakery_parts.append(
+            chunk.groupby(["date", "bakery_id", "hour"], as_index=False)["sold"].sum()
+        )
+        bakeable = chunk[chunk["category_name"].isin(BAKEABLE_CATEGORIES)]
+        if not bakeable.empty:
+            sku_parts.append(
+                bakeable.groupby(
+                    ["date", "bakery_id", "product_id", "hour"],
+                    as_index=False,
+                )["sold"].sum()
+            )
 
-    if not parts:
+    if not sku_parts:
         empty_hourly = pd.DataFrame(columns=["date", "bakery_id", "product_id", "hour", "sold"])
         empty_bakery = pd.DataFrame(columns=["date", "bakery_id", "hour", "bakery_hour_sales"])
         return empty_hourly, empty_bakery
 
     hourly = (
-        pd.concat(parts, ignore_index=True)
+        pd.concat(sku_parts, ignore_index=True)
         .groupby(["date", "bakery_id", "product_id", "hour"], as_index=False)["sold"]
         .sum()
     )
     bakery_hour = (
-        hourly.groupby(["date", "bakery_id", "hour"], as_index=False)["sold"]
+        pd.concat(bakery_parts, ignore_index=True)
+        .groupby(["date", "bakery_id", "hour"], as_index=False)["sold"]
         .sum()
         .rename(columns={"sold": "bakery_hour_sales"})
     )

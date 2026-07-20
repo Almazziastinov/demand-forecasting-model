@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,19 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT_DIR = ROOT / "reports" / "pilot_mart_zero_demand_reconstruction"
+sys.path.insert(0, str(ROOT))
+
+from scripts.build_pilot_mart_zero_demand_reconstruction import (  # noqa: E402
+    apply_reconstruction_policy,
+    build_daily_signals,
+)
+from src.experiments_v2.stockout_demand_preprocessing import (  # noqa: E402
+    build_bakery_share_reference,
+    reconstruct_stockout_demand_from_bakery_share,
+)
+
+
+DEFAULT_INPUT_DIR = ROOT / "reports" / "pilot_mart_zero_stockout_balance"
 DEFAULT_OUTPUT_DIR = ROOT / "reports" / "pilot_mart_zero_profile_comparison"
 PROFILE_KEYS = ["bakery_id", "product_id", "dow", "hour"]
 
@@ -24,10 +37,26 @@ def load_frame(path: Path) -> pd.DataFrame:
         "balance_is_consistent",
         "hourly_daily_sales_agree",
         "is_inventory_stockout",
-        "is_policy_adjusted",
     ]:
         frame[column] = frame[column].fillna(False).astype(bool)
+    frame["dow"] = frame["date"].dt.dayofweek
+    frame["is_production_observed"] = frame["balance_is_consistent"]
+    frame["is_stockout_day"] = frame["is_reliable_inventory_stockout"]
+    frame["daily_sold"] = pd.to_numeric(frame["qty_sold"], errors="coerce").fillna(0.0)
     return frame
+
+
+def reconstruct_training_window(train: pd.DataFrame) -> pd.DataFrame:
+    """Reconstruct a profile window without using later holdout observations."""
+    daily = build_daily_signals(train)
+    reference_train = train[
+        train["balance_is_consistent"]
+        & train["hourly_daily_sales_agree"]
+        & ~train["is_inventory_stockout"]
+    ].copy()
+    reference = build_bakery_share_reference(reference_train)
+    reconstructed = reconstruct_stockout_demand_from_bakery_share(train, reference)
+    return apply_reconstruction_policy(train, reconstructed, daily)
 
 
 def build_profile(frame: pd.DataFrame, value_col: str) -> pd.DataFrame:
@@ -65,7 +94,8 @@ def compare_window(frame: pd.DataFrame, *, history_days: int, holdout_days: int)
     train_end = holdout_start - pd.Timedelta(days=1)
     train_start = train_end - pd.Timedelta(days=history_days - 1)
 
-    train = frame[(frame["date"] >= train_start) & (frame["date"] <= train_end)].copy()
+    train_raw = frame[(frame["date"] >= train_start) & (frame["date"] <= train_end)].copy()
+    train = reconstruct_training_window(train_raw)
     holdout = frame[
         (frame["date"] >= holdout_start)
         & frame["balance_is_consistent"]
@@ -108,7 +138,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    frame = load_frame(Path(args.input_dir) / "hourly_reconstructed.csv")
+    frame = load_frame(Path(args.input_dir) / "hourly_frame.csv")
     results = [
         compare_window(frame, history_days=history_days, holdout_days=args.holdout_days)
         for history_days in args.history_days
