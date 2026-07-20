@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from scripts.analyze_stockout_allocation_failures import build_sku_summary, enrich_cases
+from scripts.analyze_stockout_allocation_failures import (
+    assign_pipeline_regime,
+    build_sku_summary,
+    enrich_cases,
+)
 
 
 def test_enrichment_separates_total_volume_from_sku_allocation() -> None:
@@ -60,3 +64,18 @@ def test_sku_summary_marks_repeated_cross_bakery_pattern_as_systematic() -> None
     assert summary.loc[0, "underforecast_stockouts"] == 3
     assert summary.loc[0, "bakeries"] == 2
     assert summary.loc[0, "systematic"]
+
+
+def test_pipeline_regime_separates_late_processing_versions() -> None:
+    frame = pd.DataFrame(
+        {
+            "date": ["2026-06-30", "2026-07-10", "2026-07-16"],
+            "source_run_id": ["no_sku_uplift", "raw_uplift", "raw_uplift"],
+        }
+    )
+
+    assert assign_pipeline_regime(frame).tolist() == [
+        "base_no_sku_uplift",
+        "raw_uplift_pre_cap_haircut",
+        "current_cap_haircut_stockout",
+    ]

@@ -86,6 +86,43 @@ def build_sku_summary(cases: pd.DataFrame, all_rows: pd.DataFrame) -> pd.DataFra
     )
 
 
+def assign_pipeline_regime(frame: pd.DataFrame) -> pd.Series:
+    dates = pd.to_datetime(frame["date"])
+    source = frame["source_run_id"].fillna("").astype(str)
+    regime = pd.Series("raw_uplift_pre_cap_haircut", index=frame.index)
+    regime.loc[source.str.contains("no_sku_uplift") | dates.lt("2026-07-01")] = (
+        "base_no_sku_uplift"
+    )
+    regime.loc[dates.ge("2026-07-15")] = "current_cap_haircut_stockout"
+    return regime
+
+
+def build_regime_summary(
+    cases: pd.DataFrame, all_stockouts: pd.DataFrame
+) -> pd.DataFrame:
+    denominators = (
+        all_stockouts.groupby("pipeline_regime").size().rename("accepted_stockouts")
+    )
+    summary = (
+        cases.groupby("pipeline_regime", as_index=False)
+        .agg(
+            underforecast_cases=("date", "size"),
+            confirmed_shortfall=("confirmed_model_shortfall_qty", "sum"),
+            allocation_likely=("bakery_volume_sufficient", "sum"),
+            median_bakery_ratio=("bakery_forecast_to_actual", "median"),
+            median_allocation_share_ratio=("allocation_share_ratio", "median"),
+        )
+        .merge(denominators, on="pipeline_regime")
+    )
+    summary["underforecast_rate"] = (
+        summary["underforecast_cases"] / summary["accepted_stockouts"]
+    )
+    summary["allocation_likely_share"] = (
+        summary["allocation_likely"] / summary["underforecast_cases"]
+    )
+    return summary
+
+
 def load_bakery_context(
     client, date_from: str, date_to: str, bakery_ids: list[int]
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -159,7 +196,23 @@ def main() -> None:
         sorted(cases["bakery_id"].unique().tolist()),
     )
     enriched = enrich_cases(cases, bakery, sku_totals)
+    all_rows["pipeline_regime"] = assign_pipeline_regime(all_rows)
+    enriched["pipeline_regime"] = assign_pipeline_regime(enriched)
     sku = build_sku_summary(enriched, all_rows)
+    regime = build_regime_summary(
+        enriched, all_rows[all_rows["stockout_group"].eq("clear_stockout")]
+    )
+    sku_regime = (
+        enriched.groupby(
+            ["product_id", "product_name", "pipeline_regime"], as_index=False
+        )
+        .agg(
+            cases=("date", "size"),
+            total_shortfall=("confirmed_model_shortfall_qty", "sum"),
+            allocation_likely=("bakery_volume_sufficient", "sum"),
+        )
+        .sort_values(["cases", "total_shortfall"], ascending=False)
+    )
     pair = (
         enriched.groupby(
             ["bakery_id", "bakery_name", "product_id", "product_name"], as_index=False
@@ -196,6 +249,12 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     enriched.to_csv(output / "case_details.csv", index=False, encoding="utf-8-sig")
     sku.to_csv(output / "sku_summary.csv", index=False, encoding="utf-8-sig")
+    regime.to_csv(
+        output / "pipeline_regime_summary.csv", index=False, encoding="utf-8-sig"
+    )
+    sku_regime.to_csv(
+        output / "sku_pipeline_regime.csv", index=False, encoding="utf-8-sig"
+    )
     pair.to_csv(output / "bakery_sku_summary.csv", index=False, encoding="utf-8-sig")
     (output / "summary.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
