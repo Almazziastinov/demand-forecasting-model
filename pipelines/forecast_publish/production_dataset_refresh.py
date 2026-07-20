@@ -116,7 +116,7 @@ def build_allocation_assortment(
     result["valid_from"] = pd.to_datetime(valid_from).date()
     result["valid_to"] = pd.NA
     result["is_active"] = 1
-    result["loaded_at"] = pd.Timestamp.now()
+    result["loaded_at"] = pd.Timestamp.now(tz="UTC")
     result["comment"] = ""
     return result[
         [
@@ -148,6 +148,9 @@ def delete_older_allocation_snapshot_rows(
     loaded_at_cutoff: pd.Timestamp,
 ) -> None:
     """Remove rows left by earlier attempts for the same effective snapshot."""
+    cutoff = pd.Timestamp(loaded_at_cutoff)
+    if cutoff.tzinfo is None:
+        raise ValueError("loaded_at_cutoff must be timezone-aware")
     client.command(
         f"alter table {table} delete where valid_from = {{valid_from:Date}} "
         "and source in {managed_sources:Array(String)} "
@@ -156,7 +159,7 @@ def delete_older_allocation_snapshot_rows(
         parameters={
             "valid_from": valid_from,
             "managed_sources": list(MANAGED_ALLOCATION_ASSORTMENT_SOURCES),
-            "loaded_at_cutoff": loaded_at_cutoff.to_pydatetime(),
+            "loaded_at_cutoff": cutoff.to_pydatetime(),
         },
     )
 

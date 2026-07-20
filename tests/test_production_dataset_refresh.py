@@ -5,6 +5,7 @@ import types
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from pipelines.forecast_publish.production_dataset_refresh import (
     build_allocation_assortment,
@@ -61,7 +62,7 @@ def test_delete_older_allocation_snapshot_rows_is_scoped() -> None:
             self.calls.append((query, parameters))
 
     client = FakeClient()
-    cutoff = pd.Timestamp("2026-07-20 18:55:46.317")
+    cutoff = pd.Timestamp("2026-07-20 15:55:46.317", tz="UTC")
 
     delete_older_allocation_snapshot_rows(
         client,
@@ -80,6 +81,20 @@ def test_delete_older_allocation_snapshot_rows_is_scoped() -> None:
         "carried_forward_no_recent_sales",
     ]
     assert parameters["loaded_at_cutoff"] == cutoff.to_pydatetime()
+
+
+def test_delete_older_allocation_snapshot_rows_rejects_naive_cutoff() -> None:
+    class FakeClient:
+        def command(self, query, parameters=None):
+            raise AssertionError("command must not be called")
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        delete_older_allocation_snapshot_rows(
+            FakeClient(),
+            table="assortment_city_products",
+            valid_from="2026-07-19",
+            loaded_at_cutoff=pd.Timestamp("2026-07-20 15:55:46.317"),
+        )
 
 
 def test_create_client_with_retry_retries_transient_failure(monkeypatch):
