@@ -9,6 +9,7 @@ import pandas as pd
 from pipelines.forecast_publish.production_dataset_refresh import (
     build_allocation_assortment,
     build_uplifted_daily_from_clickhouse_multipliers,
+    delete_older_allocation_snapshot_rows,
 )
 from pipelines.forecast_publish.production_dataset_refresh import (
     create_client_with_retry,
@@ -49,6 +50,36 @@ def test_build_allocation_assortment_keeps_all_categories() -> None:
     assert set(result["category_name"]) == {"Bread", "Hot drinks"}
     assert result["source"].unique().tolist() == ["recent_sales_window"]
     assert str(result["valid_from"].iloc[0]) == "2026-07-19"
+
+
+def test_delete_older_allocation_snapshot_rows_is_scoped() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def command(self, query, parameters=None):
+            self.calls.append((query, parameters))
+
+    client = FakeClient()
+    cutoff = pd.Timestamp("2026-07-20 18:55:46.317")
+
+    delete_older_allocation_snapshot_rows(
+        client,
+        table="assortment_city_products",
+        valid_from="2026-07-19",
+        loaded_at_cutoff=cutoff,
+    )
+
+    query, parameters = client.calls[0]
+    assert "valid_from = {valid_from:Date}" in query
+    assert "source in {managed_sources:Array(String)}" in query
+    assert "loaded_at < {loaded_at_cutoff:DateTime64(3)}" in query
+    assert parameters["valid_from"] == "2026-07-19"
+    assert parameters["managed_sources"] == [
+        "recent_sales_window",
+        "carried_forward_no_recent_sales",
+    ]
+    assert parameters["loaded_at_cutoff"] == cutoff.to_pydatetime()
 
 
 def test_create_client_with_retry_retries_transient_failure(monkeypatch):

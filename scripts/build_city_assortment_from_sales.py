@@ -69,7 +69,11 @@ def _query_recent_sales(
     return client.query_df(
         f"""
         SELECT
-            ifNull(nullIf(s.city, ''), b.city) AS city,
+            if(
+                s.city IS NOT NULL AND s.city != '' AND s.city != 'unknown',
+                s.city,
+                b.city
+            ) AS city,
             toInt64(s.bakery_id)         AS bakery_id,
             toString(s.product_id)       AS product_id,
             any(s.product_name)          AS product_name,

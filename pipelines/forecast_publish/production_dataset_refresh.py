@@ -82,6 +82,10 @@ DEFAULT_TIMEZONE = "Europe/Moscow"
 DEFAULT_CLICKHOUSE_RETRY_ATTEMPTS = 3
 DEFAULT_CLICKHOUSE_RETRY_SECONDS = 15.0
 ALLOCATION_ASSORTMENT_SOURCE = "recent_sales_window"
+MANAGED_ALLOCATION_ASSORTMENT_SOURCES = (
+    ALLOCATION_ASSORTMENT_SOURCE,
+    "carried_forward_no_recent_sales",
+)
 
 
 def build_allocation_assortment(
@@ -134,6 +138,27 @@ def build_allocation_assortment(
             "comment",
         ]
     ]
+
+
+def delete_older_allocation_snapshot_rows(
+    client,
+    *,
+    table: str,
+    valid_from: str,
+    loaded_at_cutoff: pd.Timestamp,
+) -> None:
+    """Remove rows left by earlier attempts for the same effective snapshot."""
+    client.command(
+        f"alter table {table} delete where valid_from = {{valid_from:Date}} "
+        "and source in {managed_sources:Array(String)} "
+        "and loaded_at < {loaded_at_cutoff:DateTime64(3)} "
+        "settings mutations_sync = 2",
+        parameters={
+            "valid_from": valid_from,
+            "managed_sources": list(MANAGED_ALLOCATION_ASSORTMENT_SOURCES),
+            "loaded_at_cutoff": loaded_at_cutoff.to_pydatetime(),
+        },
+    )
 
 
 def load_latest_allocation_assortment_products(
@@ -625,6 +650,14 @@ def refresh_production_datasets(
             assortment_client,
             allocation_assortment_df,
             target_table=allocation_assortment_tbl,
+        )
+        delete_older_allocation_snapshot_rows(
+            assortment_client,
+            table=allocation_assortment_tbl,
+            valid_from=valid_from,
+            loaded_at_cutoff=pd.to_datetime(
+                allocation_assortment_df["loaded_at"], errors="raise"
+            ).min(),
         )
         city_rows = (
             int((assortment_df["scope"] == "city").sum())
