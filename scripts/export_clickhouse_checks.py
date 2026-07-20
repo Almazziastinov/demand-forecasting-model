@@ -77,6 +77,26 @@ OPTIONAL_COLUMNS = [
     "line_amount",
 ]
 
+PILOT_DAILY_REQUIRED_COLUMNS = [
+    "date",
+    "bakery_id",
+    "bakery_name",
+    "city",
+    "product_id",
+    "product_name",
+    "category_name",
+    "qty_sold",
+    "qty_produced",
+    "qty_received",
+    "qty_sent",
+    "stock_balance",
+]
+
+VALIDATION_SCHEMAS = {
+    "checks": REQUIRED_COLUMNS,
+    "pilot-daily": PILOT_DAILY_REQUIRED_COLUMNS,
+}
+
 
 def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
     env: dict[str, str] = {}
@@ -189,8 +209,11 @@ def render_sql(
     )
 
 
-def validate_columns(df: pd.DataFrame) -> None:
-    missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+def validate_columns(
+    df: pd.DataFrame,
+    required_columns: list[str] = REQUIRED_COLUMNS,
+) -> None:
+    missing = [col for col in required_columns if col not in df.columns]
     if missing:
         raise ValueError(
             "The SQL query did not return the required canonical columns: "
@@ -198,8 +221,11 @@ def validate_columns(df: pd.DataFrame) -> None:
         )
 
 
-def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
-    ordered = [col for col in REQUIRED_COLUMNS + OPTIONAL_COLUMNS if col in df.columns]
+def reorder_columns(
+    df: pd.DataFrame,
+    required_columns: list[str] = REQUIRED_COLUMNS,
+) -> pd.DataFrame:
+    ordered = [col for col in required_columns + OPTIONAL_COLUMNS if col in df.columns]
     tail = [col for col in df.columns if col not in ordered]
     return df[ordered + tail]
 
@@ -213,6 +239,7 @@ def export_windows(
     date_to: str,
     batch_mode: str,
     limit: int | None,
+    required_columns: list[str] = REQUIRED_COLUMNS,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
@@ -244,10 +271,10 @@ def export_windows(
         df = client.query_df(sql)
         # clickhouse-connect returns columnless DataFrame for empty result sets
         if df.empty or len(df.columns) == 0:
-            print(f"    rows: 0 (skipped)", flush=True)
+            print("    rows: 0 (skipped)", flush=True)
             continue
-        validate_columns(df)
-        df = reorder_columns(df)
+        validate_columns(df, required_columns)
+        df = reorder_columns(df, required_columns)
         rows = len(df)
         total_rows += rows
         print(f"    rows: {rows:,}", flush=True)
@@ -312,6 +339,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional LIMIT for debugging small extracts.",
     )
+    parser.add_argument(
+        "--validation-schema",
+        choices=sorted(VALIDATION_SCHEMAS),
+        default="checks",
+        help="Expected output schema for the selected SQL template.",
+    )
     return parser.parse_args()
 
 
@@ -331,6 +364,7 @@ def main() -> None:
         date_to=args.date_to,
         batch_mode=args.batch_mode,
         limit=args.limit,
+        required_columns=VALIDATION_SCHEMAS[args.validation_schema],
     )
 
 
