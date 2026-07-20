@@ -53,8 +53,19 @@ assortments avoids that regression.
 
 ## Deployment boundary
 
-No production code or tables were changed during this implementation. On the
-first deployment run, dataset refresh must insert the new
-`assortment_city_products` batch before the freshness preflight. Verify the
-refresh summary, the active run, and the 12 control pairs before accepting the
-run.
+Deployed to the production writer VM on 2026-07-20. The daily refresh inserted
+2,190 allocation-assortment rows effective 2026-07-19. The weekly profile was
+rebuilt through 2026-07-19 and loaded 3,537,105 profile rows.
+
+The weekly uplift loader was also corrected to replace only the requested
+`profile_version`, rather than truncating every version. Production version
+`pilots_evening_20260716` remained present with 27,155 rows; new version
+`weekly_20260720` was added with 27,154 rows. A `--skip-export` recovery mode
+allows a completed raw export to be reused after a safe interruption.
+
+Final production inference activated
+`prod_base_bakery_raw_uplift_sku_20260720_h14` at 2026-07-20 19:03 MSK with
+489,130 SKU-day and 5,499,898 SKU-hour snapshot rows. `verify_prod_deploy`
+ended with `VERIFY OK`. All 12 control bakery/SKU pairs have non-zero forecasts
+on all 14 horizon days. Both `forecast-production.timer` and
+`weekly-profile-refresh.timer` are enabled and active.
