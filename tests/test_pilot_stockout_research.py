@@ -6,7 +6,10 @@ from scripts.analyze_pilot_mart_zero_stockout_balance import (
     BAKEABLE_CATEGORIES,
     load_hourly,
 )
-from scripts.backtest_pilot_mart_zero_pseudo_stockout import apply_policy
+from scripts.backtest_pilot_mart_zero_pseudo_stockout import (
+    apply_policy,
+    build_normal_daily_benchmark,
+)
 from scripts import compare_pilot_mart_zero_demand_profiles as profile_comparison
 
 
@@ -58,6 +61,25 @@ def test_pseudo_policy_uses_training_volume_not_hidden_true_total() -> None:
     result = apply_policy(reconstructed)
 
     assert result["policy_imputed_demand"].sum() == 4.0
+
+
+def test_normal_daily_benchmark_requires_three_training_days() -> None:
+    frame = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2026-07-06", "2026-07-13", "2026-07-20", "2026-07-06", "2026-07-13"]
+            ),
+            "bakery_id": [20] * 5,
+            "product_id": [100, 100, 100, 200, 200],
+            "dow": [0] * 5,
+            "sold": [4.0, 6.0, 8.0, 3.0, 5.0],
+        }
+    )
+
+    benchmark = build_normal_daily_benchmark(frame)
+
+    assert benchmark["product_id"].tolist() == [100]
+    assert benchmark["normal_daily_sold"].item() == 6.0
 
 
 def test_profile_comparison_reconstructs_train_without_holdout(monkeypatch) -> None:

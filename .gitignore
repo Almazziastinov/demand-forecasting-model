@@ -105,6 +105,10 @@ src/experiments_v2/77_segmented_normative_constructors/segmented_normative_pair_
 src/experiments_v2/77_segmented_normative_constructors/segmented_normative_segment_summary.csv
 
 # Local scratch artifacts
+data/raw/pilot_mart_zero_sales_*.csv
+data/raw/pilot_stg_check_lines_*.csv
+data/raw/sales_hrs_stg_*.csv
+data/raw/sales_stg_*.csv
 test.png
 notebooks/test.png
 notebooks/stockout_estimation_details.csv

@@ -22,6 +22,7 @@ from src.experiments_v2.stockout_demand_preprocessing import (  # noqa: E402
 
 DEFAULT_INPUT_DIR = ROOT / "reports" / "pilot_mart_zero_stockout_balance"
 DEFAULT_OUTPUT_DIR = ROOT / "reports" / "pilot_mart_zero_demand_reconstruction"
+MIN_NORMAL_DAYS = 3
 
 
 def load_hourly_frame(path: Path) -> pd.DataFrame:
@@ -88,7 +89,7 @@ def build_daily_signals(frame: pd.DataFrame) -> pd.DataFrame:
     daily["last_hour_gap"] = daily["normal_last_hour"] - daily["last_sale_hour"]
     daily["is_strong_temporal_stockout"] = (
         daily["is_reliable_inventory_stockout"]
-        & daily["normal_days"].fillna(0).gt(0)
+        & daily["normal_days"].fillna(0).ge(MIN_NORMAL_DAYS)
         & daily["last_hour_gap"].ge(2)
         & daily["bakery_sales_after_last"].ge(50)
     )

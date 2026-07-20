@@ -27,6 +27,7 @@ from src.experiments_v2.stockout_demand_preprocessing import (  # noqa: E402
 
 DEFAULT_INPUT_DIR = ROOT / "reports" / "pilot_mart_zero_stockout_balance"
 DEFAULT_OUTPUT_DIR = ROOT / "reports" / "pilot_mart_zero_pseudo_stockout_backtest"
+MIN_NORMAL_DAYS = 3
 
 
 def load_frame(path: Path) -> pd.DataFrame:
@@ -122,13 +123,14 @@ def build_normal_daily_benchmark(train: pd.DataFrame) -> pd.DataFrame:
         ["date", "bakery_id", "product_id", "dow"],
         as_index=False,
     )["sold"].sum()
-    return daily.groupby(
+    benchmark = daily.groupby(
         ["bakery_id", "product_id", "dow"],
         as_index=False,
     ).agg(
         normal_daily_sold=("sold", "median"),
         normal_days=("date", "nunique"),
     )
+    return benchmark[benchmark["normal_days"] >= MIN_NORMAL_DAYS].copy()
 
 
 def evaluate_cases(
