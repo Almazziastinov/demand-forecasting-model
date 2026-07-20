@@ -8,6 +8,7 @@ from pipelines.forecast_publish import production_dataset_refresh
 from pipelines.forecast_publish.run_production_inference import (
     assert_nonprod_tables,
     build_parser,
+    validate_profile_refresh_summary,
 )
 
 
@@ -65,3 +66,15 @@ def test_nonprod_table_guard_rejects_missing_suffix():
 
     with pytest.raises(RuntimeError, match="FORECAST_TABLE_SUFFIX"):
         assert_nonprod_tables(env_file)
+
+
+def test_profile_refresh_freshness_rejects_stale_summary(tmp_path: Path) -> None:
+    summary = tmp_path / "profile.json"
+    summary.write_text('{"date_to": "2026-07-10"}', encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="SKU profile is stale"):
+        validate_profile_refresh_summary(
+            summary,
+            forecast_start="2026-07-20",
+            max_age_days=8,
+        )

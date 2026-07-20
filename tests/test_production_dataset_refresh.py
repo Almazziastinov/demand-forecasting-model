@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from pipelines.forecast_publish.production_dataset_refresh import (
+    build_allocation_assortment,
     build_uplifted_daily_from_clickhouse_multipliers,
 )
 from pipelines.forecast_publish.production_dataset_refresh import (
@@ -29,6 +30,25 @@ def test_resolve_default_refresh_dates_uses_moscow_business_day() -> None:
 
     assert dates.forecast_start_date == "2026-06-11"
     assert dates.history_end_date == "2026-06-10"
+
+
+def test_build_allocation_assortment_keeps_all_categories() -> None:
+    sales = pd.DataFrame(
+        {
+            "city": ["Kazan", "Kazan"],
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "product_name": ["Bread", "Coffee"],
+            "category_name": ["Bread", "Hot drinks"],
+        }
+    )
+
+    result = build_allocation_assortment(sales, valid_from="2026-07-19")
+
+    assert set(result["product_id"]) == {"10", "20"}
+    assert set(result["category_name"]) == {"Bread", "Hot drinks"}
+    assert result["source"].unique().tolist() == ["recent_sales_window"]
+    assert str(result["valid_from"].iloc[0]) == "2026-07-19"
 
 
 def test_create_client_with_retry_retries_transient_failure(monkeypatch):

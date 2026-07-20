@@ -14,6 +14,7 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     fill_missing_bakery_hours,
     filter_by_active_assortment,
     renormalize_hourly_to_bakery_forecast,
+    validate_assortment_freshness,
 )
 
 
@@ -491,6 +492,60 @@ def test_assortment_filter_keeps_unconfigured_city() -> None:
 
     assert filtered["product_id"].tolist() == [999]
     assert stats == {"rows_removed": 0, "forecast_removed": 0.0}
+
+
+def test_assortment_filter_honors_city_and_bakery_scopes() -> None:
+    hourly = pd.DataFrame(
+        {
+            "date": ["2026-07-20"] * 4,
+            "bakery_id": [1, 1, 2, 2],
+            "city": ["Kazan"] * 4,
+            "product_id": [10, 20, 10, 20],
+            "sku_hour_forecast": [1.0] * 4,
+        }
+    )
+    allowed = pd.DataFrame(
+        {
+            "city": ["Kazan", "Kazan"],
+            "product_id": [10, 20],
+            "bakery_id": [pd.NA, 1],
+        }
+    )
+
+    filtered, _ = filter_by_active_assortment(
+        hourly,
+        allowed_pairs=allowed,
+        bakery_city_lookup=hourly[["bakery_id", "city"]].drop_duplicates(),
+        forecast_col="sku_hour_forecast",
+    )
+
+    assert set(map(tuple, filtered[["bakery_id", "product_id"]].to_numpy())) == {
+        (1, 10),
+        (1, 20),
+        (2, 10),
+    }
+
+
+def test_assortment_freshness_rejects_stale_city() -> None:
+    allowed = pd.DataFrame(
+        {
+            "city": ["Kazan"],
+            "product_id": [10],
+            "valid_from": [pd.Timestamp("2026-07-15")],
+        }
+    )
+
+    try:
+        validate_assortment_freshness(
+            allowed,
+            expected_cities={"Kazan"},
+            effective_date="2026-07-20",
+            max_age_days=2,
+        )
+    except RuntimeError as exc:
+        assert "Kazan=5d" in str(exc)
+    else:
+        raise AssertionError("stale assortment must fail preflight")
 
 
 def test_compensate_for_assortment_exclusion_redistributes_dropped_demand() -> None:

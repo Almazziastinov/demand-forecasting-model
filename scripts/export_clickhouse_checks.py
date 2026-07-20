@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 from pathlib import Path
 from typing import Iterator
 
@@ -240,6 +241,8 @@ def export_windows(
     batch_mode: str,
     limit: int | None,
     required_columns: list[str] = REQUIRED_COLUMNS,
+    query_attempts: int = 3,
+    retry_seconds: float = 15.0,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
@@ -268,7 +271,19 @@ def export_windows(
             f"[{index}/{len(windows)}] Querying {window_from} .. {window_to}",
             flush=True,
         )
-        df = client.query_df(sql)
+        for attempt in range(1, query_attempts + 1):
+            try:
+                df = client.query_df(sql)
+                break
+            except Exception:
+                if attempt >= query_attempts:
+                    raise
+                print(
+                    f"    query failed; retrying {attempt}/{query_attempts - 1} "
+                    f"in {retry_seconds:g}s",
+                    flush=True,
+                )
+                time.sleep(retry_seconds)
         # clickhouse-connect returns columnless DataFrame for empty result sets
         if df.empty or len(df.columns) == 0:
             print("    rows: 0 (skipped)", flush=True)
@@ -339,6 +354,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional LIMIT for debugging small extracts.",
     )
+    parser.add_argument("--query-attempts", type=int, default=3)
+    parser.add_argument("--retry-seconds", type=float, default=15.0)
     parser.add_argument(
         "--validation-schema",
         choices=sorted(VALIDATION_SCHEMAS),
@@ -365,6 +382,8 @@ def main() -> None:
         batch_mode=args.batch_mode,
         limit=args.limit,
         required_columns=VALIDATION_SCHEMAS[args.validation_schema],
+        query_attempts=args.query_attempts,
+        retry_seconds=args.retry_seconds,
     )
 
 

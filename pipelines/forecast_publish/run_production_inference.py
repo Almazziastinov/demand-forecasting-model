@@ -64,6 +64,7 @@ DEFAULT_BASE_BIAS_PATH = ROOT / "models" / "bakery_day_bias.json"
 DEFAULT_UPLIFTED_BIAS_PATH = ROOT / "models" / "bakery_day_bias_uplifted.json"
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "processed"
 DEFAULT_SUMMARY_PATH = ROOT / "reports" / "production_inference_summary.json"
+DEFAULT_PROFILE_REFRESH_SUMMARY_PATH = ROOT / "reports" / "weekly_profile_refresh_last_run.json"
 DEFAULT_WEATHER_PATH = ROOT / "data" / "processed" / "bakery_weather_features.csv"
 DEFAULT_RECENT_CORRECTION_MODE = os.getenv(
     "FORECAST_RECENT_CORRECTION_MODE",
@@ -73,6 +74,11 @@ DEFAULT_RECENT_CORRECTION_DAYS = int(os.getenv("FORECAST_RECENT_CORRECTION_DAYS"
 DEFAULT_RECENT_SALES_TABLE = os.getenv("FORECAST_RECENT_SALES_TABLE", "mart_sales_60d")
 DEFAULT_REFRESH_DATASETS = os.getenv("FORECAST_REFRESH_DATASETS", "").strip().lower() in {"1", "true", "yes", "on"}
 DEFAULT_REFRESH_WEATHER = os.getenv("FORECAST_REFRESH_WEATHER", "").strip().lower() in {"1", "true", "yes", "on"}
+DEFAULT_ASSORTMENT_TABLE = os.getenv(
+    "FORECAST_ASSORTMENT_TABLE", "assortment_city_products"
+)
+DEFAULT_ASSORTMENT_MAX_AGE_DAYS = int(os.getenv("FORECAST_ASSORTMENT_MAX_AGE_DAYS", "2"))
+DEFAULT_PROFILE_MAX_AGE_DAYS = int(os.getenv("FORECAST_PROFILE_MAX_AGE_DAYS", "8"))
 _max_sku_uplift_env = os.getenv("FORECAST_MAX_SKU_UPLIFT_RATIO", "").strip()
 DEFAULT_MAX_SKU_UPLIFT_RATIO: float | None = float(_max_sku_uplift_env) if _max_sku_uplift_env else None
 DEFAULT_STOCKOUT_CORRECTION_VERSION: str | None = os.getenv("FORECAST_STOCKOUT_CORRECTION_VERSION", "").strip() or None
@@ -132,6 +138,30 @@ SCENARIOS = {
         "use_raw_uplift_multiplier": False,
     },
 }
+
+
+def validate_profile_refresh_summary(
+    summary_path: str | Path,
+    *,
+    forecast_start: str | pd.Timestamp,
+    max_age_days: int,
+) -> dict:
+    if max_age_days < 0:
+        return {"status": "disabled"}
+    path = Path(summary_path)
+    if not path.exists():
+        raise RuntimeError(f"SKU profile refresh summary is missing: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    date_to = pd.to_datetime(payload.get("date_to"), errors="coerce")
+    if pd.isna(date_to):
+        raise RuntimeError(f"SKU profile refresh summary has invalid date_to: {path}")
+    age_days = int((pd.Timestamp(forecast_start).normalize() - date_to.normalize()).days)
+    if age_days > max_age_days:
+        raise RuntimeError(
+            f"SKU profile is stale: data_through={date_to.date()} age={age_days}d "
+            f"max_age_days={max_age_days}"
+        )
+    return {"status": "ok", "data_through": str(date_to.date()), "age_days": age_days}
 
 
 def _existing_path(path: str | Path, *, label: str) -> Path:
@@ -250,6 +280,7 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         recent_sales_table=args.recent_sales_table,
         chunk_size=args.chunk_size,
         assortment_table=args.assortment_table,
+        assortment_max_age_days=args.assortment_max_age_days,
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
         max_uplift_ratio=args.max_uplift_ratio,
@@ -321,6 +352,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--raw-output", default=str(DEFAULT_RAW_OUTPUT))
     parser.add_argument("--sql-template", default=str(DEFAULT_SQL_TEMPLATE))
     parser.add_argument("--dataset-refresh-summary-path", default=str(DEFAULT_REFRESH_SUMMARY_PATH))
+    parser.add_argument(
+        "--profile-refresh-summary-path",
+        default=str(DEFAULT_PROFILE_REFRESH_SUMMARY_PATH),
+    )
+    parser.add_argument(
+        "--profile-max-age-days",
+        type=int,
+        default=DEFAULT_PROFILE_MAX_AGE_DAYS,
+    )
     parser.add_argument("--skip-weather-refresh", action="store_true")
     parser.add_argument("--base-dataset-path", default=str(DEFAULT_BASE_DATASET_PATH))
     parser.add_argument("--uplifted-dataset-path", default=str(DEFAULT_UPLIFTED_DATASET_PATH))
@@ -347,7 +387,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--recent-correction-days", type=int, default=DEFAULT_RECENT_CORRECTION_DAYS)
     parser.add_argument("--recent-sales-table", default=DEFAULT_RECENT_SALES_TABLE)
-    parser.add_argument("--assortment-table", default="assortment_city_products")
+    parser.add_argument("--assortment-table", default=DEFAULT_ASSORTMENT_TABLE)
+    parser.add_argument(
+        "--assortment-max-age-days",
+        type=int,
+        default=DEFAULT_ASSORTMENT_MAX_AGE_DAYS,
+        help="Fail before allocation when the latest assortment batch is older than this many days.",
+    )
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
     parser.add_argument(
@@ -513,6 +559,15 @@ def main() -> None:
             f" {weather_result['weather_start_date']} → {weather_result['weather_end_date']}",
             flush=True,
         )
+
+    profile_freshness = validate_profile_refresh_summary(
+        args.profile_refresh_summary_path,
+        forecast_start=args.start_date or resolve_default_refresh_dates(
+            timezone=args.refresh_timezone
+        ).forecast_start_date,
+        max_age_days=args.profile_max_age_days,
+    )
+    print(f"profile freshness: {profile_freshness}", flush=True)
 
     scenario_names = list(SCENARIOS) if args.scenario == "both" else [args.scenario]
     if args.activate_run != "none" and args.activate_run not in scenario_names:

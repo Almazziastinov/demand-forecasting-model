@@ -16,7 +16,9 @@ from pipelines.forecast_publish.table_names import (
     table_name,
 )
 from scripts.build_city_assortment_from_sales import build_layers
-from scripts.build_city_assortment_from_sales import insert_to_clickhouse as insert_assortment
+from scripts.build_city_assortment_from_sales import (
+    insert_to_clickhouse as insert_assortment,
+)
 from scripts.build_city_assortment_from_sales import (
     DEFAULT_WINDOW_DAYS as ASSORTMENT_WINDOW_DAYS,
     DEFAULT_CITY_THRESHOLD as ASSORTMENT_CITY_THRESHOLD,
@@ -79,6 +81,59 @@ DEFAULT_HISTORY_START_DATE = "2025-06-01"
 DEFAULT_TIMEZONE = "Europe/Moscow"
 DEFAULT_CLICKHOUSE_RETRY_ATTEMPTS = 3
 DEFAULT_CLICKHOUSE_RETRY_SECONDS = 15.0
+ALLOCATION_ASSORTMENT_SOURCE = "recent_sales_window"
+
+
+def build_allocation_assortment(
+    sales: pd.DataFrame,
+    *,
+    valid_from: str,
+) -> pd.DataFrame:
+    """Build the full city/SKU allowlist consumed by forecast allocation."""
+    if sales.empty:
+        return pd.DataFrame()
+    result = (
+        sales.groupby(["city", "product_id"], as_index=False)
+        .agg(
+            product_name=("product_name", "first"),
+            category_name=("category_name", "first"),
+        )
+    )
+    result["product_id"] = result["product_id"].astype(str)
+    result["product_name"] = result["product_name"].fillna("")
+    result["category_name"] = result["category_name"].fillna("")
+    result["is_required"] = 1
+    result["is_top"] = 0
+    result["top_rank"] = pd.NA
+    result["source"] = ALLOCATION_ASSORTMENT_SOURCE
+    result["source_priority"] = 1
+    result["source_file"] = f"mart_sales_60d:window_{ASSORTMENT_WINDOW_DAYS}d"
+    result["source_scope"] = result["city"]
+    result["valid_from"] = pd.to_datetime(valid_from).date()
+    result["valid_to"] = pd.NA
+    result["is_active"] = 1
+    result["loaded_at"] = pd.Timestamp.now()
+    result["comment"] = ""
+    return result[
+        [
+            "city",
+            "product_id",
+            "product_name",
+            "category_name",
+            "is_required",
+            "is_top",
+            "top_rank",
+            "source",
+            "source_priority",
+            "source_file",
+            "source_scope",
+            "valid_from",
+            "valid_to",
+            "is_active",
+            "loaded_at",
+            "comment",
+        ]
+    ]
 
 
 @dataclass(frozen=True)
@@ -179,9 +234,13 @@ def load_uplift_multipliers_from_clickhouse(
     )
     # clickhouse-connect can return a columnless empty DataFrame for GROUP BY on 0 rows
     if BAKERY_ID_COL not in exact.columns:
-        exact = pd.DataFrame(columns=[BAKERY_ID_COL, DOW_COL, HOUR_COL, "sku_uplift_multiplier"])
+        exact = pd.DataFrame(
+            columns=[BAKERY_ID_COL, DOW_COL, HOUR_COL, "sku_uplift_multiplier"]
+        )
     if BAKERY_ID_COL not in fallback.columns:
-        fallback = pd.DataFrame(columns=[BAKERY_ID_COL, HOUR_COL, "sku_uplift_multiplier"])
+        fallback = pd.DataFrame(
+            columns=[BAKERY_ID_COL, HOUR_COL, "sku_uplift_multiplier"]
+        )
     exact = _normalize_key_columns(exact, [BAKERY_ID_COL, DOW_COL, HOUR_COL])
     fallback = _normalize_key_columns(fallback, [BAKERY_ID_COL, HOUR_COL])
     return exact, fallback
@@ -463,6 +522,7 @@ def refresh_production_datasets(
         "assortment_bakery_rows": None,
         "assortment_status": "skipped",
         "assortment_error": None,
+        "allocation_assortment_rows": None,
     }
     try:
         assortment_client = create_client_with_retry(create_client, env_file)
@@ -470,6 +530,9 @@ def refresh_production_datasets(
         bakery_tbl = table_name("bakery_forecast_day_embedded", suffix=suffix)
         sku_day_tbl = table_name("sku_forecast_day_embedded", suffix=suffix)
         bakeable_tbl = table_name("bakeable_products", suffix=suffix)
+        allocation_assortment_tbl = table_name(
+            "assortment_city_products", suffix=suffix
+        )
         sales = _query_recent_sales(
             assortment_client,
             window_days=ASSORTMENT_WINDOW_DAYS,
@@ -488,18 +551,41 @@ def refresh_production_datasets(
             category_patterns=ASSORTMENT_CATEGORY_PATTERNS,
             valid_from=valid_from,
         )
-        inserted = insert_assortment(assortment_client, assortment_df, target_table=bakeable_tbl)
-        city_rows = int((assortment_df["scope"] == "city").sum()) if not assortment_df.empty else 0
-        bakery_rows = int((assortment_df["scope"] == "bakery").sum()) if not assortment_df.empty else 0
+        inserted = insert_assortment(
+            assortment_client,
+            assortment_df,
+            target_table=bakeable_tbl,
+        )
+        allocation_assortment_df = build_allocation_assortment(
+            sales,
+            valid_from=valid_from,
+        )
+        allocation_inserted = insert_assortment(
+            assortment_client,
+            allocation_assortment_df,
+            target_table=allocation_assortment_tbl,
+        )
+        city_rows = (
+            int((assortment_df["scope"] == "city").sum())
+            if not assortment_df.empty
+            else 0
+        )
+        bakery_rows = (
+            int((assortment_df["scope"] == "bakery").sum())
+            if not assortment_df.empty
+            else 0
+        )
         assortment_result = {
             "assortment_city_rows": city_rows,
             "assortment_bakery_rows": bakery_rows,
             "assortment_status": "refreshed",
             "assortment_error": None,
+            "allocation_assortment_rows": int(len(allocation_assortment_df)),
         }
         print(
             f"Assortment refresh: city={city_rows} bakery={bakery_rows} "
-            f"inserted={inserted} valid_from={valid_from}",
+            f"inserted={inserted} allocation_inserted={allocation_inserted} "
+            f"valid_from={valid_from}",
             flush=True,
         )
     except Exception as exc:

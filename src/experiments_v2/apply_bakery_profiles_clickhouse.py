@@ -80,20 +80,89 @@ def _write_hourly_chunk(df: pd.DataFrame, path: Path, *, header: bool) -> None:
     df.to_csv(path, mode="a", index=False, encoding="utf-8-sig", header=header)
 
 
-def load_active_assortment_pairs(client, *, assortment_table: str) -> pd.DataFrame:
+def load_active_assortment_pairs(
+    client,
+    *,
+    assortment_table: str,
+    effective_date: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    if "bakeable_products" in assortment_table:
+        if effective_date is None:
+            raise ValueError("effective_date is required for bakeable assortment")
+        return client.query_df(
+            f"""
+            select
+                b.city,
+                toInt64OrNull(replaceRegexpOne(toString(b.product_id), '^0+', '')) as product_id_int,
+                if(ifNull(b.scope, 'city') = 'bakery', b.bakery_id, null) as bakery_id,
+                b.valid_from
+            from {assortment_table} as b final
+            inner join (
+                select city, max(valid_from) as latest_valid_from
+                from {assortment_table} final
+                where valid_from <= toDate(%(effective_date)s)
+                group by city
+            ) as latest
+              on b.city = latest.city and b.valid_from = latest.latest_valid_from
+            where b.is_active = 1
+              and b.is_bakeable = 1
+              and (b.valid_to is null or b.valid_to >= toDate(%(effective_date)s))
+              and toInt64OrNull(replaceRegexpOne(toString(b.product_id), '^0+', '')) is not null
+            group by b.city, product_id_int, bakery_id, b.valid_from
+            """,
+            parameters={"effective_date": str(pd.Timestamp(effective_date).date())},
+        ).rename(columns={"product_id_int": PRODUCT_ID_COL})
+    if effective_date is None:
+        raise ValueError("effective_date is required for allocation assortment")
     return client.query_df(
         f"""
         select
-            city,
-            toInt64OrNull(replaceRegexpOne(toString(product_id), '^0+', '')) as product_id_int
-        from {assortment_table}
-        where is_active = 1
-          and toInt64OrNull(replaceRegexpOne(toString(product_id), '^0+', '')) is not null
-        group by city, product_id_int
-        """
+            a.city,
+            toInt64OrNull(replaceRegexpOne(toString(a.product_id), '^0+', '')) as product_id_int,
+            a.valid_from
+        from {assortment_table} as a final
+        inner join (
+            select city, max(valid_from) as latest_valid_from
+            from {assortment_table} final
+            where valid_from <= toDate(%(effective_date)s)
+            group by city
+        ) as latest
+          on a.city = latest.city and a.valid_from = latest.latest_valid_from
+        where a.is_active = 1
+          and (a.valid_to is null or a.valid_to >= toDate(%(effective_date)s))
+          and toInt64OrNull(replaceRegexpOne(toString(a.product_id), '^0+', '')) is not null
+        group by a.city, product_id_int, a.valid_from
+        """,
+        parameters={"effective_date": str(pd.Timestamp(effective_date).date())},
     ).rename(
         columns={"product_id_int": PRODUCT_ID_COL}
     )
+
+
+def validate_assortment_freshness(
+    allowed_pairs: pd.DataFrame,
+    *,
+    expected_cities: set[str],
+    effective_date: str | pd.Timestamp,
+    max_age_days: int,
+) -> None:
+    if max_age_days < 0 or allowed_pairs.empty or "valid_from" not in allowed_pairs:
+        return
+    latest = allowed_pairs.groupby(CITY_COL)["valid_from"].max()
+    missing = sorted(expected_cities - set(latest.index.astype(str)))
+    if missing:
+        raise RuntimeError(f"Assortment has no active batch for cities: {missing}")
+    ages = (
+        pd.Timestamp(effective_date).normalize()
+        - pd.to_datetime(latest.loc[sorted(expected_cities)]).dt.normalize()
+    ).dt.days
+    stale = ages[ages > max_age_days]
+    if not stale.empty:
+        details = ", ".join(f"{city}={int(age)}d" for city, age in stale.items())
+        raise RuntimeError(
+            f"Assortment is stale for forecast date {pd.Timestamp(effective_date).date()}: "
+            f"{details}; max_age_days={max_age_days}"
+        )
 
 
 def _build_bakery_city_lookup(bakery_forecast: pd.DataFrame) -> pd.DataFrame:
@@ -132,11 +201,31 @@ def filter_by_active_assortment(
         allowed["_assortment_product_id"],
         errors="coerce",
     ).astype("Int64")
-    work = work.merge(
-        allowed.assign(_in_active_assortment=1),
-        on=[CITY_COL, "_assortment_product_id"],
-        how="left",
-    )
+    if BAKERY_ID_COL in allowed.columns:
+        city_allowed = allowed[allowed[BAKERY_ID_COL].isna()][
+            [CITY_COL, "_assortment_product_id"]
+        ].drop_duplicates()
+        bakery_allowed = allowed[allowed[BAKERY_ID_COL].notna()][
+            [CITY_COL, BAKERY_ID_COL, "_assortment_product_id"]
+        ].drop_duplicates()
+        work = work.merge(
+            city_allowed.assign(_in_city_assortment=1),
+            on=[CITY_COL, "_assortment_product_id"],
+            how="left",
+        ).merge(
+            bakery_allowed.assign(_in_bakery_assortment=1),
+            on=[CITY_COL, BAKERY_ID_COL, "_assortment_product_id"],
+            how="left",
+        )
+        work["_in_active_assortment"] = work["_in_city_assortment"].fillna(0) + work[
+            "_in_bakery_assortment"
+        ].fillna(0)
+    else:
+        work = work.merge(
+            allowed.assign(_in_active_assortment=1),
+            on=[CITY_COL, "_assortment_product_id"],
+            how="left",
+        )
     scoped_cities = set(allowed[CITY_COL].dropna().astype(str))
     city_is_scoped = work[CITY_COL].astype(str).isin(scoped_cities)
     keep_mask = (~city_is_scoped) | work["_in_active_assortment"].fillna(0).astype(
@@ -1865,6 +1954,7 @@ def allocate_from_clickhouse(
     recent_category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
     recent_category_absolute_cap_days: int | None = None,
     recent_category_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
+    assortment_max_age_days: int = -1,
     bakery_ids: list[int] | None = None,
 ) -> dict[str, Path]:
     if recent_correction_mode not in RECENT_CORRECTION_MODES:
@@ -1880,11 +1970,23 @@ def allocate_from_clickhouse(
     bakery_hour_profile = load_bakery_hour_profile(bakery_hour_profile_path)
     hourly_forecast = allocate_bakery_to_hour(bakery_forecast, bakery_hour_profile)
     bakery_city_lookup = _build_bakery_city_lookup(bakery_forecast)
+    forecast_start = pd.to_datetime(bakery_forecast[DATE_COL]).min().normalize()
     allowed_assortment_pairs = (
         pd.DataFrame(columns=[CITY_COL, PRODUCT_ID_COL])
         if disable_assortment_filter
-        else load_active_assortment_pairs(client, assortment_table=assortment_table)
+        else load_active_assortment_pairs(
+            client,
+            assortment_table=assortment_table,
+            effective_date=forecast_start,
+        )
     )
+    if not disable_assortment_filter:
+        validate_assortment_freshness(
+            allowed_assortment_pairs,
+            expected_cities=set(bakery_city_lookup[CITY_COL].dropna().astype(str)),
+            effective_date=forecast_start,
+            max_age_days=assortment_max_age_days,
+        )
     assortment_filter_stats: dict[str, float | int] = {
         "rows_removed": 0,
         "forecast_removed": 0.0,
