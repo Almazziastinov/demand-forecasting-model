@@ -38,7 +38,6 @@ sys.path.insert(0, str(ROOT))
 from pipelines.forecast_publish.load_forecast_run import (  # noqa: E402
     DEFAULT_ENV_PATH,
     create_client,
-    load_env_file,
 )
 from pipelines.forecast_publish.table_names import (  # noqa: E402
     get_table_suffix_from_env_file,
@@ -70,24 +69,30 @@ def _query_recent_sales(
     return client.query_df(
         f"""
         SELECT
-            b.city                       AS city,
+            ifNull(nullIf(s.city, ''), b.city) AS city,
             toInt64(s.bakery_id)         AS bakery_id,
             toString(s.product_id)       AS product_id,
             any(s.product_name)          AS product_name,
             any(s.category_name)         AS category_name
         FROM {sales_table} AS s
         INNER JOIN (
-            SELECT DISTINCT bakery_id, city
+            SELECT
+                bakery_id,
+                if(
+                    countIf(city IS NOT NULL AND city != '' AND city != 'unknown') > 0,
+                    anyIf(city, city IS NOT NULL AND city != '' AND city != 'unknown'),
+                    any(city)
+                ) AS city
             FROM {bakery_table}
-            WHERE city IS NOT NULL AND city != ''
+            GROUP BY bakery_id
         ) AS b ON toInt64(s.bakery_id) = toInt64(b.bakery_id)
         WHERE s.check_date >= today() - {window_days}
           AND s.check_date < today()
           AND s.quantity > 0
           AND NOT startsWith(s.product_name, 'я_не_исп')
           AND NOT startsWith(s.product_name, 'я не исп')
-        GROUP BY b.city, s.bakery_id, s.product_id
-        ORDER BY b.city, s.bakery_id, s.product_id
+        GROUP BY city, s.bakery_id, s.product_id
+        ORDER BY city, s.bakery_id, s.product_id
         """
     )
 
@@ -97,8 +102,17 @@ def _query_bakery_count_per_city(client, *, bakery_table: str) -> pd.DataFrame:
     return client.query_df(
         f"""
         SELECT city, uniqExact(bakery_id) AS total_bakeries
-        FROM {bakery_table}
-        WHERE city IS NOT NULL AND city != ''
+        FROM (
+            SELECT
+                bakery_id,
+                anyIf(
+                    city,
+                    city IS NOT NULL AND city != '' AND city != 'unknown'
+                ) AS city
+            FROM {bakery_table}
+            GROUP BY bakery_id
+            HAVING city != ''
+        )
         GROUP BY city
         """
     )
@@ -114,7 +128,12 @@ def _apply_category_filter(
     patterns: list[str],
 ) -> pd.DataFrame:
     pattern_re = "|".join(p.lower() for p in patterns)
-    mask = df["category_name"].fillna("").str.lower().str.contains(pattern_re, regex=True)
+    mask = (
+        df["category_name"]
+        .fillna("")
+        .str.lower()
+        .str.contains(pattern_re, regex=True)
+    )
     return df[mask].copy()
 
 
@@ -138,7 +157,9 @@ def build_layers(
         .rename(columns={"bakery_id": "bakeries_selling"})
     )
     sold_by = sold_by.merge(bakery_counts, on="city", how="left")
-    sold_by["share"] = sold_by["bakeries_selling"] / sold_by["total_bakeries"].replace(0, pd.NA)
+    sold_by["share"] = sold_by["bakeries_selling"] / sold_by[
+        "total_bakeries"
+    ].replace(0, pd.NA)
 
     city_mask = sold_by["share"] >= city_threshold
     city_products = sold_by.loc[city_mask, ["city", "product_id"]].copy()
@@ -159,7 +180,10 @@ def build_layers(
     # attach product_name + category_name (any from sales)
     name_lookup = (
         sales.groupby(["city", "product_id"], as_index=False)
-        .agg(product_name=("product_name", "first"), category_name=("category_name", "first"))
+        .agg(
+            product_name=("product_name", "first"),
+            category_name=("category_name", "first"),
+        )
     )
     combined = combined.merge(name_lookup, on=["city", "product_id"], how="left")
 
@@ -186,7 +210,11 @@ def build_layers(
         "is_bakeable", "source", "source_file",
         "valid_from", "valid_to", "is_active", "loaded_at", "comment",
     ]
-    return combined[cols].sort_values(["city", "scope", "product_id"]).reset_index(drop=True)
+    return (
+        combined[cols]
+        .sort_values(["city", "scope", "product_id"])
+        .reset_index(drop=True)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +223,7 @@ def build_layers(
 
 
 def insert_to_clickhouse(client, df: pd.DataFrame, *, target_table: str) -> int:
-    """Insert rows into bakeable_products (append — ClickHouse deduplicates via ReplacingMergeTree)."""
+    """Append rows to the ReplacingMergeTree-backed bakeable table."""
     if df.empty:
         return 0
     client.insert_df(target_table, df)
@@ -209,7 +237,9 @@ def insert_to_clickhouse(client, df: pd.DataFrame, *, target_table: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build bakeable assortment from recent sales (city + bakery layers)."
+        description=(
+            "Build bakeable assortment from recent sales (city + bakery layers)."
+        )
     )
     parser.add_argument("--env-file", default=DEFAULT_ENV_PATH, type=Path)
     parser.add_argument("--window-days", default=DEFAULT_WINDOW_DAYS, type=int)

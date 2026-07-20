@@ -16,6 +16,10 @@ profile table therefore remained at its 2026-07-14 build.
 
 - The daily dataset refresh now writes a full, all-category city/SKU batch to
   `assortment_city_products` from the same trailing seven-day sales extract.
+- Cities absent from the current `mart_sales_60d` window retain their latest
+  known assortment in an explicitly marked carry-forward batch. This currently
+  applies to Bugulma and Novokuznetsk; it prevents a city-wide forecast outage
+  without pretending that fresh sales were available.
 - The bakeable city/bakery layers continue to be written separately to
   `bakeable_products`; this table remains the baking-plan allowlist and is not
   substituted for the full forecast assortment.

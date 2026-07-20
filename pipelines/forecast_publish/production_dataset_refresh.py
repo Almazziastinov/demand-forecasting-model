@@ -136,6 +136,39 @@ def build_allocation_assortment(
     ]
 
 
+def load_latest_allocation_assortment_products(
+    client,
+    *,
+    table: str,
+    cities: list[str],
+    effective_date: str,
+) -> pd.DataFrame:
+    if not cities:
+        return pd.DataFrame()
+    return client.query_df(
+        f"""
+        select
+            a.city,
+            a.product_id,
+            any(a.product_name) as product_name,
+            any(a.category_name) as category_name
+        from {table} as a final
+        inner join (
+            select city, max(valid_from) as latest_valid_from
+            from {table} final
+            where city in %(cities)s
+              and valid_from <= toDate(%(effective_date)s)
+            group by city
+        ) as latest
+          on a.city = latest.city and a.valid_from = latest.latest_valid_from
+        where a.is_active = 1
+          and (a.valid_to is null or a.valid_to >= toDate(%(effective_date)s))
+        group by a.city, a.product_id
+        """,
+        parameters={"cities": cities, "effective_date": effective_date},
+    )
+
+
 @dataclass(frozen=True)
 class RefreshDates:
     history_end_date: str
@@ -560,6 +593,34 @@ def refresh_production_datasets(
             sales,
             valid_from=valid_from,
         )
+        expected_cities = set(bakery_counts["city"].dropna().astype(str))
+        refreshed_cities = set(allocation_assortment_df["city"].astype(str))
+        carried_cities = sorted(expected_cities - refreshed_cities)
+        if carried_cities:
+            carried_products = load_latest_allocation_assortment_products(
+                assortment_client,
+                table=allocation_assortment_tbl,
+                cities=carried_cities,
+                effective_date=valid_from,
+            )
+            found_cities = set(carried_products["city"].dropna().astype(str))
+            unavailable = sorted(set(carried_cities) - found_cities)
+            if unavailable:
+                raise RuntimeError(
+                    "No recent sales or previous allocation assortment for cities: "
+                    f"{unavailable}"
+                )
+            carried_assortment = build_allocation_assortment(
+                carried_products,
+                valid_from=valid_from,
+            )
+            carried_assortment["source"] = "carried_forward_no_recent_sales"
+            carried_assortment["source_file"] = "previous_allocation_assortment"
+            carried_assortment["comment"] = "No rows in current mart_sales_60d window"
+            allocation_assortment_df = pd.concat(
+                [allocation_assortment_df, carried_assortment],
+                ignore_index=True,
+            )
         allocation_inserted = insert_assortment(
             assortment_client,
             allocation_assortment_df,
@@ -581,6 +642,7 @@ def refresh_production_datasets(
             "assortment_status": "refreshed",
             "assortment_error": None,
             "allocation_assortment_rows": int(len(allocation_assortment_df)),
+            "allocation_assortment_carried_cities": carried_cities,
         }
         print(
             f"Assortment refresh: city={city_rows} bakery={bakery_rows} "
