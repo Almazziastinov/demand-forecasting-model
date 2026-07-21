@@ -23,3 +23,11 @@ dynamic_walk_forward_plus_demand,dynamic_plus_demand,397,1469.4777839958726,25,6
 dynamic_walk_forward_plus_demand__allocation,dynamic_plus_demand,231,942.4271258701602,2,24,65,0.0,allocation
 dynamic_walk_forward_plus_demand__demand_loss,dynamic_plus_demand,26,81.66846671230192,23,25,1,140.31317172608948,demand_loss
 dynamic_walk_forward_plus_demand__uncertain,dynamic_plus_demand,140,445.3821914134104,0,13,40,0.0,uncertain
+regime_aware_allocation,regime_forecast,397,1507.6289264044829,0,8,0,0.0,
+regime_aware_allocation__allocation,regime_forecast,231,929.7561857800306,0,6,0,0.0,allocation
+regime_aware_allocation__demand_loss,regime_forecast,26,136.20880986597808,0,0,0,140.31317172608948,demand_loss
+regime_aware_allocation__uncertain,regime_forecast,140,441.6639307584741,0,2,0,0.0,uncertain
+regime_aware_allocation_plus_demand,regime_plus_demand,397,1451.9288421744434,23,33,0,140.31317172608948,
+regime_aware_allocation_plus_demand__allocation,regime_plus_demand,231,929.7561857800306,0,6,0,0.0,allocation
+regime_aware_allocation_plus_demand__demand_loss,regime_plus_demand,26,80.50872563593856,23,25,0,140.31317172608948,demand_loss
+regime_aware_allocation_plus_demand__uncertain,regime_plus_demand,140,441.6639307584741,0,2,0,0.0,uncertain

@@ -65,10 +65,33 @@
       "cases_worsened": 106,
       "added_bakery_demand": 140.31317172608948,
       "segment": NaN
+    },
+    {
+      "scenario": "regime_aware_allocation",
+      "forecast_column": "regime_forecast",
+      "cases": 397,
+      "shortfall_qty": 1507.6289264044829,
+      "cases_fixed": 0,
+      "cases_improved": 8,
+      "cases_worsened": 0,
+      "added_bakery_demand": 0.0,
+      "segment": NaN
+    },
+    {
+      "scenario": "regime_aware_allocation_plus_demand",
+      "forecast_column": "regime_plus_demand",
+      "cases": 397,
+      "shortfall_qty": 1451.9288421744434,
+      "cases_fixed": 23,
+      "cases_improved": 33,
+      "cases_worsened": 0,
+      "added_bakery_demand": 140.31317172608948,
+      "segment": NaN
     }
   ],
   "recommended_shadow_components": [
-    "robust_demand_loss_preprocessing"
+    "robust_demand_loss_preprocessing",
+    "regime_aware_positive_capacity_allocation"
   ],
   "rejected_for_shadow": [
     "dynamic_walk_forward_allocation"
