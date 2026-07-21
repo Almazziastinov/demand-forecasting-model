@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-20T18:07:04.869379+00:00",
+  "generated_at": "2026-07-21T14:27:30.231686+00:00",
   "mode": "offline_read_only_shadow",
   "production_write": false,
   "classification": {
@@ -39,6 +39,61 @@
     "max_profile_share_delta_pp": 0.17895197439373073,
     "production_write": false
   },
+  "historical_walk_forward": {
+    "mode": "historical_walk_forward_read_only",
+    "production_write": false,
+    "leakage_contract": {
+      "classification_counterfactual": "prior_same_weekdays_only",
+      "demand_references": "dates_strictly_before_case_date_only",
+      "current_profile_diagnostic_included": false
+    },
+    "coverage": {
+      "date_from": "2026-06-01",
+      "date_to": "2026-07-19",
+      "calendar_days": 49,
+      "weeks": 7,
+      "requested_days": 84,
+      "requested_window_available": false,
+      "days_with_cases": 49
+    },
+    "classification": {
+      "cases": 397,
+      "allocation_cases": 231,
+      "demand_loss_cases": 26,
+      "uncertain_cases": 140,
+      "weeks_with_demand_loss": 7
+    },
+    "demand_shadow": {
+      "adjusted_cases": 25,
+      "imputed_demand": 140.31317172608948,
+      "baseline_shortfall": 1509.2847316966013,
+      "shadow_shortfall": 1453.584647466562,
+      "shortfall_reduction": 55.70008423003954,
+      "shortfall_reduction_ratio": 0.036904954419983135,
+      "cases_fixed": 23,
+      "cases_improved": 25,
+      "cases_worsened": 0
+    },
+    "recurrence": {
+      "bakeries_with_recurrent_demand_loss": 4,
+      "skus_with_recurrent_demand_loss": 4,
+      "bakery_sku_pairs_with_recurrent_demand_loss": 2,
+      "bakery_sku_pairs_with_recurrent_allocation": 52,
+      "problem_pairs_in_bakery_top5": 4
+    },
+    "promotion_gate": {
+      "historical_days_count_as_prospective_days": false,
+      "prospective_days_observed": 0,
+      "minimum_prospective_days": 21,
+      "ready_for_production_proposal": false,
+      "reason": "historical replay supports development but does not replace prospective shadow"
+    },
+    "limitations": [
+      "confirmed-miss cases cannot measure false uplift on normal days",
+      "true censored demand is unavailable and requires manual or synthetic validation",
+      "available confirmed-case history is shorter than the requested window"
+    ]
+  },
   "combined_replay": {
     "scenarios": [
       {
@@ -67,10 +122,10 @@
         "scenario": "current_profile_diagnostic",
         "forecast_column": "current_profile_forecast",
         "cases": 397,
-        "shortfall_qty": 1005.8570992331613,
-        "cases_fixed": 133,
-        "cases_improved": 282,
-        "cases_worsened": 112,
+        "shortfall_qty": 1009.7616452333716,
+        "cases_fixed": 134,
+        "cases_improved": 272,
+        "cases_worsened": 119,
         "added_bakery_demand": 0.0,
         "segment": NaN
       },
@@ -78,10 +133,10 @@
         "scenario": "current_profile_plus_demand_diagnostic",
         "forecast_column": "current_profile_plus_demand",
         "cases": 397,
-        "shortfall_qty": 973.2232092916781,
-        "cases_fixed": 143,
-        "cases_improved": 286,
-        "cases_worsened": 108,
+        "shortfall_qty": 976.7170002483426,
+        "cases_fixed": 145,
+        "cases_improved": 276,
+        "cases_worsened": 115,
         "added_bakery_demand": 140.31317172608948,
         "segment": NaN
       },
