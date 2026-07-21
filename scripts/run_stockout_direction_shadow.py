@@ -51,6 +51,14 @@ def main() -> None:
     run_step(
         [
             sys.executable,
+            "scripts/experiment_regime_aware_sku_allocation.py",
+            "--env-file",
+            args.env_file,
+        ]
+    )
+    run_step(
+        [
+            sys.executable,
             "scripts/run_stockout_direction_combined_replay.py",
             "--env-file",
             args.env_file,
@@ -72,6 +80,11 @@ def main() -> None:
             encoding="utf-8"
         )
     )
+    allocation = json.loads(
+        (
+            ROOT / "reports/regime_aware_sku_allocation_experiment/summary.json"
+        ).read_text(encoding="utf-8")
+    )
     replay = json.loads(
         (ROOT / "reports/stockout_direction_combined_replay/summary.json").read_text(
             encoding="utf-8"
@@ -84,10 +97,17 @@ def main() -> None:
         "classification": classification,
         "demand_adjustment": adjustment,
         "historical_walk_forward": historical,
+        "regime_aware_allocation": allocation,
         "combined_replay": replay,
         "decision": {
-            "shadow_enabled_components": ["robust_demand_loss_preprocessing"],
-            "shadow_rejected_components": ["dynamic_walk_forward_allocation"],
+            "shadow_enabled_components": [
+                "robust_demand_loss_preprocessing",
+                "regime_aware_positive_capacity_allocation",
+            ],
+            "shadow_rejected_components": [
+                "dynamic_walk_forward_allocation",
+                "stockout_risk_allocation_due_to_normal_day_mae_regression",
+            ],
         },
     }
     output = Path(args.output_dir)

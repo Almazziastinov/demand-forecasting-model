@@ -31,10 +31,24 @@ def test_build_replay_adds_demand_only_to_confirmed_case() -> None:
             "adjusted_forecast_qty": [9.0],
         }
     )
-    shares = pd.DataFrame(
-        {"bakery_id": [1], "product_id": [10], "replay_dow": [1], "current_share": [0.1]}
+    regime = pd.DataFrame(
+        {
+            "date": ["2026-06-01"],
+            "bakery_id": [1],
+            "product_id": [10],
+            "adjusted_forecast_qty": [10.0],
+        }
     )
-    result = build_replay(cases, adjustments, dynamic, shares)
+    shares = pd.DataFrame(
+        {
+            "bakery_id": [1],
+            "product_id": [10],
+            "replay_dow": [1],
+            "current_share": [0.1],
+        }
+    )
+    result = build_replay(cases, adjustments, dynamic, regime, shares)
     assert result.iloc[0]["demand_only_forecast"] == 11.0
     assert result.iloc[0]["current_profile_plus_demand"] == 13.0
     assert result.iloc[0]["dynamic_plus_demand"] == 12.0
+    assert result.iloc[0]["regime_plus_demand"] == 13.0

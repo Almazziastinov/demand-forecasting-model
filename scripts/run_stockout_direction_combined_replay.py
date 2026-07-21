@@ -15,8 +15,15 @@ sys.path.insert(0, str(ROOT))
 from pipelines.forecast_publish.load_forecast_run import create_client  # noqa: E402
 
 DEFAULT_CASES = ROOT / "reports/stockout_mechanism_classification/classified_cases.csv"
-DEFAULT_ADJUSTMENTS = ROOT / "reports/demand_adjusted_stockout_history/case_adjustments.csv"
-DEFAULT_DYNAMIC = ROOT / "reports/dynamic_sku_allocation_experiment/best_scenario_rows.csv"
+DEFAULT_ADJUSTMENTS = (
+    ROOT / "reports/demand_adjusted_stockout_history/case_adjustments.csv"
+)
+DEFAULT_DYNAMIC = (
+    ROOT / "reports/dynamic_sku_allocation_experiment/best_scenario_rows.csv"
+)
+DEFAULT_REGIME = (
+    ROOT / "reports/regime_aware_sku_allocation_experiment/best_scenario_rows.csv"
+)
 DEFAULT_OUTPUT = ROOT / "reports/stockout_direction_combined_replay"
 
 
@@ -57,6 +64,7 @@ def build_replay(
     cases: pd.DataFrame,
     adjustments: pd.DataFrame,
     dynamic: pd.DataFrame,
+    regime: pd.DataFrame,
     current_shares: pd.DataFrame,
 ) -> pd.DataFrame:
     work = cases.copy()
@@ -91,6 +99,16 @@ def build_replay(
         validate="one_to_one",
     ).rename(columns={"adjusted_forecast_qty": "dynamic_forecast"})
     work["dynamic_forecast"] = work["dynamic_forecast"].fillna(work["forecast_qty"])
+    regime_columns = ["date", "bakery_id", "product_id", "adjusted_forecast_qty"]
+    regime_work = regime[regime_columns].copy()
+    regime_work["date"] = pd.to_datetime(regime_work["date"]).dt.normalize()
+    work = work.merge(
+        regime_work,
+        on=["date", "bakery_id", "product_id"],
+        how="left",
+        validate="one_to_one",
+    ).rename(columns={"adjusted_forecast_qty": "regime_forecast"})
+    work["regime_forecast"] = work["regime_forecast"].fillna(work["forecast_qty"])
     work["current_profile_forecast"] = work["current_profile_forecast"].fillna(
         work["forecast_qty"]
     )
@@ -99,6 +117,7 @@ def build_replay(
         work["current_profile_forecast"] + work["imputed_demand"]
     )
     work["dynamic_plus_demand"] = work["dynamic_forecast"] + work["imputed_demand"]
+    work["regime_plus_demand"] = work["regime_forecast"] + work["imputed_demand"]
     return work
 
 
@@ -127,17 +146,19 @@ def main() -> None:
     parser.add_argument("--cases", default=str(DEFAULT_CASES))
     parser.add_argument("--adjustments", default=str(DEFAULT_ADJUSTMENTS))
     parser.add_argument("--dynamic", default=str(DEFAULT_DYNAMIC))
+    parser.add_argument("--regime", default=str(DEFAULT_REGIME))
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT))
     args = parser.parse_args()
 
     cases = pd.read_csv(args.cases, encoding="utf-8-sig")
     adjustments = pd.read_csv(args.adjustments, encoding="utf-8-sig")
     dynamic = pd.read_csv(args.dynamic, encoding="utf-8-sig")
+    regime = pd.read_csv(args.regime, encoding="utf-8-sig")
     client = create_client(args.env_file)
     shares = load_current_allocation_shares(
         client, sorted(cases["bakery_id"].unique().tolist())
     )
-    replay = build_replay(cases, adjustments, dynamic, shares)
+    replay = build_replay(cases, adjustments, dynamic, regime, shares)
     scenario_columns = {
         "historical_baseline": "forecast_qty",
         "demand_only": "demand_only_forecast",
@@ -145,10 +166,14 @@ def main() -> None:
         "current_profile_plus_demand_diagnostic": "current_profile_plus_demand",
         "dynamic_walk_forward": "dynamic_forecast",
         "dynamic_walk_forward_plus_demand": "dynamic_plus_demand",
+        "regime_aware_allocation": "regime_forecast",
+        "regime_aware_allocation_plus_demand": "regime_plus_demand",
     }
     rows = []
     for scenario, column in scenario_columns.items():
-        rows.append(summarize_scenario(replay, scenario=scenario, forecast_column=column))
+        rows.append(
+            summarize_scenario(replay, scenario=scenario, forecast_column=column)
+        )
         for case_type in ["allocation", "demand_loss", "uncertain"]:
             subset = replay[replay["robust_case_type"].eq(case_type)]
             row = summarize_scenario(
@@ -166,7 +191,10 @@ def main() -> None:
     top_level = comparison[comparison["scenario"].isin(scenario_columns)]
     summary = {
         "scenarios": top_level.to_dict(orient="records"),
-        "recommended_shadow_components": ["robust_demand_loss_preprocessing"],
+        "recommended_shadow_components": [
+            "robust_demand_loss_preprocessing",
+            "regime_aware_positive_capacity_allocation",
+        ],
         "rejected_for_shadow": ["dynamic_walk_forward_allocation"],
         "diagnostic_only": ["current_profile_replay_due_to_profile_lookahead"],
         "production_write": False,

@@ -20,9 +20,19 @@
     "max_case_uplift_units": 20.0
   },
   "allocation": {
-    "candidate": "walk_forward_log_ratio_lightgbm",
-    "status": "rejected_from_shadow",
-    "reason": "worse shortfall and normal-day MAE than baseline"
+    "candidate": "regime_aware_positive_capacity",
+    "status": "local_shadow_candidate",
+    "signal_mode": "regime",
+    "strength": 1.0,
+    "max_shift_fraction": 0.0025,
+    "donor_floor": "prior_sales_q90_28_plus_0.5",
+    "donor_scope": "screened_bakery_product_pairs_only",
+    "bakery_total_constrained": true,
+    "previous_candidate": {
+      "name": "walk_forward_log_ratio_lightgbm",
+      "status": "rejected",
+      "reason": "mismatched share denominators and worse guarded metrics"
+    }
   },
   "promotion_gates": {
     "minimum_shadow_days": 21,
