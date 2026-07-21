@@ -27,7 +27,18 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
     return env
 
 
-def get_client():
+_client: clickhouse_connect.driver.Client | None = None
+
+
+def get_client() -> clickhouse_connect.driver.Client:
+    global _client
+    if _client is not None:
+        return _client
+    _client = _create_client()
+    return _client
+
+
+def _create_client() -> clickhouse_connect.driver.Client:
     settings = get_settings()
     env = load_env_file(settings.env_file or DEFAULT_ENV_PATH)
 
