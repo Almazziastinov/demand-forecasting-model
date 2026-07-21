@@ -1,6 +1,6 @@
 # Services
 
-Last updated: 2026-07-14
+Last updated: 2026-07-21
 
 ## Service Ownership Matrix
 
@@ -9,7 +9,7 @@ Last updated: 2026-07-14
 | Production forecast VM | `201.51.7.24` | Generates and publishes forecasts | Yes | Active |
 | ClickHouse | External database | Serving tables and snapshots | N/A | Active |
 | VibeCode/Blackhole app | `bakery-forecast-embedded` | Embedded read-only API/UI | No | Active |
-| Baking plan package | In-process, mounted on Blackhole app | Generates per-bakery baking-window Excel plan | No | Active — reverted to template-driven 2026-07-14 and deployed to Blackhole same day (route-level smoke test not done, see `CURRENT_STATE.md`) |
+| Baking plan package | In-process, mounted on Blackhole app | Generates per-bakery baking-window Excel plan | No | Active — MILP-based, deployed 2026-07-21 (HTTP 200 smoke-tested, see `CURRENT_STATE.md`) |
 | Legacy Flask app | `web/app.py` | Local/demo legacy app | No prod role | Legacy |
 
 ## Production Forecast VM
@@ -47,25 +47,28 @@ as the production writer. Forecast timers there must stay disabled.
   in-process into the Blackhole `app.service` via
   `apps/forecast_embedded/app/main.py` (`baking_plan.router.router`).
 - Not a separate process/port. Rebuilt from scratch 2026-07-09, deployed as
-  a MILP allocator 2026-07-11, **reverted to template-driven window
-  assignment and redeployed 2026-07-14** (see `DECISIONS.md` 2026-07-14
-  entry for the rationale and `CURRENT_STATE.md` for deploy detail).
+  a MILP allocator 2026-07-11, reverted to template-driven 2026-07-14,
+  **restored to MILP and redeployed 2026-07-21** (commit `84557b6`, see
+  `CURRENT_STATE.md` for deploy detail).
+- Current mode: **MILP-based**. `service.py` calls `demand_milp.build_sku_demand`
+  → `algorithms/milp.allocate_milp_detailed` → `rendering_milp.render_workbook`
+  (builds xlsx from scratch, no template mutation). The Excel template is
+  used only to read the bakery's window time-slot structure.
 - On the Blackhole VM the sibling-package layout is mirrored as `/opt/app`
   (= local `apps/forecast_embedded/`) and `/opt/baking_plan` (= local
   `apps/baking_plan/`), both directly under `/opt` so `app/main.py`'s
   `sys.path` insert of its grandparent directory resolves `import
   baking_plan` correctly.
-- No longer requires `scipy` — the MILP solver (`scipy.optimize.milp`) was
-  removed with the 2026-07-14 revert. The `scipy==1.17.1` pin added to
-  `apps/forecast_embedded/requirements.txt` for it on 2026-07-11 was left
-  in place (harmless, not worth a separate cleanup deploy) but is no
-  longer load-bearing for this feature.
-- Deploy: any Blackhole deploy touching this feature must replace both
-  `apps/forecast_embedded/app/*` (→ `/opt/app/app`) and `apps/baking_plan/*`
-  (→ `/opt/baking_plan`, including the restored `assets/template.xlsx` and
-  `assets/individual/*.xlsx`) — there is no dedicated deploy script yet,
-  uploads have been manual (full `git archive`/tarball of `master` +
-  directory replace, see `CURRENT_STATE.md`).
+- Requires `scipy==1.17.1` (`scipy.optimize.milp`, HiGHS backend) — already
+  installed in the Blackhole venv since the 2026-07-11 MILP deploy.
+- Required ClickHouse tables: `baking_sku_meta`, `baking_capacity_config`,
+  `baking_category_molding_minutes` — all present since 2026-07-11.
+- Deploy: replace both `apps/forecast_embedded/app/*` (→ `/opt/app/app`) and
+  `apps/baking_plan/*` (→ `/opt/baking_plan`) via GitHub tarball. No
+  `pip install` needed (all dependencies already installed). See
+  `CURRENT_STATE.md` for the full step-by-step.
+- Rollback: `/opt/app/app_backup_20260721_milp` and
+  `/opt/baking_plan_backup_20260721_milp` on the Blackhole VM.
 
 ## ClickHouse
 
