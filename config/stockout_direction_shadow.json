@@ -29,5 +29,11 @@
     "no_normal_day_bias_regression": true,
     "no_new_underforecast_cases": true,
     "manual_review_required": true
+  },
+  "historical_replay": {
+    "requested_days": 84,
+    "minimum_recurring_cases": 2,
+    "minimum_recurring_weeks": 2,
+    "historical_days_count_as_prospective_days": false
   }
 }

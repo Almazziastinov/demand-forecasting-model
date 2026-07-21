@@ -16,7 +16,8 @@ DEFAULT_OUTPUT = ROOT / "reports/stockout_direction_shadow"
 def run_step(command: list[str]) -> None:
     result = subprocess.run(command, cwd=ROOT, check=False)
     if result.returncode != 0:
-        raise RuntimeError(f"Shadow step failed ({result.returncode}): {' '.join(command)}")
+        message = f"Shadow step failed ({result.returncode}): {' '.join(command)}"
+        raise RuntimeError(message)
 
 
 def main() -> None:
@@ -44,6 +45,12 @@ def main() -> None:
     run_step(
         [
             sys.executable,
+            "scripts/analyze_stockout_historical_shadow.py",
+        ]
+    )
+    run_step(
+        [
+            sys.executable,
             "scripts/run_stockout_direction_combined_replay.py",
             "--env-file",
             args.env_file,
@@ -60,6 +67,11 @@ def main() -> None:
             encoding="utf-8"
         )
     )
+    historical = json.loads(
+        (ROOT / "reports/stockout_historical_shadow/summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
     replay = json.loads(
         (ROOT / "reports/stockout_direction_combined_replay/summary.json").read_text(
             encoding="utf-8"
@@ -71,6 +83,7 @@ def main() -> None:
         "production_write": False,
         "classification": classification,
         "demand_adjustment": adjustment,
+        "historical_walk_forward": historical,
         "combined_replay": replay,
         "decision": {
             "shadow_enabled_components": ["robust_demand_loss_preprocessing"],
