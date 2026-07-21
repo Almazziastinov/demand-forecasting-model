@@ -1,6 +1,6 @@
 # Current Project State
 
-Last updated: 2026-07-16
+Last updated: 2026-07-20
 
 ## Summary
 
@@ -44,6 +44,48 @@ cap at 1.2× rolling mean, hierarchical haircut target 1.15. Active run:
 - Mode: `BLACKHOLE`
 - Role: read-only FastAPI/UI for Bitrix24 users.
 - Forecast generation on VibeCode/Blackhole is forbidden.
+
+### Operations Director Access (2026-07-20, fixed 2026-07-21)
+
+Four active Bitrix24 users whose work position contains `Операционный
+директор` were granted access to the Blackhole embedded app and full bakery
+visibility inside the app. The inactive matching user and the user whose
+position is only `Операционист` were excluded.
+
+| Bitrix24 userId | Name | Position |
+| --- | --- | --- |
+| 1475 | Руслан Назаренко | Операционный директор |
+| 8509 | Вероника Соломко | Операционный директор г. Курск |
+| 11297 | Ильнар Миннигалиев | Операционный директор |
+| 31623 | Карина Галиева | Операционный директор производств |
+
+- VibeCode server access: the four user ids are present in the server access
+  list for `82bb03a8-c356-4225-97a4-a1540cdc29e6`.
+- Application data access: each user has `operations_director` rows for all
+  `275` bakery ids from `dim_bakeries` in
+  `bitrix_user_bakery_access_embedded`, source
+  `manual_operations_director_full_access`.
+- They were not added to `ADMIN_USER_IDS`: this is full operational bakery
+  visibility, without technical admin-only run/scenario controls.
+
+**Bug found and fixed 2026-07-21**: the 2026-07-20 insert used
+`bitrix_portal_id = 'franshizasvezhar.bitrix24.ru'` (domain string), but
+VibeCode injects `x-vibe-portal-id` as a UUID
+(`390d6913-26b6-4516-9da0-d8d575031afa`). The `_access_filter` subquery
+filters on `bitrix_portal_id` first, so all four directors saw `bakeries=0`
+despite having rows in the table. Fixed by inserting a duplicate set of 275
+rows per user with `bitrix_portal_id = '390d6913-26b6-4516-9da0-d8d575031afa'`
+via `scripts/fix_ops_director_portal_id.py`. Verified live in logs:
+`bakeries=275` after fix.
+
+**Important for future access grants**: always use
+`bitrix_portal_id = '390d6913-26b6-4516-9da0-d8d575031afa'` when inserting
+into `bitrix_user_bakery_access_embedded`. VibeCode does not forward
+`x-vibe-user-email` for real portal users (field arrives as `None`), so the
+email fallback in `_access_filter` is not a safety net.
+
+This is a manual snapshot of the current Bitrix24 users, not a position-based
+automatic sync. New operations directors require a separate access update.
 
 ## Active Forecast
 
@@ -1227,6 +1269,82 @@ Changes deployed:
 
 Rollback: restore `.env.bak_20260716_pilots11`, rerun `forecast-production.service`.
 To reduce pilot: rebuild both tables with a smaller `PILOT_BAKERY_IDS` set.
+
+## Allocation and weekly profile refresh repair (2026-07-20)
+
+- Production allocation assortment is refreshed daily into
+  `assortment_city_products` from the recent seven-day sales window. Cities
+  absent from that window carry forward their latest known assortment with
+  source `carried_forward_no_recent_sales`.
+- Allocation reads only the latest effective city assortment batch and rejects
+  batches older than two days.
+- The weekly SKU profile was rebuilt through 2026-07-19: 3,537,105 rows across
+  210 bakeries and 1,142 products.
+- Weekly uplift refresh replaces only its own version. The production version
+  `pilots_evening_20260716` is preserved; `weekly_20260720` was loaded beside it.
+- Active run: `prod_base_bakery_raw_uplift_sku_20260720_h14`, generated at
+  2026-07-20 19:30 MSK. Verification: 489,130 SKU-day rows, 5,499,898 SKU-hour
+  rows, all 12 allocation control pairs non-zero on all 14 days, `VERIFY OK`.
+- Current allocation snapshot: 2,190 rows across 10 cities, zero `unknown`
+  rows. Same-day reruns replace older refresh-managed rows for the effective
+  date; cleanup cutoffs are required to be timezone-aware.
+- `forecast-production.timer` and `weekly-profile-refresh.timer` are enabled
+  and active on the production writer VM.
+
+## Baking Plan Reverted To MILP (2026-07-21)
+
+`apps/baking_plan/` switched back from template-driven window assignment to
+MILP-based allocation. The template is now used only to read the bakery's
+window time structure (which time slots exist); quantity allocation and
+rendering are fully MILP-driven.
+
+Key files added/restored (all under `apps/baking_plan/`):
+
+- `demand_milp.py` — `build_sku_demand()`: loads SKU demand with hourly
+  profile, credits yesterday's overnight defrost stock out of today's early
+  hours for `DEFROST_SKU_NAMES` (11 SKUs) via `sku_forecast_hour_snapshots`
+  `lead_days=1` snapshot.
+- `constants.py` — `NIGHT_STORAGE_DIRECT_UNITS_BY_SKU`,
+  `NIGHT_PREP_LABOR_MINUTES_BY_SKU`, `DEFROST_SKU_NAMES`, `DEFROST_HOURS`.
+- `capacity.py` — reads `baking_capacity_config` and
+  `baking_category_molding_minutes` from ClickHouse.
+- `algorithms/milp.py` — HiGHS-backed MILP solver (scipy, already in
+  requirements.txt since 2026-07-11). Cumulative coverage constraints ensure
+  production is scheduled before demand arrives (respects hourly sales
+  profile). Separate labour pools for bakers and baker assistants.
+- `algorithms/common.py`, `algorithms/greedy.py` — shared helpers.
+- `rendering_milp.py` — `render_workbook()`: builds Excel from scratch (no
+  template mutation). Yellow fill for mandatory assortment (10 SKUs), red for
+  full shortfall, yellow for partial shortfall, orange for defrost, purple for
+  двухдневка. `Итого` = sum of all windows with no column collision.
+- `service.py` — rewritten: calls `build_sku_demand` → MILP →
+  `render_workbook`. No longer calls `allocation.allocate_template_row` or
+  `rendering.write_plan`.
+
+Mandatory assortment (10 SKUs forced into first window) is hardcoded in
+`rendering_milp.MANDATORY_ASSORTMENT` — same list as the original MILP-era
+implementation (restored from git 3b18eac).
+
+Operator scripts (local only, not deployed to Blackhole):
+- `scripts/run_milp_baking_plan.py` — console plan for all pilot bakeries
+  (verified: 0 shortfall all 11 bakeries on 2026-07-21).
+- `scripts/export_milp_baking_plan.py` — exports `.xlsx` for all pilots.
+
+Deploy to Blackhole: same tarball-replace pattern as previous deploys. Must
+replace both `/opt/app/app` (from `apps/forecast_embedded/app`) and
+`/opt/baking_plan` (from `apps/baking_plan`). `scipy==1.17.1` is already in
+`requirements.txt` and installed on the Blackhole venv from the 2026-07-11
+deploy — no `pip install` needed.
+
+Required ClickHouse tables (all present since 2026-07-11 MILP deploy):
+- `baking_sku_meta` — kratnost, dough_group, station, is_two_day per product
+- `baking_capacity_config` — bakers/ovens/trays/bake_minutes per bakery
+- `baking_category_molding_minutes` — labor minutes per unit per category
+
+Rollback: redeploy the previous `service.py` (template-driven version) and
+remove `demand_milp.py`, `capacity.py`, `constants.py`, `algorithms/`,
+`rendering_milp.py` from `/opt/baking_plan`. Or restore from the Blackhole
+backup that will be taken before this deploy.
 
 ## Do Not Do
 
