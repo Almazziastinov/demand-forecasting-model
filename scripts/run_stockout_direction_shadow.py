@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scripts.record_stockout_prospective_shadow import record_snapshot  # noqa: E402
+
 DEFAULT_OUTPUT = ROOT / "reports/stockout_direction_shadow"
 
 
@@ -112,6 +116,12 @@ def main() -> None:
     }
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    manifest["prospective_shadow"] = record_snapshot(
+        manifest,
+        output / "history",
+        timezone_name="Europe/Moscow",
+        minimum_days=21,
+    )
     (output / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )

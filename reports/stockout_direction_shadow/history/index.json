@@ -1,0 +1,26 @@
+{
+  "timezone": "Europe/Moscow",
+  "minimum_days": 21,
+  "prospective_days_observed": 1,
+  "date_from": "2026-07-22",
+  "date_to": "2026-07-22",
+  "minimum_days_met": false,
+  "all_observed_gates_pass": true,
+  "latest": {
+    "shadow_date": "2026-07-22",
+    "timezone": "Europe/Moscow",
+    "first_recorded_at": "2026-07-22T05:52:32.232856+00:00",
+    "latest_recorded_at": "2026-07-22T05:52:32.232856+00:00",
+    "run_count": 1,
+    "metrics": {
+      "normal_day_mae_delta": -0.002058295999670001,
+      "new_underforecast_cases": 0,
+      "combined_cases_worsened": 0
+    },
+    "gates": {
+      "normal_day_bias_not_regressed": true,
+      "no_new_underforecast_cases": true,
+      "no_combined_cases_worsened": true
+    }
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-21T15:04:24.709393+00:00",
+  "generated_at": "2026-07-22T05:52:32.232856+00:00",
   "mode": "offline_read_only_shadow",
   "production_write": false,
   "classification": {
@@ -296,10 +296,10 @@
         "scenario": "current_profile_diagnostic",
         "forecast_column": "current_profile_forecast",
         "cases": 397,
-        "shortfall_qty": 1009.7616452333716,
-        "cases_fixed": 134,
-        "cases_improved": 272,
-        "cases_worsened": 119,
+        "shortfall_qty": 998.3644449325083,
+        "cases_fixed": 137,
+        "cases_improved": 278,
+        "cases_worsened": 115,
         "added_bakery_demand": 0.0,
         "segment": NaN
       },
@@ -307,10 +307,10 @@
         "scenario": "current_profile_plus_demand_diagnostic",
         "forecast_column": "current_profile_plus_demand",
         "cases": 397,
-        "shortfall_qty": 976.7170002483426,
-        "cases_fixed": 145,
-        "cases_improved": 276,
-        "cases_worsened": 115,
+        "shortfall_qty": 965.4772639175392,
+        "cases_fixed": 147,
+        "cases_improved": 282,
+        "cases_worsened": 111,
         "added_bakery_demand": 140.31317172608948,
         "segment": NaN
       },
@@ -380,5 +380,31 @@
       "dynamic_walk_forward_allocation",
       "stockout_risk_allocation_due_to_normal_day_mae_regression"
     ]
+  },
+  "prospective_shadow": {
+    "timezone": "Europe/Moscow",
+    "minimum_days": 21,
+    "prospective_days_observed": 1,
+    "date_from": "2026-07-22",
+    "date_to": "2026-07-22",
+    "minimum_days_met": false,
+    "all_observed_gates_pass": true,
+    "latest": {
+      "shadow_date": "2026-07-22",
+      "timezone": "Europe/Moscow",
+      "first_recorded_at": "2026-07-22T05:52:32.232856+00:00",
+      "latest_recorded_at": "2026-07-22T05:52:32.232856+00:00",
+      "run_count": 1,
+      "metrics": {
+        "normal_day_mae_delta": -0.002058295999670001,
+        "new_underforecast_cases": 0,
+        "combined_cases_worsened": 0
+      },
+      "gates": {
+        "normal_day_bias_not_regressed": true,
+        "no_new_underforecast_cases": true,
+        "no_combined_cases_worsened": true
+      }
+    }
   }
 }

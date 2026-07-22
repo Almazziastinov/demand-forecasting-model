@@ -1,0 +1,12 @@
+{
+  "cases": 47,
+  "date_from": "2026-06-01",
+  "date_to": "2026-07-19",
+  "unique_bakeries": 8,
+  "unique_skus": 11,
+  "causes": {
+    "excluded_by_assortment_asof": 46,
+    "forecast_grid_drop": 1
+  },
+  "evidence_note": "assortment_asof and bakeable_asof use validity intervals; current_profile_present is not historical because the profile table is unversioned"
+}
