@@ -129,8 +129,10 @@ def test_costly_pie_category_recent_correction_cannot_lift_above_base() -> None:
     pie = targets[targets["product_id"] == 10].iloc[0]
     other = targets[targets["product_id"] == 20].iloc[0]
     assert pie["corrected_daily_forecast"] == 20.0
-    assert other["corrected_daily_forecast"] == 80.0
-    assert targets["corrected_daily_forecast"].sum() == 100.0
+    # The amount removed by the costly-category cap is intentionally not
+    # redistributed to unrelated SKUs: their pre-cap correction stays intact.
+    assert other["corrected_daily_forecast"] == 50.0
+    assert targets["corrected_daily_forecast"].sum() == 70.0
 
 
 def test_costly_pie_category_can_fallback_to_recent_absolute_cap() -> None:
@@ -174,8 +176,8 @@ def test_costly_pie_category_can_fallback_to_recent_absolute_cap() -> None:
     pie = targets[targets["product_id"] == 10].iloc[0]
     other = targets[targets["product_id"] == 20].iloc[0]
     assert pie["corrected_daily_forecast"] == 8.0
-    assert other["corrected_daily_forecast"] == 92.0
-    assert targets["corrected_daily_forecast"].sum() == 100.0
+    assert other["corrected_daily_forecast"] == 50.0
+    assert targets["corrected_daily_forecast"].sum() == 58.0
 
 
 def test_costly_pie_category_capped_by_dow_recent_avg() -> None:
@@ -223,9 +225,10 @@ def test_costly_pie_category_capped_by_dow_recent_avg() -> None:
     other = targets[targets["product_id"] == 20].iloc[0]
     # пирог capped по DOW avg: min(20, 8) = 8
     assert pie["corrected_daily_forecast"] == 8.0
-    # другая категория не трогается
-    assert other["corrected_daily_forecast"] == 92.0
-    assert targets["corrected_daily_forecast"].sum() == 100.0
+    # Другая категория сохраняет результат recent correction; освобождённый
+    # лимитом объём на неё не переносится.
+    assert other["corrected_daily_forecast"] == 50.0
+    assert targets["corrected_daily_forecast"].sum() == 58.0
 
 
 def test_runner_city_prior_soft_weekpart_lifts_city_top_runner() -> None:
