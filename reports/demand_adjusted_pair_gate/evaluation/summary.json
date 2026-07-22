@@ -1,0 +1,122 @@
+[
+  {
+    "min_clean_days": 2,
+    "min_gain_qty": 0.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 3,
+    "mean_gate_sku_day_wape_delta": -0.00022621549785765507,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 57.0,
+    "mean_underforecast_qty_delta": -19.059905235151138,
+    "mean_overforecast_qty_delta": -19.28114294257345
+  },
+  {
+    "min_clean_days": 3,
+    "min_gain_qty": 0.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 3,
+    "mean_gate_sku_day_wape_delta": -0.00022621549785765507,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 57.0,
+    "mean_underforecast_qty_delta": -19.059905235151138,
+    "mean_overforecast_qty_delta": -19.28114294257345
+  },
+  {
+    "min_clean_days": 5,
+    "min_gain_qty": 0.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 3,
+    "mean_gate_sku_day_wape_delta": -0.00022621549785765507,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 57.0,
+    "mean_underforecast_qty_delta": -19.059905235151138,
+    "mean_overforecast_qty_delta": -19.28114294257345
+  },
+  {
+    "min_clean_days": 7,
+    "min_gain_qty": 0.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 3,
+    "mean_gate_sku_day_wape_delta": -0.00022621549785765507,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 57.0,
+    "mean_underforecast_qty_delta": -19.059905235151138,
+    "mean_overforecast_qty_delta": -19.28114294257345
+  },
+  {
+    "min_clean_days": 2,
+    "min_gain_qty": 2.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 2,
+    "mean_gate_sku_day_wape_delta": -3.80367001938664e-05,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 11.666666666666666,
+    "mean_underforecast_qty_delta": -2.556658047644305,
+    "mean_overforecast_qty_delta": -3.8292641117974804
+  },
+  {
+    "min_clean_days": 3,
+    "min_gain_qty": 2.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 2,
+    "mean_gate_sku_day_wape_delta": -3.80367001938664e-05,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 11.666666666666666,
+    "mean_underforecast_qty_delta": -2.556658047644305,
+    "mean_overforecast_qty_delta": -3.8292641117974804
+  },
+  {
+    "min_clean_days": 5,
+    "min_gain_qty": 2.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 2,
+    "mean_gate_sku_day_wape_delta": -3.80367001938664e-05,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 11.666666666666666,
+    "mean_underforecast_qty_delta": -2.556658047644305,
+    "mean_overforecast_qty_delta": -3.8292641117974804
+  },
+  {
+    "min_clean_days": 7,
+    "min_gain_qty": 2.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 2,
+    "mean_gate_sku_day_wape_delta": -3.80367001938664e-05,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 11.666666666666666,
+    "mean_underforecast_qty_delta": -2.556658047644305,
+    "mean_overforecast_qty_delta": -3.8292641117974804
+  },
+  {
+    "min_clean_days": 2,
+    "min_gain_qty": 5.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 2,
+    "mean_gate_sku_day_wape_delta": -3.456654523270597e-05,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 3.3333333333333335,
+    "mean_underforecast_qty_delta": -2.592368374656265,
+    "mean_overforecast_qty_delta": -3.222739658614349
+  },
+  {
+    "min_clean_days": 3,
+    "min_gain_qty": 5.0,
+    "scope": "clean_sku_days",
+    "folds": 3,
+    "wins": 2,
+    "mean_gate_sku_day_wape_delta": -3.456654523270597e-05,
+    "mean_full_adjusted_sku_day_wape_delta": -0.0021169985956227175,
+    "mean_eligible_pairs": 3.3333333333333335,
+    "mean_underforecast_qty_delta": -2.592368374656265,
+    "mean_overforecast_qty_delta": -3.222739658614349
+  }
+]

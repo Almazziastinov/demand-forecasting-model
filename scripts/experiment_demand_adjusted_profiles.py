@@ -194,10 +194,56 @@ def blend_profiles(
     return blended[[*PROFILE_KEYS, PROFILE_SHARE_COL, "n_days"]]
 
 
+def select_adjusted_contexts(
+    baseline: pd.DataFrame,
+    adjusted: pd.DataFrame,
+    adjusted_triples: set[tuple[int, int, int]],
+) -> pd.DataFrame:
+    """Use adjusted history only for selected bakery/dow/hour contexts."""
+    triple_cols = [BAKERY_ID_COL, DOW_COL, HOUR_COL]
+    baseline_mask = [
+        tuple(map(int, values)) not in adjusted_triples
+        for values in baseline[triple_cols].to_numpy()
+    ]
+    adjusted_mask = [
+        tuple(map(int, values)) in adjusted_triples
+        for values in adjusted[triple_cols].to_numpy()
+    ]
+    return pd.concat(
+        [baseline.loc[baseline_mask], adjusted.loc[adjusted_mask]],
+        ignore_index=True,
+    )
+
+
+def build_membership_seed_profile(
+    baseline: pd.DataFrame,
+    adjusted: pd.DataFrame,
+    new_exact_rows: set[tuple[int, int, int, int]],
+    *,
+    seed_weight: float,
+) -> pd.DataFrame:
+    """Promote reconstructed tier-1 rows with a controlled initial share."""
+    if not 0.0 <= seed_weight <= 1.0:
+        raise ValueError("seed_weight must be between 0 and 1")
+    baseline_mask = [
+        tuple(map(int, values)) not in new_exact_rows
+        for values in baseline[PROFILE_KEYS].to_numpy()
+    ]
+    promoted_mask = [
+        tuple(map(int, values)) in new_exact_rows
+        for values in adjusted[PROFILE_KEYS].to_numpy()
+    ]
+    promoted = adjusted.loc[promoted_mask].copy()
+    promoted[PROFILE_SHARE_COL] = promoted[PROFILE_SHARE_COL] * seed_weight
+    return pd.concat([baseline.loc[baseline_mask], promoted], ignore_index=True)
+
+
 def build_serving_profiles(
     profile: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     exact = compact_profile(profile, min_n_days=MIN_TIER1_N_DAYS)
+    if exact.empty:
+        exact = pd.DataFrame(columns=[*PROFILE_KEYS, "profile_share", "profile_n_days"])
     fallback = build_sku_hour_profile_fallback(
         profile,
         normalize_sku_shares=True,
@@ -219,6 +265,7 @@ def build_scored_rows(
     holdout: pd.DataFrame,
     *,
     allowed_exact_triples: set[tuple[int, int, int]] | None = None,
+    fallback_source_profile: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     actual = holdout.groupby(HOUR_KEYS + [DOW_COL], as_index=False).agg(
         actual_qty=(SKU_HOUR_SALES_COL, "sum")
@@ -230,14 +277,15 @@ def build_scored_rows(
         [DATE_COL, BAKERY_ID_COL, DOW_COL, HOUR_COL, BAKERY_HOUR_SALES_COL]
     ]
     exact, fallback = build_serving_profiles(profile)
+    if fallback_source_profile is not None:
+        _, fallback = build_serving_profiles(fallback_source_profile)
     if allowed_exact_triples is not None:
-        exact = exact[
-            [
+        allowed_mask = [
                 (int(row.bakery_id), int(row.dow), int(row.hour))
                 in allowed_exact_triples
                 for row in exact.itertuples()
-            ]
-        ].copy()
+        ]
+        exact = exact.loc[allowed_mask].copy()
     exact_triples = exact[
         [BAKERY_ID_COL, DOW_COL, HOUR_COL]
     ].drop_duplicates().assign(has_exact=True)
@@ -480,6 +528,12 @@ def main() -> None:
         type=float,
         default=[0.25, 0.5, 0.75],
     )
+    parser.add_argument(
+        "--membership-seed-weights",
+        nargs="+",
+        type=float,
+        default=[0.05, 0.1, 0.25, 0.5, 1.0],
+    )
     args = parser.parse_args()
 
     train_end = pd.Timestamp(args.train_end)
@@ -542,12 +596,23 @@ def main() -> None:
     metric_parts = []
     scored_outputs = []
     variants = [
-        ("observed_sales_profile", baseline_profile, None),
-        ("demand_adjusted_profile", adjusted_profile, None),
+        ("observed_sales_profile", baseline_profile, None, None),
+        ("demand_adjusted_profile", adjusted_profile, None, None),
         (
             "demand_adjusted_guarded_routing",
             adjusted_profile,
             baseline_exact_triples,
+            None,
+        ),
+        (
+            "demand_adjusted_new_membership_only",
+            select_adjusted_contexts(
+                baseline_profile,
+                adjusted_profile,
+                new_tier1_member_triples,
+            ),
+            baseline_exact_triples,
+            baseline_profile,
         ),
     ]
     variants.extend(
@@ -559,15 +624,48 @@ def main() -> None:
                 adjusted_weight=weight,
             ),
             baseline_exact_triples,
+            None,
         )
         for weight in args.blend_weights
     )
-    for variant, profile, allowed_exact in variants:
+    variants.extend(
+        (
+            f"demand_adjusted_membership_seed_{weight:g}",
+            build_membership_seed_profile(
+                baseline_profile,
+                adjusted_profile,
+                new_tier1_rows,
+                seed_weight=weight,
+            ),
+            baseline_exact_triples,
+            baseline_profile,
+        )
+        for weight in args.membership_seed_weights
+    )
+    variants.extend(
+        (
+            f"demand_adjusted_new_membership_blend_{weight:g}",
+            select_adjusted_contexts(
+                baseline_profile,
+                blend_profiles(
+                    baseline_profile,
+                    adjusted_profile,
+                    adjusted_weight=weight,
+                ),
+                new_tier1_member_triples,
+            ),
+            baseline_exact_triples,
+            baseline_profile,
+        )
+        for weight in args.blend_weights
+    )
+    for variant, profile, allowed_exact, fallback_source in variants:
         scored = attach_evaluation_scopes(
             build_scored_rows(
                 profile,
                 holdout,
                 allowed_exact_triples=allowed_exact,
+                fallback_source_profile=fallback_source,
             ),
             stockouts,
             adjusted_pairs,
@@ -579,20 +677,18 @@ def main() -> None:
         metric_parts.append(summarize_scores(scored, variant=variant))
     metrics = pd.concat(metric_parts, ignore_index=True)
     changes = build_profile_changes(baseline_profile, adjusted_profile)
-    stable_changes = changes[
-        [
+    stable_routing_mask = [
             (int(row.bakery_id), int(row.dow), int(row.hour))
             not in new_exact_triples
             for row in changes.itertuples()
-        ]
     ]
-    stable_membership_changes = changes[
-        [
+    stable_changes = changes.loc[stable_routing_mask]
+    stable_membership_mask = [
             (int(row.bakery_id), int(row.dow), int(row.hour))
             not in new_tier1_member_triples
             for row in changes.itertuples()
-        ]
     ]
+    stable_membership_changes = changes.loc[stable_membership_mask]
 
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)

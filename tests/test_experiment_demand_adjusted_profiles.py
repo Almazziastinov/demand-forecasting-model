@@ -6,8 +6,11 @@ import pytest
 from scripts.experiment_demand_adjusted_profiles import (
     apply_hourly_adjustments,
     blend_profiles,
+    build_membership_seed_profile,
     build_scored_rows,
+    build_serving_profiles,
     compact_profile,
+    select_adjusted_contexts,
 )
 
 
@@ -94,6 +97,75 @@ def test_blend_profiles_shrinks_share_but_keeps_adjusted_membership() -> None:
     assert shares.loc[10] == pytest.approx(0.95)
     assert shares.loc[20] == pytest.approx(0.05)
     assert result.set_index("product_id").loc[20, "n_days"] == 8
+
+
+def test_build_serving_profiles_keeps_schema_when_exact_is_empty() -> None:
+    profile = pd.DataFrame(
+        {
+            "bakery_id": [1],
+            "product_id": [10],
+            "dow": [0],
+            "hour": [10],
+            "mean_sku_share_in_hour_norm": [1.0],
+            "n_days": [3],
+        }
+    )
+
+    exact, fallback = build_serving_profiles(profile)
+
+    assert exact.empty
+    assert {"bakery_id", "product_id", "dow", "hour"}.issubset(exact.columns)
+    assert not fallback.empty
+
+
+def test_select_adjusted_contexts_leaves_other_contexts_on_baseline() -> None:
+    baseline = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 10],
+            "dow": [0, 1],
+            "hour": [10, 10],
+            "mean_sku_share_in_hour_norm": [0.8, 0.7],
+            "n_days": [8, 8],
+        }
+    )
+    adjusted = baseline.copy()
+    adjusted["mean_sku_share_in_hour_norm"] = [0.6, 0.5]
+
+    result = select_adjusted_contexts(baseline, adjusted, {(1, 0, 10)})
+
+    shares = result.set_index("dow")["mean_sku_share_in_hour_norm"]
+    assert shares.to_dict() == {0: 0.6, 1: 0.7}
+
+
+def test_membership_seed_replaces_thin_row_instead_of_adding_to_it() -> None:
+    baseline = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "dow": [0, 0],
+            "hour": [10, 10],
+            "mean_sku_share_in_hour_norm": [0.9, 0.1],
+            "n_days": [8, 7],
+        }
+    )
+    adjusted = baseline.copy()
+    adjusted.loc[
+        adjusted["product_id"].eq(20),
+        ["n_days", "mean_sku_share_in_hour_norm"],
+    ] = [8, 0.2]
+
+    result = build_membership_seed_profile(
+        baseline,
+        adjusted,
+        {(1, 20, 0, 10)},
+        seed_weight=0.25,
+    )
+
+    promoted = result[result["product_id"].eq(20)]
+    assert len(promoted) == 1
+    assert promoted.iloc[0]["mean_sku_share_in_hour_norm"] == pytest.approx(0.05)
+    assert promoted.iloc[0]["n_days"] == 8
 
 
 def test_guarded_routing_keeps_new_exact_triple_on_fallback() -> None:

@@ -144,6 +144,47 @@ new or unsupported pairs remain on the observed-sales profile. This must be
 evaluated with context-level renormalization so bakery-hour totals remain
 coherent.
 
+## Pair gate result
+
+The pair-level gate was evaluated on three folds. Each eligibility window ended
+before its target window began, and hybrid predictions were renormalized back to
+the original bakery-hour total.
+
+The gate improved aggregate clean SKU-day WAPE in 3/3 folds, but the selected
+pairs repeated their earlier improvement only 40-46% of the time. Stricter gain
+thresholds retained very few pairs and did not restore temporal stability. The
+aggregate gain came mainly from renormalization spillover onto neighbouring
+SKUs, not from persistent bakery/SKU behaviour. A static pair gate is therefore
+rejected.
+
+## Membership-only promotion
+
+Detailed decomposition showed that restored tier-1 membership has a different
+effect from mature share correction:
+
+- the promoted SKU itself was overforecast when given its full reconstructed
+  share;
+- its presence corrected the denominator and removed a substantially larger
+  overforecast from the other SKUs in that bakery/dow/hour context;
+- contexts whose membership did not change can remain exactly on baseline.
+
+The final experiment keeps all mature exact shares and the entire fallback on
+the observed-sales profile. A reconstructed row that crosses `n_days >= 8` is
+promoted with a controlled seed share, followed by normal tier-1
+renormalization.
+
+A 5% seed is the conservative rolling winner:
+
+- clean SKU-day WAPE improved in 3/3 folds, mean delta -0.000307;
+- adjusted-pair clean SKU-day WAPE improved in 3/3 folds, mean delta -0.000128;
+- new-membership contexts improved in 3/3 folds, mean delta -0.031466;
+- all-holdout SKU-day WAPE improved in 3/3 folds, mean delta -0.000255;
+- bakery-hour totals remain unchanged.
+
+Larger seeds provide more aggregate gain but reintroduce pair-level
+overforecast. The 5% candidate is still offline-only and requires prospective
+shadow validation before any production proposal.
+
 ## Artifacts
 
 - Reconstruction: `scripts/build_demand_adjusted_stockout_history.py`
@@ -155,3 +196,5 @@ coherent.
 - Rolling summary: `reports/demand_adjusted_profile_rolling/aggregate/`
 - Bakery-target A/B: `reports/demand_adjusted_bakery_target_experiment/`
 - Shrinkage A/B: `reports/demand_adjusted_profile_shrinkage/`
+- Pair gate: `reports/demand_adjusted_pair_gate/evaluation/`
+- Membership seed: `reports/demand_adjusted_membership_seed/`

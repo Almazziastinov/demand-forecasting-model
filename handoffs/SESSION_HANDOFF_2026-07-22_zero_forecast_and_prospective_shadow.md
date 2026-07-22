@@ -112,3 +112,26 @@ Decision: keep the guarded membership restoration as the promising component,
 do not change the bakery-day target globally, and next test a pair-level
 walk-forward eligibility gate with context renormalization. Production was not
 touched.
+
+## Pair gate rejected; membership seed selected
+
+The non-overlapping pair gate improved aggregate clean SKU-days in 3/3 folds,
+but selected-pair direction persisted only 40-46% of the time. Its gain was a
+renormalization spillover, so static bakery/SKU eligibility is rejected.
+
+The actual stable mechanism is tier-1 membership restoration. Full promotion
+overpredicts the promoted SKU while correcting a larger overprediction on the
+other context members. A controlled promotion seed was therefore tested while
+keeping mature shares and fallback exactly on baseline.
+
+Selected offline candidate: 5% membership seed.
+
+- clean SKU-day WAPE: 3/3 wins, mean delta -0.000307;
+- adjusted-pair clean SKU-day WAPE: 3/3 wins, mean delta -0.000128;
+- new-membership context SKU-day WAPE: 3/3 wins, mean delta -0.031466;
+- all-holdout SKU-day WAPE: 3/3 wins, mean delta -0.000255;
+- exact bakery-hour total preservation.
+
+This is not deployed. Next step is to add the 5% membership-seed candidate to
+the local prospective shadow and accumulate independent days before a production
+proposal.
