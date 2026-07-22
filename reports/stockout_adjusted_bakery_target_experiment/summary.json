@@ -1,0 +1,211 @@
+{
+  "rolling_windows": [
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "all_days_observed_sales",
+      "cutoffs": 3,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 777.3100763549843,
+      "mean_abs_bias_delta": -217.6439813104499,
+      "mean_underforecast_qty_delta": -435.63615871369046,
+      "mean_overforecast_qty_delta": 341.67391764129343
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "clean_days_observed_sales",
+      "cutoffs": 3,
+      "abs_bias_wins": 3,
+      "mean_bias_qty_delta": 47.50590432487778,
+      "mean_abs_bias_delta": -48.99843063711535,
+      "mean_underforecast_qty_delta": -54.48420809853062,
+      "mean_overforecast_qty_delta": -6.978303773652821
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "stockout_days_conservative_point",
+      "cutoffs": 3,
+      "abs_bias_wins": 3,
+      "mean_bias_qty_delta": 729.8041720301062,
+      "mean_abs_bias_delta": -729.8041720301062,
+      "mean_underforecast_qty_delta": -461.668070370845,
+      "mean_overforecast_qty_delta": 268.136101659262
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "stockout_days_full_point",
+      "cutoffs": 3,
+      "abs_bias_wins": 3,
+      "mean_bias_qty_delta": 729.8041720301062,
+      "mean_abs_bias_delta": -729.8041720301062,
+      "mean_underforecast_qty_delta": -489.03097799460676,
+      "mean_overforecast_qty_delta": 240.77319403549913
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "stockout_days_observed_lower_bound",
+      "cutoffs": 3,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 729.8041720301065,
+      "mean_abs_bias_delta": -168.64555067333427,
+      "mean_underforecast_qty_delta": -381.15195061515914,
+      "mean_overforecast_qty_delta": 348.65222141494695
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "all_days_observed_sales",
+      "cutoffs": 3,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 756.9727933846174,
+      "mean_abs_bias_delta": -268.0161171248508,
+      "mean_underforecast_qty_delta": -429.00793912933415,
+      "mean_overforecast_qty_delta": 327.96485425528317
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "clean_days_observed_sales",
+      "cutoffs": 3,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 100.52490643236939,
+      "mean_abs_bias_delta": -72.3055279264661,
+      "mean_underforecast_qty_delta": -75.47428357617713,
+      "mean_overforecast_qty_delta": 25.050622856192167
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "stockout_days_conservative_point",
+      "cutoffs": 3,
+      "abs_bias_wins": 3,
+      "mean_bias_qty_delta": 656.4478869522479,
+      "mean_abs_bias_delta": -656.4478869522479,
+      "mean_underforecast_qty_delta": -408.9353953681396,
+      "mean_overforecast_qty_delta": 247.51249158410852
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "stockout_days_full_point",
+      "cutoffs": 3,
+      "abs_bias_wins": 3,
+      "mean_bias_qty_delta": 656.4478869522477,
+      "mean_abs_bias_delta": -656.4478869522477,
+      "mean_underforecast_qty_delta": -429.727768948838,
+      "mean_overforecast_qty_delta": 226.72011800340928
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "stockout_days_observed_lower_bound",
+      "cutoffs": 3,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 656.4478869522478,
+      "mean_abs_bias_delta": -195.7105891983847,
+      "mean_underforecast_qty_delta": -353.5336555531567,
+      "mean_overforecast_qty_delta": 302.914231399091
+    }
+  ],
+  "non_overlapping_cutoffs": [
+    "2026-06-21",
+    "2026-07-05"
+  ],
+  "non_overlapping_windows": [
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "all_days_observed_sales",
+      "cutoffs": 2,
+      "abs_bias_wins": 1,
+      "mean_bias_qty_delta": 833.0827776240229,
+      "mean_abs_bias_delta": 6.416364942778614,
+      "mean_underforecast_qty_delta": -463.1384245409108,
+      "mean_overforecast_qty_delta": 369.94435308311154
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "clean_days_observed_sales",
+      "cutoffs": 2,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 30.20273832661968,
+      "mean_abs_bias_delta": -32.441527794976025,
+      "mean_underforecast_qty_delta": -50.53156590911622,
+      "mean_overforecast_qty_delta": -20.3288275824965
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "stockout_days_conservative_point",
+      "cutoffs": 2,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 802.8800392974031,
+      "mean_abs_bias_delta": -802.8800392974031,
+      "mean_underforecast_qty_delta": -502.2054839980119,
+      "mean_overforecast_qty_delta": 300.67455529939235
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "stockout_days_full_point",
+      "cutoffs": 2,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 802.880039297403,
+      "mean_abs_bias_delta": -802.880039297403,
+      "mean_underforecast_qty_delta": -529.9446043953099,
+      "mean_overforecast_qty_delta": 272.93543490209277
+    },
+    {
+      "variant": "conservative_reconstructed_target",
+      "scope": "stockout_days_observed_lower_bound",
+      "cutoffs": 2,
+      "abs_bias_wins": 1,
+      "mean_bias_qty_delta": 802.8800392974034,
+      "mean_abs_bias_delta": 38.85789273775492,
+      "mean_underforecast_qty_delta": -412.606858631794,
+      "mean_overforecast_qty_delta": 390.2731806656086
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "all_days_observed_sales",
+      "cutoffs": 2,
+      "abs_bias_wins": 1,
+      "mean_bias_qty_delta": 563.2350820585633,
+      "mean_abs_bias_delta": 170.19993233108642,
+      "mean_underforecast_qty_delta": -297.9871274495172,
+      "mean_overforecast_qty_delta": 265.24795460904625
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "clean_days_observed_sales",
+      "cutoffs": 2,
+      "abs_bias_wins": 1,
+      "mean_bias_qty_delta": 50.10212129207295,
+      "mean_abs_bias_delta": -7.773053533218018,
+      "mean_underforecast_qty_delta": -54.93195259370171,
+      "mean_overforecast_qty_delta": -4.8298313016289
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "stockout_days_conservative_point",
+      "cutoffs": 2,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 513.1329607664903,
+      "mean_abs_bias_delta": -513.1329607664903,
+      "mean_underforecast_qty_delta": -297.7802437029477,
+      "mean_overforecast_qty_delta": 215.3527170635432
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "stockout_days_full_point",
+      "cutoffs": 2,
+      "abs_bias_wins": 2,
+      "mean_bias_qty_delta": 513.1329607664899,
+      "mean_abs_bias_delta": -513.1329607664899,
+      "mean_underforecast_qty_delta": -312.4211568129599,
+      "mean_overforecast_qty_delta": 200.71180395352985
+    },
+    {
+      "variant": "weighted_reconstructed_target",
+      "scope": "stockout_days_observed_lower_bound",
+      "cutoffs": 2,
+      "abs_bias_wins": 1,
+      "mean_bias_qty_delta": 513.1329607664904,
+      "mean_abs_bias_delta": 177.97298586430432,
+      "mean_underforecast_qty_delta": -243.05517485581504,
+      "mean_overforecast_qty_delta": 270.07778591067495
+    }
+  ],
+  "production_write": false
+}

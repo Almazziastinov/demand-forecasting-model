@@ -1,0 +1,11 @@
+﻿variant,scope,cutoffs,abs_bias_wins,mean_bias_qty_delta,mean_abs_bias_delta,mean_underforecast_qty_delta,mean_overforecast_qty_delta
+conservative_reconstructed_target,all_days_observed_sales,3,2,777.3100763549843,-217.6439813104499,-435.63615871369046,341.67391764129343
+conservative_reconstructed_target,clean_days_observed_sales,3,3,47.50590432487778,-48.99843063711535,-54.48420809853062,-6.978303773652821
+conservative_reconstructed_target,stockout_days_conservative_point,3,3,729.8041720301062,-729.8041720301062,-461.668070370845,268.136101659262
+conservative_reconstructed_target,stockout_days_full_point,3,3,729.8041720301062,-729.8041720301062,-489.03097799460676,240.77319403549913
+conservative_reconstructed_target,stockout_days_observed_lower_bound,3,2,729.8041720301065,-168.64555067333427,-381.15195061515914,348.65222141494695
+weighted_reconstructed_target,all_days_observed_sales,3,2,756.9727933846174,-268.0161171248508,-429.00793912933415,327.96485425528317
+weighted_reconstructed_target,clean_days_observed_sales,3,2,100.52490643236939,-72.3055279264661,-75.47428357617713,25.050622856192167
+weighted_reconstructed_target,stockout_days_conservative_point,3,3,656.4478869522479,-656.4478869522479,-408.9353953681396,247.51249158410852
+weighted_reconstructed_target,stockout_days_full_point,3,3,656.4478869522477,-656.4478869522477,-429.727768948838,226.72011800340928
+weighted_reconstructed_target,stockout_days_observed_lower_bound,3,2,656.4478869522478,-195.7105891983847,-353.5336555531567,302.914231399091

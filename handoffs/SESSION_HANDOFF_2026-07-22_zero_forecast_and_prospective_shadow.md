@@ -195,3 +195,24 @@ The configured cap binds on 661 cases (51.0%). A 0.50/10-unit policy yields
 must therefore compare lower-bound, weighted-point, and cap variants instead
 of treating the current point estimate as ground truth. No production writes
 were performed. Details: `docs/stockout_adjusted_demand_dataset_20260722.md`.
+
+## Bakery-target backtest on the simplified demand data
+
+Ran the production-family bakery-day LightGBM at three temporal cutoffs for
+observed-sales, confidence-weighted, and conservative 50%/10-unit targets.
+Stockout holdouts were scored separately against observed lower bounds,
+conservative points, and full 75%/20-unit points; clean days use observed sales.
+
+The conservative target is selected for the next offline stage. On the two
+non-overlapping 14-day holdouts it improves clean-day absolute aggregate bias
+2/2 (mean -32.4 units) and reconstructed-stockout absolute bias 2/2 (mean
+-802.9 units). Full-point stockout underforecast falls by 529.9 units per
+window, with 272.9 units of added overforecast. The weighted variant improves
+clean-day bias only 1/2 independent windows.
+
+Observed stockout-sales bias is not treated as decisive because those sales
+are censored. The clean control is small (19 and 23 bakery-days), so the result
+is directional and not production evidence. Next: pass the conservative target
+through the SKU/profile layer and check clean-SKU bias plus delivery of uplift
+to affected SKUs. Production remained unchanged. Details:
+`docs/stockout_adjusted_bakery_target_experiment_20260722.md`.
