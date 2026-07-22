@@ -1,0 +1,19 @@
+{
+  "known_cases": 47,
+  "known_cases_caught": 47,
+  "known_case_recall": 1.0,
+  "known_cases_not_established_in_prior_7d": 0,
+  "contexts": 43,
+  "contexts_without_historical_batch": 17,
+  "blocking_rows": 4174,
+  "blocking_rows_with_same_day_sales": 3198,
+  "blocking_rows_with_same_or_next_7d_sales": 4012,
+  "blocking_rows_with_full_future_window": 3913,
+  "fully_observed_blocking_rows_without_same_or_next_7d_sales": 108,
+  "blocking_rows_known_clear_stockout": 47,
+  "blocking_rows_with_historical_batch": 1319,
+  "blocking_unique_bakery_sku": 978,
+  "rare_missing_diagnostic_rows_not_blocked": 553,
+  "rare_missing_rows_with_same_day_sales": 111,
+  "note": "A blocking row outside the known-case set is not labelled a false positive without independent assortment intent. Same-day sales are reported as evidence that blocking was appropriate."
+}

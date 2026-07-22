@@ -1,0 +1,4 @@
+min_days_sold,min_qty,known_cases_caught,known_cases_total,recall
+1,1.0,47,47,1.0
+2,2.0,47,47,1.0
+3,3.0,47,47,1.0

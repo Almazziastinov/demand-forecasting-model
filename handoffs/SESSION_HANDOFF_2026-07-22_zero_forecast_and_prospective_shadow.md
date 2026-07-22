@@ -52,3 +52,22 @@ The publication boundary is covered by two isolated tests: simulated guard
 failure results in zero `load_forecast_run` calls; guard success permits one
 load with activation disabled. `tests/test_run_production_inference.py` passes
 7/7, and the three targeted guard/freshness tests pass 3/3.
+
+## Historical guard backtest
+
+Replayed the guard across all 43 historical bakery/date contexts containing the
+47 known no-forecast clear-stockout cases. Sales came from the local raw pilot
+export; assortment batches were selected with both effective dates and
+`loaded_at <= run_generated_at`. The guard caught 47/47 known cases. All 47
+also pass a stricter 3 selling days / 3 units threshold.
+
+The replay produced 4,174 blocking context rows, including 1,319 where an
+applicable historical batch existed. This is not merely an artefact of missing
+pre-2026-06-18 version history: 4,012 blockers sold on the forecast date or in
+the following seven days. Among rows with a complete future window, 108 had no
+subsequent sale and remain ambiguous. The conservative 2 days / 2 units rule
+left 553 one-day/low-volume missing rows diagnostic-only, as intended.
+
+Conclusion: retain the 2/2 threshold. Historical evidence supports the local
+publication guard, but it has not been deployed. Full methodology and caveats:
+`docs/assortment_coverage_guard_backtest_20260722.md`.
