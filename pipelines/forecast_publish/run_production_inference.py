@@ -283,6 +283,10 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         assortment_max_age_days=args.assortment_max_age_days,
         disable_assortment_filter=args.disable_assortment_filter,
         disable_assortment_renormalization=args.disable_assortment_renormalization,
+        assortment_guard_recent_days=args.assortment_guard_recent_days,
+        assortment_guard_min_days_sold=args.assortment_guard_min_days_sold,
+        assortment_guard_min_qty=args.assortment_guard_min_qty,
+        disable_assortment_coverage_guard=args.disable_assortment_coverage_guard,
         max_uplift_ratio=args.max_uplift_ratio,
         max_sku_uplift_ratio=args.max_sku_uplift_ratio,
         stockout_correction_version=args.stockout_correction_version,
@@ -396,6 +400,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument("--assortment-guard-recent-days", type=int, default=7)
+    parser.add_argument("--assortment-guard-min-days-sold", type=int, default=2)
+    parser.add_argument("--assortment-guard-min-qty", type=float, default=2.0)
+    parser.add_argument(
+        "--disable-assortment-coverage-guard",
+        action="store_true",
+        help="Emergency-only bypass for the recent-sales assortment preflight.",
+    )
     parser.add_argument(
         "--max-uplift-ratio",
         type=float,

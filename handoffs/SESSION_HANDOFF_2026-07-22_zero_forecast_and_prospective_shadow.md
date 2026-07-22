@@ -38,3 +38,12 @@ assortment row became valid for 2026-07-19 but was loaded on 2026-07-20, after
 the forecast run. Current run `prod_base_bakery_raw_uplift_sku_20260722_h14`
 contains all 18 historically affected bakery/SKU pairs on 14/14 horizon days.
 The 20 July refresh repair has therefore removed the observed failure mode.
+
+## Assortment coverage guard
+
+Added a fail-fast pre-allocation guard in
+`apply_bakery_profiles_clickhouse.py`. It compares seven days of recent sales
+with the selected assortment batch and blocks established missing pairs
+(at least two selling days and two units). A current read-only audit passed:
+211 bakeries, 29,578 recent pairs, zero blocking gaps. Production was not
+changed. See `docs/assortment_coverage_guard_20260722.md`.

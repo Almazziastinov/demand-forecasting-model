@@ -13,6 +13,7 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     compensate_for_assortment_exclusion,
     fill_missing_bakery_hours,
     filter_by_active_assortment,
+    find_recent_sales_missing_from_assortment,
     renormalize_hourly_to_bakery_forecast,
     validate_assortment_freshness,
 )
@@ -546,6 +547,52 @@ def test_assortment_freshness_rejects_stale_city() -> None:
         assert "Kazan=5d" in str(exc)
     else:
         raise AssertionError("stale assortment must fail preflight")
+
+
+def test_assortment_coverage_guard_finds_established_missing_sku() -> None:
+    recent = pd.DataFrame(
+        {
+            "bakery_id": [257, 257, 257],
+            "product_id": [10, 20, 30],
+            "recent_qty": [8.0, 1.0, 12.0],
+            "recent_days_sold": [3, 1, 4],
+        }
+    )
+    allowed = pd.DataFrame({"city": ["Cheb"], "product_id": [10]})
+    lookup = pd.DataFrame({"bakery_id": [257], "city": ["Cheb"]})
+
+    missing = find_recent_sales_missing_from_assortment(
+        recent,
+        allowed,
+        bakery_city_lookup=lookup,
+        min_days_sold=2,
+        min_qty=2.0,
+    )
+
+    assert missing["product_id"].tolist() == [30]
+
+
+def test_assortment_coverage_guard_supports_bakery_scope() -> None:
+    recent = pd.DataFrame(
+        {
+            "bakery_id": [1, 2],
+            "product_id": [10, 10],
+            "recent_qty": [5.0, 5.0],
+            "recent_days_sold": [3, 3],
+        }
+    )
+    allowed = pd.DataFrame(
+        {"city": ["Kazan"], "product_id": [10], "bakery_id": [1]}
+    )
+    lookup = pd.DataFrame(
+        {"bakery_id": [1, 2], "city": ["Kazan", "Kazan"]}
+    )
+
+    missing = find_recent_sales_missing_from_assortment(
+        recent, allowed, bakery_city_lookup=lookup
+    )
+
+    assert missing["bakery_id"].tolist() == [2]
 
 
 def test_compensate_for_assortment_exclusion_redistributes_dropped_demand() -> None:

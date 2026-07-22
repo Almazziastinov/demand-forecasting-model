@@ -165,6 +165,50 @@ def validate_assortment_freshness(
         )
 
 
+def find_recent_sales_missing_from_assortment(
+    recent: pd.DataFrame,
+    allowed_pairs: pd.DataFrame,
+    *,
+    bakery_city_lookup: pd.DataFrame,
+    min_days_sold: int = 2,
+    min_qty: float = 2.0,
+) -> pd.DataFrame:
+    """Return established, recently sold bakery/SKU pairs absent from allowlist."""
+    if recent.empty:
+        return recent.copy()
+    work = recent.copy().drop(columns=[CITY_COL], errors="ignore").merge(
+        bakery_city_lookup[[BAKERY_ID_COL, CITY_COL]].drop_duplicates(BAKERY_ID_COL),
+        on=BAKERY_ID_COL,
+        how="left",
+        validate="many_to_one",
+    )
+    work = work[
+        work["recent_days_sold"].ge(min_days_sold)
+        & work["recent_qty"].ge(min_qty)
+        & work[CITY_COL].notna()
+    ].copy()
+    if work.empty:
+        return work
+
+    allowed = allowed_pairs.copy()
+    keys = [CITY_COL, PRODUCT_ID_COL]
+    if BAKERY_ID_COL in allowed.columns:
+        city_allowed = allowed[allowed[BAKERY_ID_COL].isna()][keys]
+        bakery_allowed = allowed[allowed[BAKERY_ID_COL].notna()][
+            [*keys, BAKERY_ID_COL]
+        ]
+        city_keys = set(map(tuple, city_allowed.values.tolist()))
+        bakery_keys = set(map(tuple, bakery_allowed.values.tolist()))
+        present = [
+            (row.city, row.product_id) in city_keys
+            or (row.city, row.product_id, row.bakery_id) in bakery_keys
+            for row in work.itertuples()
+        ]
+        return work.loc[~pd.Series(present, index=work.index)].copy()
+    checked = work.merge(allowed[keys].drop_duplicates(), on=keys, how="left", indicator=True)
+    return checked[checked["_merge"].eq("left_only")].drop(columns="_merge")
+
+
 def _build_bakery_city_lookup(bakery_forecast: pd.DataFrame) -> pd.DataFrame:
     if CITY_COL not in bakery_forecast.columns:
         return pd.DataFrame(columns=[BAKERY_ID_COL, CITY_COL])
@@ -1955,6 +1999,10 @@ def allocate_from_clickhouse(
     recent_category_absolute_cap_days: int | None = None,
     recent_category_absolute_cap_multiplier: float = DEFAULT_RECENT_ABSOLUTE_CAP_MULTIPLIER,
     assortment_max_age_days: int = -1,
+    assortment_guard_recent_days: int = 7,
+    assortment_guard_min_days_sold: int = 2,
+    assortment_guard_min_qty: float = 2.0,
+    disable_assortment_coverage_guard: bool = False,
     bakery_ids: list[int] | None = None,
 ) -> dict[str, Path]:
     if recent_correction_mode not in RECENT_CORRECTION_MODES:
@@ -1970,6 +2018,9 @@ def allocate_from_clickhouse(
     bakery_hour_profile = load_bakery_hour_profile(bakery_hour_profile_path)
     hourly_forecast = allocate_bakery_to_hour(bakery_forecast, bakery_hour_profile)
     bakery_city_lookup = _build_bakery_city_lookup(bakery_forecast)
+    bakery_ids_for_filter = (
+        bakery_forecast[BAKERY_ID_COL].dropna().astype(int).unique().tolist()
+    )
     forecast_start = pd.to_datetime(bakery_forecast[DATE_COL]).min().normalize()
     allowed_assortment_pairs = (
         pd.DataFrame(columns=[CITY_COL, PRODUCT_ID_COL])
@@ -1987,6 +2038,50 @@ def allocate_from_clickhouse(
             effective_date=forecast_start,
             max_age_days=assortment_max_age_days,
         )
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if not disable_assortment_filter and not disable_assortment_coverage_guard:
+        recent_guard = load_recent_assortment_stats(
+            client,
+            forecast_start=forecast_start,
+            recent_days=assortment_guard_recent_days,
+            sales_table=recent_sales_table,
+            bakery_ids=bakery_ids_for_filter or bakery_ids,
+        )
+        missing_guard = find_recent_sales_missing_from_assortment(
+            recent_guard,
+            allowed_assortment_pairs,
+            bakery_city_lookup=bakery_city_lookup,
+            min_days_sold=assortment_guard_min_days_sold,
+            min_qty=assortment_guard_min_qty,
+        )
+        guard_path = out_dir / "assortment_coverage_guard.csv"
+        missing_guard.to_csv(guard_path, index=False, encoding="utf-8-sig")
+        guard_summary_path = out_dir / "assortment_coverage_guard.json"
+        guard_summary = {
+            "status": "failed" if not missing_guard.empty else "passed",
+            "forecast_start": str(forecast_start.date()),
+            "recent_days": assortment_guard_recent_days,
+            "min_days_sold": assortment_guard_min_days_sold,
+            "min_qty": assortment_guard_min_qty,
+            "recent_pairs_checked": int(len(recent_guard)),
+            "blocking_pairs": int(len(missing_guard)),
+            "details_path": str(guard_path),
+        }
+        guard_summary_path.write_text(
+            json.dumps(guard_summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        if not missing_guard.empty:
+            examples = missing_guard[
+                [BAKERY_ID_COL, PRODUCT_ID_COL, "recent_days_sold", "recent_qty"]
+            ].head(10).to_dict("records")
+            raise RuntimeError(
+                "Assortment coverage guard found established recently sold SKU "
+                f"outside the selected batch: pairs={len(missing_guard)} "
+                f"examples={examples}; report={guard_path}"
+            )
     assortment_filter_stats: dict[str, float | int] = {
         "rows_removed": 0,
         "forecast_removed": 0.0,
@@ -1999,8 +2094,6 @@ def allocate_from_clickhouse(
     # filtering must still happen here.
     defer_assortment_filter = use_raw_uplift_multiplier and recent_correction_mode != "none"
 
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     suffix = f"_{output_suffix}" if output_suffix else ""
     hourly_path = out_dir / HOURLY_OUTPUT_NAME.replace(".csv", f"{suffix}.csv")
     daily_path = out_dir / DAILY_OUTPUT_NAME.replace(".csv", f"{suffix}.csv")
@@ -2016,11 +2109,7 @@ def allocate_from_clickhouse(
 
     # Pass bakery_ids so profile queries are filtered — avoids full-table scans
     # that hit load-balancer connection timeouts on large remote CH clusters.
-    bakery_ids_for_filter = (
-        hourly_lookup[BAKERY_ID_COL].dropna().astype(str).unique().tolist()
-        if BAKERY_ID_COL in hourly_lookup.columns
-        else None
-    )
+    bakery_ids_for_filter = [str(value) for value in bakery_ids_for_filter]
     tier1_sums, fallback, thin_triples = load_profile_lookup_frames(
         client,
         profile_table=profile_table,
