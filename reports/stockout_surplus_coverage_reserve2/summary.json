@@ -1,0 +1,32 @@
+{
+  "bakery_days": 462,
+  "bakery_days_with_positive_deficit": 461,
+  "date_min": "2026-06-01",
+  "date_max": "2026-07-19",
+  "reconstructed_deficit_units": 8305.758516694808,
+  "strict_usable_surplus_units": 9698.0,
+  "allocation_component_units": 4752.867872566343,
+  "volume_gap_units": 3552.8906441284653,
+  "allocation_component_share": 0.572237666555432,
+  "volume_gap_share": 0.42776233344456804,
+  "median_strict_coverage": 1.052985605417418,
+  "late_confirmed_surplus_units": 8489.0,
+  "late_confirmed_allocation_component_units": 4395.7062233310335,
+  "late_confirmed_allocation_component_share": 0.529235977002647,
+  "median_late_confirmed_coverage": 0.9125475285171102,
+  "mechanism_counts": {
+    "allocation_plus_excess_supported": 228,
+    "mixed_supported": 160,
+    "volume_shortage_supported": 53,
+    "allocation_balanced_supported": 20
+  },
+  "late_confirmed_mechanism_counts": {
+    "allocation_plus_excess_supported": 210,
+    "mixed_supported": 168,
+    "volume_shortage_supported": 61,
+    "allocation_balanced_supported": 22
+  },
+  "strict_donor_rows": 2361,
+  "strict_donor_products": 46,
+  "production_write": false
+}

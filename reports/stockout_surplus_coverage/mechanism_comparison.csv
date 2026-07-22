@@ -1,0 +1,13 @@
+﻿robust_case_type,strict_usable_mechanism,cases,bakery_days,reconstructed_deficit,median_coverage
+allocation,allocation_plus_excess_supported,339,140,1782.1739421885059,2.4761904761904763
+allocation,mixed_supported,258,74,1878.3473890756793,0.4888888888888889
+allocation,volume_shortage_supported,57,16,489.9357214600599,0.054462934947049915
+allocation,allocation_balanced_supported,50,15,380.1376455440386,1.0130931709327053
+allocation,no_reconstructed_deficit,1,1,0.0,
+demand_loss,allocation_plus_excess_supported,45,19,265.87841104941026,2.131599228627114
+demand_loss,mixed_supported,29,7,190.28885580306377,0.6206896551724139
+demand_loss,allocation_balanced_supported,9,2,53.811551597225474,0.9572649572649573
+uncertain,allocation_plus_excess_supported,274,122,1455.5290607877407,2.535028880159352
+uncertain,mixed_supported,189,52,1425.401942022058,0.42914434880844904
+uncertain,allocation_balanced_supported,24,9,181.62415820418025,0.9575870299961158
+uncertain,volume_shortage_supported,21,5,202.62983896284578,0.0789930734660231

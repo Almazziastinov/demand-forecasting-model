@@ -1,0 +1,14 @@
+{
+  "case_mode": "all_cases",
+  "selected_cases": 1296,
+  "cases_with_adjustment": 1260,
+  "imputed_demand_units": 8305.758516694807,
+  "median_case_imputation": 4.818562181447426,
+  "max_case_imputation": 20.000000000000004,
+  "reference_coverage": 0.9745370370370371,
+  "adjusted_sku_day_rows": 114852,
+  "adjusted_bakery_day_rows": 858,
+  "profile_rows": 15839,
+  "max_profile_share_delta_pp": 0.6189783427523299,
+  "production_write": false
+}

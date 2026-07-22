@@ -148,3 +148,28 @@ runs cannot count the same backtest again.
 Added `--skip-refresh` to the shadow runner so manifest/registry checks can use
 existing local artifacts without rerunning ClickHouse research or changing its
 reports. Verified locally with production writes disabled.
+
+## Stockout deficit versus surplus decomposition
+
+Implemented the proposed physical-balance test over all 1,296 clear stockout
+cases. The reconstructed 8,305.8-unit deficit was aggregated to 461 positive
+bakery-days and compared with closing surplus on other SKUs. The strict donor
+definition requires balance consistency, hourly/daily sales agreement, a
+one-day product, exclusion of recipient SKUs, and a one-unit reserve.
+
+At that baseline, 5,754.9 units (69.3%) are coverable by same-bakery/day surplus
+and 2,550.8 units (30.7%) remain a bakery-volume gap. A temporal sensitivity,
+where a donor must still record sales no earlier than the latest stockout hour,
+retains 63.5% coverage. Reserve sensitivity yields 82.0% / 69.3% / 57.2%
+allocation components for 0 / 1 / 2 reserved units.
+
+The baseline day split is 281 allocation-plus-excess, 26 approximately
+balanced, 133 mixed, and 21 volume-shortage days. Closing surplus is only
+moderately higher on stockout days than normal days (median 24 versus 21), so
+it constrains the decomposition but does not prove direct SKU-to-SKU causality.
+
+Decision: use the decomposition as an offline regime label. Covered deficit
+belongs to the dynamic-allocation problem; uncovered deficit belongs to demand
+preprocessing and bakery-volume uplift; mixed days use both. Residual surplus
+above deficit is tracked separately as overproduction. Production was not
+touched. Full details: `docs/stockout_surplus_coverage_20260722.md`.

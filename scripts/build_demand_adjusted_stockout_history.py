@@ -22,6 +22,7 @@ DEFAULT_ALL_STOCKOUTS = (
 )
 DEFAULT_OUTPUT = ROOT / "reports/demand_adjusted_stockout_history"
 CASE_MODES = {
+    "all_cases",
     "robust_demand_loss",
     "not_robust_allocation",
     "standard_demand_loss",
@@ -29,7 +30,9 @@ CASE_MODES = {
 
 
 def select_cases(classified: pd.DataFrame, *, mode: str) -> pd.DataFrame:
-    if mode == "robust_demand_loss":
+    if mode == "all_cases":
+        mask = pd.Series(True, index=classified.index)
+    elif mode == "robust_demand_loss":
         mask = classified["robust_case_type"].eq("demand_loss")
     elif mode == "not_robust_allocation":
         mask = ~classified["robust_case_type"].eq("allocation")

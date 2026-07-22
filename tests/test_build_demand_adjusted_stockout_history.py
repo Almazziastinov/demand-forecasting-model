@@ -20,6 +20,19 @@ def test_select_cases_supports_inverse_allocation_rule() -> None:
     assert selected.index.tolist() == [1, 2]
 
 
+def test_select_cases_supports_all_cases_mode() -> None:
+    classified = pd.DataFrame(
+        {
+            "case_type": ["allocation", "uncertain", "demand_loss"],
+            "robust_case_type": ["allocation", "uncertain", "demand_loss"],
+        }
+    )
+
+    selected = select_cases(classified, mode="all_cases")
+
+    assert selected.index.tolist() == [0, 1, 2]
+
+
 def test_reconstruct_cases_only_fills_post_cutoff_hours() -> None:
     dates = pd.to_datetime(["2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22"])
     rows = []
