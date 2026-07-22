@@ -298,8 +298,9 @@ def _send_via_vibecode(file_bytes: bytes, filename: str, forecast_date: str) -> 
     }
 
     # Step 1: upload file to the chat's Disk folder via VibeCode
+    import time as _time
     d_upload = date_type.fromisoformat(forecast_date)
-    ascii_filename = f"forecast_{d_upload.strftime('%Y-%m-%d')}.xlsx"
+    ascii_filename = f"forecast_{d_upload.strftime('%Y-%m-%d')}_{int(_time.time())}.xlsx"
     upload_body = json.dumps({
         "folderId": PILOT_CHAT_DISK_FOLDER_ID,
         "filename": ascii_filename,
