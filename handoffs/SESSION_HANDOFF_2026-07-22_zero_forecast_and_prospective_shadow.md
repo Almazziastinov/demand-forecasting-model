@@ -91,3 +91,24 @@ clean bakery-day hourly WAPE improved from 1.2254 to 1.2240. Pair-level results
 are mixed: underforecast decreased while overforecast increased. No production
 state changed. Next: rolling-cutoff validation and a separate bakery-day target
 experiment. See `docs/demand_adjusted_profile_experiment_20260722.md`.
+
+## Demand-adjusted follow-up: rolling, bakery target, and shrinkage
+
+Completed the planned non-production follow-up.
+
+- Guarded demand-adjusted profiles improved clean SKU-day WAPE in all three
+  rolling windows (mean delta -0.00212) and newly restored tier-1 contexts in
+  all three (mean delta -0.11909).
+- Directly adjusted pairs worsened in all three windows (mean delta +0.00361),
+  with reduced underforecast outweighed by added overforecast.
+- Retraining the global bakery-day model on the adjusted target won only 1/3
+  windows. The baseline already overforecast reconstructed demand on classified
+  demand-loss days by 3,300 / 968 / 479 units, so unconditional bakery uplift
+  would double-count volume.
+- Share blends at 25/50/75% did not repair the pair-level failure. This rules
+  out simple shrinkage as the primary solution.
+
+Decision: keep the guarded membership restoration as the promising component,
+do not change the bakery-day target globally, and next test a pair-level
+walk-forward eligibility gate with context renormalization. Production was not
+touched.

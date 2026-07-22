@@ -5,6 +5,7 @@ import pytest
 
 from scripts.experiment_demand_adjusted_profiles import (
     apply_hourly_adjustments,
+    blend_profiles,
     build_scored_rows,
     compact_profile,
 )
@@ -63,6 +64,36 @@ def test_compact_profile_renormalizes_duplicate_metadata_rows() -> None:
     assert compact.loc[
         compact["product_id"].eq(10), "profile_share"
     ].iloc[0] == pytest.approx(0.3)
+
+
+def test_blend_profiles_shrinks_share_but_keeps_adjusted_membership() -> None:
+    baseline = pd.DataFrame(
+        {
+            "bakery_id": [1],
+            "product_id": [10],
+            "dow": [0],
+            "hour": [10],
+            "mean_sku_share_in_hour_norm": [1.0],
+            "n_days": [8],
+        }
+    )
+    adjusted = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "dow": [0, 0],
+            "hour": [10, 10],
+            "mean_sku_share_in_hour_norm": [0.8, 0.2],
+            "n_days": [8, 8],
+        }
+    )
+
+    result = blend_profiles(baseline, adjusted, adjusted_weight=0.25)
+
+    shares = result.set_index("product_id")["mean_sku_share_in_hour_norm"]
+    assert shares.loc[10] == pytest.approx(0.95)
+    assert shares.loc[20] == pytest.approx(0.05)
+    assert result.set_index("product_id").loc[20, "n_days"] == 8
 
 
 def test_guarded_routing_keeps_new_exact_triple_on_fallback() -> None:

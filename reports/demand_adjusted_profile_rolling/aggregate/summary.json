@@ -1,0 +1,52 @@
+[
+  {
+    "scope": "adjusted_pairs_clean_sku_days",
+    "cutoffs": 3,
+    "wape_wins": 0,
+    "mean_wape_delta": 0.004719591551473131,
+    "sku_day_wape_wins": 0,
+    "mean_sku_day_wape_delta": 0.0036075869839867027,
+    "mean_underforecast_qty_delta": -171.8380839631791,
+    "mean_overforecast_qty_delta": 394.1544844854919
+  },
+  {
+    "scope": "all_holdout",
+    "cutoffs": 3,
+    "wape_wins": 3,
+    "mean_wape_delta": -0.0017834809575475081,
+    "sku_day_wape_wins": 2,
+    "mean_sku_day_wape_delta": -0.001638071556236076,
+    "mean_underforecast_qty_delta": -155.3817983543413,
+    "mean_overforecast_qty_delta": -155.3817983543316
+  },
+  {
+    "scope": "clean_bakery_days",
+    "cutoffs": 3,
+    "wape_wins": 2,
+    "mean_wape_delta": -0.0015308348788575603,
+    "sku_day_wape_wins": 3,
+    "mean_sku_day_wape_delta": -0.0006100766182658424,
+    "mean_underforecast_qty_delta": -17.38844381606941,
+    "mean_overforecast_qty_delta": -17.38844381606941
+  },
+  {
+    "scope": "clean_sku_days",
+    "cutoffs": 3,
+    "wape_wins": 3,
+    "mean_wape_delta": -0.0024825290086127882,
+    "sku_day_wape_wins": 3,
+    "mean_sku_day_wape_delta": -0.0021169985956226802,
+    "mean_underforecast_qty_delta": -139.00097099975878,
+    "mean_overforecast_qty_delta": -280.3358905451266
+  },
+  {
+    "scope": "new_tier1_member_clean_sku_days",
+    "cutoffs": 3,
+    "wape_wins": 3,
+    "mean_wape_delta": -0.11073638907939339,
+    "sku_day_wape_wins": 3,
+    "mean_sku_day_wape_delta": -0.11909221548401083,
+    "mean_underforecast_qty_delta": -156.38303150739475,
+    "mean_overforecast_qty_delta": -289.2969610417495
+  }
+]

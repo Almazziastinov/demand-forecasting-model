@@ -96,6 +96,54 @@ Before any deployment proposal, repeat the experiment on multiple rolling
 cutoffs and evaluate the reconstructed bakery-day target separately from SKU
 allocation.
 
+## Rolling-cutoff validation
+
+The guarded profile was repeated on three 14-day windows with training cutoffs
+2026-06-21, 2026-06-28, and 2026-07-05.
+
+- Clean SKU-day WAPE improved in 3/3 windows, by 0.00212 on average.
+- Clean SKU-hour WAPE improved in 3/3 windows, by 0.00248 on average.
+- Contexts with a newly restored tier-1 SKU improved in 3/3 windows, by
+  0.11909 SKU-day WAPE on average.
+- Directly adjusted bakery/SKU pairs worsened in 3/3 windows, by 0.00361
+  SKU-day WAPE on average. Underforecast fell, but overforecast rose more.
+
+The aggregate benefit is therefore repeatable, but pair-level applicability is
+not. The useful signal is restored membership; applying it to every reconstructed
+pair is too broad.
+
+## Bakery-day target A/B
+
+The current global bakery-day LightGBM was retrained for the same three cutoffs.
+The adjusted variant used reconstructed demand as the training label and
+recomputed every target lag and rolling feature. Holdouts remained observed and
+the 11 pilot bakeries were evaluated inside the full-network training context.
+
+The adjusted target improved WAPE in only 1/3 windows. More importantly, on
+holdout demand-loss days the baseline already exceeded the reconstructed-demand
+proxy by 3,300, 968, and 479 units respectively. Raising the target globally
+therefore duplicates volume already supplied by the bakery model. This variant
+must not be promoted.
+
+Observed-sales WAPE on censored demand-loss days is retained only as a safety
+diagnostic; it is not treated as the optimization target. Even against the
+reconstructed-demand proxy, however, the adjusted target won only the final
+window.
+
+## Share shrinkage
+
+Guarded adjusted shares were blended with baseline shares at 25%, 50%, and 75%.
+All weights preserved the 3/3 aggregate clean-SKU win and the restored-membership
+benefit, but none improved directly adjusted pairs in any window. Shrinkage only
+slightly reduced excess overforecast. The failure is pair selection/direction,
+not merely correction magnitude.
+
+The next candidate is a pair-level walk-forward gate: apply reconstructed
+history only when earlier, non-overlapping evidence shows that the pair benefits;
+new or unsupported pairs remain on the observed-sales profile. This must be
+evaluated with context-level renormalization so bakery-hour totals remain
+coherent.
+
 ## Artifacts
 
 - Reconstruction: `scripts/build_demand_adjusted_stockout_history.py`
@@ -104,4 +152,6 @@ allocation.
   `tests/test_experiment_demand_adjusted_profiles.py`
 - Local detailed reports:
   `reports/demand_adjusted_profile_experiment_all_non_allocation/`
-
+- Rolling summary: `reports/demand_adjusted_profile_rolling/aggregate/`
+- Bakery-target A/B: `reports/demand_adjusted_bakery_target_experiment/`
+- Shrinkage A/B: `reports/demand_adjusted_profile_shrinkage/`

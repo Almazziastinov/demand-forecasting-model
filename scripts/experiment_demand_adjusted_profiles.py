@@ -151,6 +151,49 @@ def compact_profile(
     return compact
 
 
+def blend_profiles(
+    baseline: pd.DataFrame,
+    adjusted: pd.DataFrame,
+    *,
+    adjusted_weight: float,
+) -> pd.DataFrame:
+    """Blend serving shares while retaining adjusted membership evidence."""
+    if not 0.0 <= adjusted_weight <= 1.0:
+        raise ValueError("adjusted_weight must be between 0 and 1")
+    left = compact_profile(baseline).rename(
+        columns={
+            "profile_share": "baseline_share",
+            "profile_n_days": "baseline_n_days",
+        }
+    )
+    right = compact_profile(adjusted).rename(
+        columns={
+            "profile_share": "adjusted_share",
+            "profile_n_days": "adjusted_n_days",
+        }
+    )
+    blended = left.merge(right, on=PROFILE_KEYS, how="outer")
+    blended[["baseline_share", "adjusted_share"]] = blended[
+        ["baseline_share", "adjusted_share"]
+    ].fillna(0.0)
+    blended[PROFILE_SHARE_COL] = (
+        (1.0 - adjusted_weight) * blended["baseline_share"]
+        + adjusted_weight * blended["adjusted_share"]
+    )
+    blended["n_days"] = blended["adjusted_n_days"].fillna(
+        blended["baseline_n_days"]
+    )
+    totals = blended.groupby([BAKERY_ID_COL, DOW_COL, HOUR_COL])[
+        PROFILE_SHARE_COL
+    ].transform("sum")
+    blended[PROFILE_SHARE_COL] = np.where(
+        totals > 0,
+        blended[PROFILE_SHARE_COL] / totals,
+        0.0,
+    )
+    return blended[[*PROFILE_KEYS, PROFILE_SHARE_COL, "n_days"]]
+
+
 def build_serving_profiles(
     profile: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -431,6 +474,12 @@ def main() -> None:
     parser.add_argument("--train-end", default=str(DEFAULT_TRAIN_END.date()))
     parser.add_argument("--holdout-start", default=str(DEFAULT_HOLDOUT_START.date()))
     parser.add_argument("--holdout-end", default=str(DEFAULT_HOLDOUT_END.date()))
+    parser.add_argument(
+        "--blend-weights",
+        nargs="+",
+        type=float,
+        default=[0.25, 0.5, 0.75],
+    )
     args = parser.parse_args()
 
     train_end = pd.Timestamp(args.train_end)
@@ -492,7 +541,7 @@ def main() -> None:
     )
     metric_parts = []
     scored_outputs = []
-    for variant, profile, allowed_exact in [
+    variants = [
         ("observed_sales_profile", baseline_profile, None),
         ("demand_adjusted_profile", adjusted_profile, None),
         (
@@ -500,7 +549,20 @@ def main() -> None:
             adjusted_profile,
             baseline_exact_triples,
         ),
-    ]:
+    ]
+    variants.extend(
+        (
+            f"demand_adjusted_blend_{weight:g}_guarded_routing",
+            blend_profiles(
+                baseline_profile,
+                adjusted_profile,
+                adjusted_weight=weight,
+            ),
+            baseline_exact_triples,
+        )
+        for weight in args.blend_weights
+    )
+    for variant, profile, allowed_exact in variants:
         scored = attach_evaluation_scopes(
             build_scored_rows(
                 profile,
