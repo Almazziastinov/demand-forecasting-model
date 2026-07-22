@@ -135,3 +135,16 @@ Selected offline candidate: 5% membership seed.
 This is not deployed. Next step is to add the 5% membership-seed candidate to
 the local prospective shadow and accumulate independent days before a production
 proposal.
+
+## Membership seed registered in local shadow
+
+`demand_adjusted_membership_seed_0.05` is now present in the local shadow
+manifest under `shadow_candidate_components`; it is not an enabled component.
+Its historical evidence ends on 2026-07-19 and the separate candidate counter
+is 0/21. A candidate day is recorded only after `evaluated_through` advances
+beyond 2026-07-19, with one record per distinct evaluation date. Repeated daily
+runs cannot count the same backtest again.
+
+Added `--skip-refresh` to the shadow runner so manifest/registry checks can use
+existing local artifacts without rerunning ClickHouse research or changing its
+reports. Verified locally with production writes disabled.

@@ -185,6 +185,23 @@ Larger seeds provide more aggregate gain but reintroduce pair-level
 overforecast. The 5% candidate is still offline-only and requires prospective
 shadow validation before any production proposal.
 
+## Local shadow registration
+
+The 5% candidate is now registered in the local stockout-direction shadow
+manifest as `demand_adjusted_membership_seed_0.05`. It is deliberately listed
+as a candidate, not an enabled component.
+
+Historical rolling evidence ends on 2026-07-19 and therefore does not count as
+prospective evidence. Candidate observations are stored separately under
+`reports/stockout_direction_shadow/membership_seed_history/` only when
+`evaluated_through` advances beyond 2026-07-19. Repeated runs for the same
+evaluation date are idempotent and cannot inflate the 21-day promotion gate.
+
+The shadow runner supports `--skip-refresh` to rebuild the manifest from
+existing local artifacts without rerunning ClickHouse analyses or overwriting
+their reports. The first registration run correctly reports zero prospective
+membership-seed days. Production remains unchanged.
+
 ## Artifacts
 
 - Reconstruction: `scripts/build_demand_adjusted_stockout_history.py`

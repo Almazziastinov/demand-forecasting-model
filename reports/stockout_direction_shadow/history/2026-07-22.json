@@ -2,8 +2,8 @@
   "shadow_date": "2026-07-22",
   "timezone": "Europe/Moscow",
   "first_recorded_at": "2026-07-22T05:52:32.232856+00:00",
-  "latest_recorded_at": "2026-07-22T05:52:32.232856+00:00",
-  "run_count": 1,
+  "latest_recorded_at": "2026-07-22T08:48:52.353546+00:00",
+  "run_count": 3,
   "metrics": {
     "normal_day_mae_delta": -0.002058295999670001,
     "new_underforecast_cases": 0,
@@ -13,5 +13,13 @@
     "normal_day_bias_not_regressed": true,
     "no_new_underforecast_cases": true,
     "no_combined_cases_worsened": true
+  },
+  "candidate_observations": {
+    "demand_adjusted_membership_seed_0.05": {
+      "status": "historical_pass_pending_prospective",
+      "evaluated_through": "2026-07-19",
+      "historical_gates_pass": true,
+      "counts_as_prospective_evidence": false
+    }
   }
 }

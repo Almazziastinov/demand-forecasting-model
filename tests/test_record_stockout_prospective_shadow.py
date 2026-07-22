@@ -1,4 +1,7 @@
-from scripts.record_stockout_prospective_shadow import record_snapshot
+from scripts.record_stockout_prospective_shadow import (
+    record_candidate_evaluation,
+    record_snapshot,
+)
 
 
 def manifest(generated_at: str, normal_delta: float = -0.1) -> dict:
@@ -43,3 +46,47 @@ def test_distinct_local_days_and_gate_state(tmp_path):
     assert result["date_to"] == "2026-07-22"
     assert not result["all_observed_gates_pass"]
     assert not result["minimum_days_met"]
+
+
+def test_historical_candidate_is_visible_but_not_counted_as_prospective(tmp_path):
+    payload = manifest("2026-07-21T10:00:00+00:00")
+    payload["membership_seed_profile"] = {
+        "status": "historical_pass_pending_prospective",
+        "evaluated_through": "2026-07-19",
+        "historical_gates_pass": True,
+    }
+
+    result = record_snapshot(payload, tmp_path)
+
+    candidate = result["candidate_tracking"][
+        "demand_adjusted_membership_seed_0.05"
+    ]
+    assert candidate["historical_gates_pass"]
+    assert not candidate["counts_as_prospective_evidence"]
+
+
+def test_candidate_counts_only_new_evaluation_dates(tmp_path):
+    candidate = {
+        "evaluated_through": "2026-07-19",
+        "historical_gates_pass": True,
+    }
+    first = record_candidate_evaluation(
+        candidate,
+        tmp_path,
+        start_after="2026-07-19",
+    )
+    candidate["evaluated_through"] = "2026-07-20"
+    second = record_candidate_evaluation(
+        candidate,
+        tmp_path,
+        start_after="2026-07-19",
+    )
+    repeated = record_candidate_evaluation(
+        candidate,
+        tmp_path,
+        start_after="2026-07-19",
+    )
+
+    assert first["prospective_days_observed"] == 0
+    assert second["prospective_days_observed"] == 1
+    assert repeated["prospective_days_observed"] == 1

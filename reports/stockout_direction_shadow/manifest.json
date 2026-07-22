@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-22T05:52:32.232856+00:00",
+  "generated_at": "2026-07-22T08:48:52.353546+00:00",
   "mode": "offline_read_only_shadow",
   "production_write": false,
   "classification": {
@@ -371,6 +371,67 @@
     ],
     "production_write": false
   },
+  "membership_seed_profile": {
+    "candidate": "demand_adjusted_membership_seed",
+    "seed_weight": 0.05,
+    "variant": "demand_adjusted_membership_seed_0.05",
+    "evaluation_mode": "historical_rolling_holdout",
+    "evaluated_through": "2026-07-19",
+    "bakery_hour_total_preserved": true,
+    "metrics": [
+      {
+        "scope": "all_holdout",
+        "folds": 3,
+        "wins": 3,
+        "mean_sku_day_wape_delta": -0.0002545627256448392,
+        "mean_underforecast_qty_delta": -22.18694161435754,
+        "mean_overforecast_qty_delta": -22.186941614362393
+      },
+      {
+        "scope": "clean_sku_days",
+        "folds": 3,
+        "wins": 3,
+        "mean_sku_day_wape_delta": -0.0003067556924451333,
+        "mean_underforecast_qty_delta": -19.898667452881153,
+        "mean_overforecast_qty_delta": -31.938472734444076
+      },
+      {
+        "scope": "adjusted_pairs_clean_sku_days",
+        "folds": 3,
+        "wins": 3,
+        "mean_sku_day_wape_delta": -0.00012798298441865283,
+        "mean_underforecast_qty_delta": -21.983614644955498,
+        "mean_overforecast_qty_delta": 15.425486135430523
+      },
+      {
+        "scope": "new_tier1_member_clean_sku_days",
+        "folds": 3,
+        "wins": 3,
+        "mean_sku_day_wape_delta": -0.03146620796056373,
+        "mean_underforecast_qty_delta": -53.90692870211311,
+        "mean_overforecast_qty_delta": -65.94673398368256
+      }
+    ],
+    "historical_gates": {
+      "all_holdout": true,
+      "clean_sku_days": true,
+      "adjusted_pairs_clean_sku_days": true,
+      "new_tier1_member_clean_sku_days": true
+    },
+    "historical_gates_pass": true,
+    "prospective_days_observed": 0,
+    "status": "historical_pass_pending_prospective",
+    "production_write": false,
+    "prospective_shadow": {
+      "start_after": "2026-07-19",
+      "minimum_days": 21,
+      "prospective_days_observed": 0,
+      "date_from": null,
+      "date_to": null,
+      "minimum_days_met": false,
+      "all_observed_gates_pass": false
+    }
+  },
   "decision": {
     "shadow_enabled_components": [
       "robust_demand_loss_preprocessing",
@@ -379,7 +440,11 @@
     "shadow_rejected_components": [
       "dynamic_walk_forward_allocation",
       "stockout_risk_allocation_due_to_normal_day_mae_regression"
-    ]
+    ],
+    "shadow_candidate_components": [
+      "demand_adjusted_membership_seed_0.05"
+    ],
+    "candidate_prospective_counting": "starts only after a new evaluation date later than 2026-07-19"
   },
   "prospective_shadow": {
     "timezone": "Europe/Moscow",
@@ -393,8 +458,8 @@
       "shadow_date": "2026-07-22",
       "timezone": "Europe/Moscow",
       "first_recorded_at": "2026-07-22T05:52:32.232856+00:00",
-      "latest_recorded_at": "2026-07-22T05:52:32.232856+00:00",
-      "run_count": 1,
+      "latest_recorded_at": "2026-07-22T08:48:52.353546+00:00",
+      "run_count": 3,
       "metrics": {
         "normal_day_mae_delta": -0.002058295999670001,
         "new_underforecast_cases": 0,
@@ -404,6 +469,22 @@
         "normal_day_bias_not_regressed": true,
         "no_new_underforecast_cases": true,
         "no_combined_cases_worsened": true
+      },
+      "candidate_observations": {
+        "demand_adjusted_membership_seed_0.05": {
+          "status": "historical_pass_pending_prospective",
+          "evaluated_through": "2026-07-19",
+          "historical_gates_pass": true,
+          "counts_as_prospective_evidence": false
+        }
+      }
+    },
+    "candidate_tracking": {
+      "demand_adjusted_membership_seed_0.05": {
+        "status": "historical_pass_pending_prospective",
+        "evaluated_through": "2026-07-19",
+        "historical_gates_pass": true,
+        "counts_as_prospective_evidence": false
       }
     }
   }

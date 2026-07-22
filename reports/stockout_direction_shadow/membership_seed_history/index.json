@@ -1,0 +1,9 @@
+{
+  "start_after": "2026-07-19",
+  "minimum_days": 21,
+  "prospective_days_observed": 0,
+  "date_from": null,
+  "date_to": null,
+  "minimum_days_met": false,
+  "all_observed_gates_pass": false
+}
