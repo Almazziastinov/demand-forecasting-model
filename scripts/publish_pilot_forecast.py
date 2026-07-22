@@ -288,23 +288,45 @@ def _send_via_vibecode(file_bytes: bytes, filename: str, forecast_date: str) -> 
     }
 
     # Step 1: upload file to the chat's Disk folder
+    # Use ASCII staging name to avoid Cyrillic encoding issues with some API clients
+    d_upload = date_type.fromisoformat(forecast_date)
+    ascii_filename = f"forecast_{d_upload.strftime('%Y-%m-%d')}.xlsx"
     upload_body = json.dumps({
         "folderId": PILOT_CHAT_DISK_FOLDER_ID,
-        "filename": filename,
-        "content": base64.b64encode(file_bytes).decode(),
-    }).encode()
+        "filename": ascii_filename,
+        "content": base64.b64encode(file_bytes).decode("ascii"),
+    }, ensure_ascii=True).encode("utf-8")
     req = urllib.request.Request(
         f"{VIBECODE_API_BASE}/files/upload",
         data=upload_body,
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        upload_result = json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            upload_result = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body = exc.read()
+        raise RuntimeError(f"File upload HTTP {exc.code}: {body[:500]}")
     if not upload_result.get("success"):
         raise RuntimeError(f"File upload failed: {upload_result}")
     file_id = upload_result["data"]["id"]
     print(f"  [vibecode] file uploaded, id={file_id}")
+
+    # Rename the file to the Cyrillic name
+    rename_body = json.dumps({"name": filename}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{VIBECODE_API_BASE}/files/{file_id}",
+        data=rename_body,
+        headers=headers,
+        method="PATCH",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+        print(f"  [vibecode] file renamed to {filename}")
+    except Exception as exc:
+        print(f"  [vibecode] rename failed (non-fatal): {exc}")
 
     # Step 2: post a message with the disk file attached
     d = date_type.fromisoformat(forecast_date)
