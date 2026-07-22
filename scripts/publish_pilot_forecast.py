@@ -313,20 +313,6 @@ def _send_via_vibecode(file_bytes: bytes, filename: str, forecast_date: str) -> 
     file_id = upload_result["data"]["id"]
     print(f"  [vibecode] file uploaded, id={file_id}")
 
-    # Rename the file to the Cyrillic name
-    rename_body = json.dumps({"name": filename}).encode("utf-8")
-    req = urllib.request.Request(
-        f"{VIBECODE_API_BASE}/files/{file_id}",
-        data=rename_body,
-        headers=headers,
-        method="PATCH",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            resp.read()
-        print(f"  [vibecode] file renamed to {filename}")
-    except Exception as exc:
-        print(f"  [vibecode] rename failed (non-fatal): {exc}")
 
     # Step 2: post a message with the disk file attached
     d = date_type.fromisoformat(forecast_date)
