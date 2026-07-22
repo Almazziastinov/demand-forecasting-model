@@ -74,4 +74,8 @@ def test_blending_builds_final_expected_share():
 def test_blending_downweights_weak_local_profile():
     blended = build_blended_profiles(_make_profiles())
     row = blended.iloc[0]
-    assert row["w_bakery_sku"] < row["w_sku_global"]
+    assert row["share_source_primary"] == "bakery_category"
+    assert row["w_bakery_sku"] == 0.0
+    assert row["w_bakery_category"] == 1.0
+    assert row["w_sku_global"] == 0.0
+    assert row["final_expected_share"] == 0.20

@@ -30,7 +30,8 @@ Usage
 
 # Legacy xlsx-markup mode
 .venv\\Scripts\\python.exe scripts\\build_bakeable_products_table.py \\
-    --markup-xlsx reports\\baking_plan_templates\\preview_sibirskiy_25_screenshot_assortment_v2.xlsx
+    --markup-xlsx \\
+    reports\\baking_plan_templates\\preview_sibirskiy_25_screenshot_assortment_v2.xlsx
 """
 
 from __future__ import annotations
@@ -89,7 +90,9 @@ def load_active_assortment(assortment_csv: Path) -> pd.DataFrame:
     required_columns = {"city", "product_id", "product_name", "category_name"}
     missing = required_columns - set(active.columns)
     if missing:
-        raise ValueError("Assortment CSV is missing columns: " + ", ".join(sorted(missing)))
+        raise ValueError(
+            "Assortment CSV is missing columns: " + ", ".join(sorted(missing))
+        )
     universe = active.dropna(subset=["city", "product_id"]).copy()
     universe["city"] = universe["city"].astype(str).str.strip()
     universe["product_id"] = universe["product_id"].astype(str).str.strip()
@@ -183,7 +186,9 @@ def _build_dim_id_lookups(
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     dim = pd.read_csv(dim_products_path, dtype={"product_id": str})
     dim["product_key_exact"] = dim["product_name"].map(normalize_text)
-    dim["product_key_lookup"] = dim["product_name"].map(normalize_product_for_dim_lookup)
+    dim["product_key_lookup"] = dim["product_name"].map(
+        normalize_product_for_dim_lookup
+    )
     exact = dim.groupby("product_key_exact")["product_id"].apply(set).to_dict()
     alias = dim.groupby("product_key_lookup")["product_id"].apply(set).to_dict()
     return exact, alias
@@ -233,6 +238,13 @@ def build_bakeable_by_markup(
     return table, excluded_ids, not_found
 
 
+# Public legacy API retained for callers that used the script as a module
+# before the category-filter mode introduced explicit builder names.
+read_red_markup_names = _read_red_markup_names
+resolve_markup_ids = _resolve_markup_ids
+build_bakeable_table = build_bakeable_by_markup
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -246,7 +258,10 @@ def main() -> None:
         "--assortment-csv",
         default=DEFAULT_ASSORTMENT_CSV,
         type=Path,
-        help="Path to assortment_city_products CSV (output of build_city_assortment_from_forecast.py).",
+        help=(
+            "Path to assortment_city_products CSV "
+            "(output of build_city_assortment_from_forecast.py)."
+        ),
     )
     parser.add_argument(
         "--output-path",
@@ -278,7 +293,8 @@ def main() -> None:
         default=None,
         type=Path,
         help=(
-            "Legacy mode: path to partner baking-plan preview xlsx with red-font markup. "
+            "Legacy mode: path to partner baking-plan preview xlsx with "
+            "red-font markup. "
             "When set, category filter is NOT used."
         ),
     )
