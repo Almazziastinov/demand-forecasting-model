@@ -2,8 +2,8 @@
 
 For the given date (default: tomorrow), queries ClickHouse for per-SKU
 daily forecasts for all pilot bakeries, applies kratnost rounding, and
-writes a single Excel file.  If BITRIX24_WEBHOOK and BITRIX24_CHAT_ID
-are set, uploads the file to the chat automatically.
+writes a single Excel file.  If VIBECODE_API_KEY is set (via .env or
+environment), uploads the file to the Bitrix24 pilot chat automatically.
 
 Usage (local / on VM):
     python scripts/publish_pilot_forecast.py --env-file .env
@@ -266,82 +266,69 @@ def _build_excel(rows: list[dict], forecast_date: str) -> bytes:
     return buf.getvalue()
 
 
-def _send_to_bitrix24(file_bytes: bytes, filename: str, chat_id: str, webhook_url: str) -> None:
-    """Upload file to Bitrix24 disk and post it to the chat."""
-    import urllib.request
+VIBECODE_API_BASE = "https://vibecode.bitrix24.tech/v1"
+# Chat "Пилот выставления планов выпекания ИИ" — diskFolderId 1473995
+PILOT_CHAT_DIALOG_ID = "chat179919"
+PILOT_CHAT_DISK_FOLDER_ID = 1473995
+
+
+def _send_via_vibecode(file_bytes: bytes, filename: str, forecast_date: str) -> None:
+    """Upload Excel to the chat's Disk folder and post it as a message via VibeCode API."""
+    import base64
     import json
+    import urllib.request
 
-    webhook_url = webhook_url.rstrip("/")
+    api_key = os.environ.get("VIBECODE_API_KEY") or ""
+    if not api_key:
+        raise RuntimeError("VIBECODE_API_KEY not set")
 
-    # Step 1: find or create a folder in "Shared Documents" for our bot
-    # Use disk.folder.uploadversion on the root shared folder
-    # First get the root folder id
-    req_data = json.dumps({"filter": {"NAME": "Пилот выпечки ИИ"}}).encode()
-    req = urllib.request.Request(
-        f"{webhook_url}/disk.folder.getchildren?id=0",
-        data=json.dumps({}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            result = json.loads(resp.read())
-    except Exception as exc:
-        print(f"  [bitrix] disk.folder.getchildren failed: {exc}")
-        result = {}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
 
-    # Step 2: Upload file using multipart to disk.folder.uploadversion
-    # Use the simple approach: upload to chat directly via im.disk.folder.file.upload
-    # Fallback: just upload to chat message as file attachment
-    boundary = "----FormBoundary7MA4YWxkTrZu0gW"
-    body_parts = [
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"CHAT_ID\"\r\n\r\n{chat_id}",
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"fileContent\"; filename=\"{filename}\"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n",
-    ]
-    body_prefix = "\r\n".join(body_parts).encode("utf-8")
-    body_suffix = f"\r\n--{boundary}--\r\n".encode("utf-8")
-    body = body_prefix + file_bytes + body_suffix
-
-    req = urllib.request.Request(
-        f"{webhook_url}/im.disk.folder.file.upload",
-        data=body,
-        headers={
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        result = json.loads(resp.read())
-
-    if not result.get("result"):
-        raise RuntimeError(f"im.disk.folder.file.upload failed: {result}")
-
-    file_id = result["result"].get("ID") or result["result"].get("id")
-    print(f"  [bitrix] file uploaded, id={file_id}")
-
-    # Step 3: send a message with the file attached
-    msg_data = json.dumps({
-        "CHAT_ID": chat_id,
-        "MESSAGE": f"Прогноз выпечки на {filename.replace('.xlsx', '')} — план по всем пилотным пекарням.",
-        "ATTACH": [
-            {
-                "TYPE": "FILE",
-                "LINK": f"/disk/downloadfile/{file_id}/",
-                "NAME": filename,
-                "SIZE": len(file_bytes),
-            }
-        ],
+    # Step 1: upload file to the chat's Disk folder
+    upload_body = json.dumps({
+        "folderId": PILOT_CHAT_DISK_FOLDER_ID,
+        "filename": filename,
+        "content": base64.b64encode(file_bytes).decode(),
     }).encode()
-
     req = urllib.request.Request(
-        f"{webhook_url}/im.message.add",
-        data=msg_data,
-        headers={"Content-Type": "application/json"},
+        f"{VIBECODE_API_BASE}/files/upload",
+        data=upload_body,
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        upload_result = json.loads(resp.read())
+    if not upload_result.get("success"):
+        raise RuntimeError(f"File upload failed: {upload_result}")
+    file_id = upload_result["data"]["id"]
+    print(f"  [vibecode] file uploaded, id={file_id}")
+
+    # Step 2: post a message with the disk file attached
+    d = date_type.fromisoformat(forecast_date)
+    weekday_name = WEEKDAY_RU[d.weekday()]
+    msg_text = (
+        f"[b]Прогноз выпечки — {d.strftime('%d.%m.%Y')} ({weekday_name})[/b]\n"
+        f"Все пилотные пекарни · {len(PILOT_BAKERY_IDS)} пекарен\n"
+        f"Файл: прогноз + прогноз с учётом кратности по каждой позиции"
+    )
+    msg_body = json.dumps({
+        "message": msg_text,
+        "diskId": [file_id],
+    }).encode()
+    req = urllib.request.Request(
+        f"{VIBECODE_API_BASE}/chats/{PILOT_CHAT_DIALOG_ID}/messages",
+        data=msg_body,
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         msg_result = json.loads(resp.read())
-    print(f"  [bitrix] message sent: {msg_result.get('result')}")
+    if not msg_result.get("success"):
+        raise RuntimeError(f"Message send failed: {msg_result}")
+    print(f"  [vibecode] message sent, id={msg_result['data']}")
 
 
 def main() -> None:
@@ -381,15 +368,17 @@ def main() -> None:
         print("  --dry-run: skipping Bitrix24 send")
         return
 
-    webhook = os.environ.get("BITRIX24_WEBHOOK") or ""
-    chat_id = os.environ.get("BITRIX24_CHAT_ID") or ""
-    if not webhook or not chat_id:
-        print("  BITRIX24_WEBHOOK / BITRIX24_CHAT_ID not set — skipping send")
-        print("  Set them in .env or as env vars to enable automatic publishing")
+    api_key = (
+        os.environ.get("VIBECODE_API_KEY")
+        or os.environ.get("VIBECODE_API_KEY".lower())
+        or ""
+    )
+    if not api_key:
+        print("  VIBECODE_API_KEY not set — skipping Bitrix24 send")
         return
 
-    print(f"  sending to Bitrix24 chat {chat_id}...")
-    _send_to_bitrix24(file_bytes, filename, chat_id, webhook)
+    print(f"  sending to {PILOT_CHAT_DIALOG_ID}...")
+    _send_via_vibecode(file_bytes, filename, forecast_date)
     print("  done.")
 
 

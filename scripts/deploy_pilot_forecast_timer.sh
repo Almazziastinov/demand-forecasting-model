@@ -12,6 +12,12 @@ LOG_DIR="/var/log/pilot_forecast"
 mkdir -p "$(dirname "$SCRIPT_SRC")"
 mkdir -p "$LOG_DIR"
 
+# Ensure VIBECODE_API_KEY is in .env (must be added manually before running this script)
+if ! grep -q "VIBECODE_API_KEY" "$ENV_FILE"; then
+    echo "WARNING: VIBECODE_API_KEY not found in $ENV_FILE — Bitrix24 publish will be skipped."
+    echo "Add it manually: echo 'VIBECODE_API_KEY=<key>' >> $ENV_FILE"
+fi
+
 # Copy the script from repo
 cp /opt/demand-forecasting-model/scripts/publish_pilot_forecast.py "$SCRIPT_SRC" 2>/dev/null || true
 
