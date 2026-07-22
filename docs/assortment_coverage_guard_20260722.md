@@ -39,3 +39,12 @@ changed or redeployed.
 
 An emergency CLI bypass exists as `--disable-assortment-coverage-guard`, but
 normal automated runs leave the guard enabled.
+
+## Publication-boundary test
+
+An isolated orchestration test intentionally raises the same error as a
+corrupted-assortment guard. It confirms that `load_forecast_run` is never
+called. A paired positive test confirms that a passing allocation reaches
+`load_forecast_run` while `activate_run` remains disabled. Together with the
+pair-level tests, this verifies both detection and the publication boundary
+without writing to ClickHouse.

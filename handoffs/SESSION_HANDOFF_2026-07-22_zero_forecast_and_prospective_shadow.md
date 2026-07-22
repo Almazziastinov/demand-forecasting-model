@@ -47,3 +47,8 @@ with the selected assortment batch and blocks established missing pairs
 (at least two selling days and two units). A current read-only audit passed:
 211 bakeries, 29,578 recent pairs, zero blocking gaps. Production was not
 changed. See `docs/assortment_coverage_guard_20260722.md`.
+
+The publication boundary is covered by two isolated tests: simulated guard
+failure results in zero `load_forecast_run` calls; guard success permits one
+load with activation disabled. `tests/test_run_production_inference.py` passes
+7/7, and the three targeted guard/freshness tests pass 3/3.

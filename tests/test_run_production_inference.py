@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from pipelines.forecast_publish import production_dataset_refresh
+from pipelines.forecast_publish import run_production_inference as inference
 from pipelines.forecast_publish.run_production_inference import (
     assert_nonprod_tables,
     build_parser,
@@ -78,3 +79,66 @@ def test_profile_refresh_freshness_rejects_stale_summary(tmp_path: Path) -> None
             forecast_start="2026-07-20",
             max_age_days=8,
         )
+
+
+def test_guard_failure_stops_before_run_load(monkeypatch, tmp_path: Path) -> None:
+    args = build_parser().parse_args([])
+    args.output_dir = str(tmp_path)
+    args.activate_run = "none"
+    bakery_path = tmp_path / "bakery.csv"
+    bakery_path.write_text("date\n2026-07-22\n", encoding="utf-8")
+    loaded = []
+
+    monkeypatch.setattr(inference, "run_bakery_forecast", lambda *_: bakery_path)
+    monkeypatch.setattr(
+        inference,
+        "allocate_from_clickhouse",
+        lambda **_: (_ for _ in ()).throw(
+            RuntimeError("Assortment coverage guard found established SKU")
+        ),
+    )
+    monkeypatch.setattr(
+        inference, "load_forecast_run", lambda **kwargs: loaded.append(kwargs)
+    )
+
+    with pytest.raises(RuntimeError, match="Assortment coverage guard"):
+        inference.run_scenario(args, "base_raw_uplift")
+
+    assert loaded == []
+
+
+def test_guard_pass_allows_nonactivated_run_load(monkeypatch, tmp_path: Path) -> None:
+    args = build_parser().parse_args([])
+    args.output_dir = str(tmp_path)
+    args.activate_run = "none"
+    bakery_path = tmp_path / "bakery.csv"
+    sku_day_path = tmp_path / "sku_day.csv"
+    sku_hour_path = tmp_path / "sku_hour.csv"
+    allocation_summary_path = tmp_path / "allocation.json"
+    bakery_path.write_text("date\n2026-07-22\n", encoding="utf-8")
+    sku_day_path.write_text("date\n2026-07-22\n", encoding="utf-8")
+    sku_hour_path.write_text("date\n2026-07-22\n", encoding="utf-8")
+    allocation_summary_path.write_text("{}", encoding="utf-8")
+    loaded = []
+
+    monkeypatch.setattr(inference, "run_bakery_forecast", lambda *_: bakery_path)
+    monkeypatch.setattr(
+        inference,
+        "allocate_from_clickhouse",
+        lambda **_: {
+            "sku_daily": sku_day_path,
+            "sku_hourly": sku_hour_path,
+            "summary": allocation_summary_path,
+        },
+    )
+    monkeypatch.setattr(
+        inference,
+        "load_forecast_run",
+        lambda **kwargs: loaded.append(kwargs) or {"rows": 1},
+    )
+
+    result = inference.run_scenario(args, "base_raw_uplift")
+
+    assert len(loaded) == 1
+    assert loaded[0]["run_id"].startswith("prod_base_bakery_raw_uplift_sku_20260722")
+    assert not result["activated"]
