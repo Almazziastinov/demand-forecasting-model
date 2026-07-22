@@ -1,0 +1,20 @@
+{
+  "contract": "stockout_censored_demand_v1",
+  "grain": "date x bakery_id x product_id with positive observed sales",
+  "primary_key": [
+    "date",
+    "bakery_id",
+    "product_id"
+  ],
+  "fields": {
+    "demand_lower_bound": "Observed sales; exact on clean rows and a lower bound on stockout rows.",
+    "imputed_demand": "Estimated post-stockout demand, never taken from another SKU.",
+    "demand_point_estimate": "demand_lower_bound + imputed_demand.",
+    "demand_upper_guardrail": "Observed sales plus the configured per-case reconstruction cap.",
+    "is_clear_stockout": "Accepted observable stockout signal for this SKU-day.",
+    "reconstruction_confidence": "Evidence for the imputation: observed, high, medium, or insufficient.",
+    "suggested_training_weight": "Offline starting weight; not a production policy.",
+    "target_source": "Observed, reconstructed, or censored-without-estimate provenance."
+  },
+  "allocation_assumption": false
+}

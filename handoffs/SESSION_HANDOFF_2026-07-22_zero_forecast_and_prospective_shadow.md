@@ -173,3 +173,25 @@ belongs to the dynamic-allocation problem; uncovered deficit belongs to demand
 preprocessing and bakery-volume uplift; mixed days use both. Residual surplus
 above deficit is tracked separately as overproduction. Production was not
 touched. Full details: `docs/stockout_surplus_coverage_20260722.md`.
+
+## Simplified stockout-adjusted data layer
+
+The allocation interpretation was subsequently demoted: same-day surplus is
+not evidence that one SKU pulled volume from another. The primary path now
+restores censored stockout demand without donor or reallocation assumptions;
+allocation remains a later prospective research question.
+
+Added `build_stockout_adjusted_demand_dataset.py`. Its explicit target contract
+keeps observed sales as a lower bound, stores imputed demand and a capped point
+estimate separately, and records target provenance and reconstruction
+confidence. The materialized read-only pilot dataset has 114,852 SKU-days, all
+1,296 accepted stockouts, and 8,305.8 imputed units (0.815% of observed demand).
+Of the stockouts, 868 have high reconstruction evidence, 395 medium, and 33
+insufficient; 36 censored rows receive no point adjustment and are marked
+ineligible by the suggested starting weights.
+
+The configured cap binds on 661 cases (51.0%). A 0.50/10-unit policy yields
+6,204.0 imputed units, while 1.00/20 yields 9,214.3. The next model experiment
+must therefore compare lower-bound, weighted-point, and cap variants instead
+of treating the current point estimate as ground truth. No production writes
+were performed. Details: `docs/stockout_adjusted_demand_dataset_20260722.md`.

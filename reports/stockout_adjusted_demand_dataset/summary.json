@@ -1,0 +1,42 @@
+{
+  "dataset_contract": "stockout_censored_demand_v1",
+  "rows": 114852,
+  "date_min": "2026-05-03",
+  "date_max": "2026-07-19",
+  "bakeries": 11,
+  "products": 388,
+  "clear_stockout_rows": 1296,
+  "adjusted_stockout_rows": 1260,
+  "unadjusted_censored_rows": 36,
+  "imputed_demand_units": 8305.758516694808,
+  "observed_demand_units": 1018682.023,
+  "point_demand_units": 1026987.7815166949,
+  "point_uplift_pct": 0.8153435840788179,
+  "cap_binding_stockout_rows": 661,
+  "cap_binding_stockout_share": 0.5100308641975309,
+  "confidence_counts": {
+    "high": 868,
+    "medium": 395,
+    "insufficient": 33
+  },
+  "target_source_counts": {
+    "observed_sales": 113556,
+    "reconstructed_hourly_profile": 1260,
+    "censored_insufficient_history": 33,
+    "censored_no_post_cutoff_estimate": 3
+  },
+  "quality": {
+    "duplicate_key_rows": 0,
+    "negative_observed_rows": 0,
+    "negative_imputation_rows": 0,
+    "point_below_observed_rows": 0
+  },
+  "contains_allocation_assumption": false,
+  "production_write": false,
+  "reconstruction_parameters": {
+    "lookback_days": 42,
+    "min_reference_days": 3,
+    "max_case_uplift_ratio": 0.75,
+    "max_case_uplift_units": 20.0
+  }
+}

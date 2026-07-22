@@ -1,0 +1,4 @@
+﻿reconstruction_confidence,stockout_rows,adjusted_rows,observed_demand,imputed_demand,median_imputation,median_imputation_ratio,cap_binding_rows
+high,868,866,14870.0,6179.632419883868,6.0,0.6818181818181818,451
+medium,395,394,4785.0,2126.126096810939,3.75,0.75,210
+insufficient,33,0,144.0,0.0,0.0,0.0,0

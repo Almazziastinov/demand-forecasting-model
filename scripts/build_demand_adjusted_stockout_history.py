@@ -207,9 +207,9 @@ def reconstruct_cases(
                 "case_cap": case_cap,
                 "imputed_demand": imputed,
                 "demand_adjusted_sku": float(case.daily_sold) + imputed,
-                "bakery_gap": float(case.bakery_gap),
-                "bakery_ratio": float(case.bakery_ratio),
-                "robust_case_type": case.robust_case_type,
+                "bakery_gap": float(getattr(case, "bakery_gap", np.nan)),
+                "bakery_ratio": float(getattr(case, "bakery_ratio", np.nan)),
+                "robust_case_type": getattr(case, "robust_case_type", None),
             }
         )
     return pd.DataFrame(audit_rows), pd.DataFrame(hourly_rows)
