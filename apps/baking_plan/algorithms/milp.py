@@ -121,25 +121,15 @@ MANDATORY_SHORTFALL_WEIGHT = 10_000.0
 # SOLVE_TIME_LIMIT_SECONDS safety margin.
 ANTI_WASTE_WEIGHT = 1e-2
 
-# Do not open one more full production batch for a tiny tail above the
-# previous multiple. Example: forecast 61 with kratnost=20 should be allowed
-# to stay at 60 rather than forcing 80 and crowding out other SKUs. The first
-# partial batch is still protected: demand 5 with kratnost=20 is not rounded
-# down to 0.
-ROUNDING_TAIL_MAX_FRACTION = 0.50
-
-
 def _rounding_tolerant_target(value: float, kratnost: float) -> float:
+    """Round cumulative demand UP to the nearest kratnost multiple.
+
+    Any remainder above a floor multiple — even a single unit — requires a
+    full extra tray batch. Example: demand 21, kratnost 20 → target 40.
+    """
     if value <= 0 or kratnost <= 0:
         return value
-    floor_value = math.floor(value / kratnost + 1e-9) * kratnost
-    if floor_value <= 0:
-        return value
-    tail = value - floor_value
-    tolerance = ROUNDING_TAIL_MAX_FRACTION * kratnost
-    if 0 < tail <= tolerance + 1e-9:
-        return floor_value
-    return value
+    return math.ceil(value / kratnost - 1e-9) * kratnost
 
 
 def _shift_to_later_windows(
