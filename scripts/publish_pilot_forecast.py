@@ -276,58 +276,76 @@ PILOT_CHAT_DISK_FOLDER_ID = 1473995
 B24_WEBHOOK_URL_ENV = "B24_WEBHOOK_URL"
 
 
-def _send_via_vibecode(file_bytes: bytes, filename: str, forecast_date: str) -> None:
+def _send_to_chat(file_bytes: bytes, filename: str, forecast_date: str) -> None:
     """Upload Excel to the chat's Disk folder and send it as a file message.
 
     Flow:
-      1. Upload via VibeCode /v1/files/upload → get disk object id
-      2. Call native B24 im.disk.file.commit → sends file as a proper chat attachment
-      3. Send a short text header via VibeCode chats API
+      1. Native B24 disk.folder.uploadfile → get uploadUrl (supports Cyrillic filenames)
+      2. POST file bytes to uploadUrl via multipart → get disk object id
+      3. im.disk.file.commit → sends file as a proper attachment in chat
+      4. Send short text message via VibeCode chats API
     """
-    import base64
+    import email.generator
+    import io
     import json
+    import time as _time
     import urllib.request
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.application import MIMEApplication
 
     api_key = os.environ.get("VIBECODE_API_KEY") or ""
     if not api_key:
         raise RuntimeError("VIBECODE_API_KEY not set")
-
-    vibe_headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    # Step 1: upload file to the chat's Disk folder via VibeCode
-    import time as _time
-    d_upload = date_type.fromisoformat(forecast_date)
-    ascii_filename = f"forecast_{d_upload.strftime('%Y-%m-%d')}_{int(_time.time())}.xlsx"
-    upload_body = json.dumps({
-        "folderId": PILOT_CHAT_DISK_FOLDER_ID,
-        "filename": ascii_filename,
-        "content": base64.b64encode(file_bytes).decode("ascii"),
-    }, ensure_ascii=True).encode("utf-8")
-    req = urllib.request.Request(
-        f"{VIBECODE_API_BASE}/files/upload",
-        data=upload_body,
-        headers=vibe_headers,
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            upload_result = json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        body = exc.read()
-        raise RuntimeError(f"File upload HTTP {exc.code}: {body[:500]}")
-    if not upload_result.get("success"):
-        raise RuntimeError(f"File upload failed: {upload_result}")
-    disk_id = upload_result["data"]["id"]
-    print(f"  [vibecode] file uploaded, disk_id={disk_id}")
-
-    # Step 2: commit file to the chat via native B24 REST (im.disk.file.commit)
-    # This sends the file as a proper attachment message in the chat.
     b24_webhook_base = os.environ.get(B24_WEBHOOK_URL_ENV, "").rstrip("/")
     if not b24_webhook_base:
         raise RuntimeError(f"{B24_WEBHOOK_URL_ENV} not set in environment")
+
+    d = date_type.fromisoformat(forecast_date)
+    weekday_name = WEEKDAY_RU[d.weekday()]
+    # Russian filename shown in chat
+    ru_filename = f"Прогноз_{d.strftime('%d.%m.%Y')}_{weekday_name}.xlsx"
+
+    # Step 1: get uploadUrl from native B24 REST
+    step1_body = json.dumps({
+        "id": PILOT_CHAT_DISK_FOLDER_ID,
+        "data": {"NAME": ru_filename},
+        "generateUniqueName": "Y",
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{b24_webhook_base}/disk.folder.uploadfile",
+        data=step1_body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        step1 = json.loads(resp.read())
+    if "error" in step1:
+        raise RuntimeError(f"disk.folder.uploadfile failed: {step1}")
+    upload_url = step1["result"]["uploadUrl"]
+    print(f"  [b24] uploadUrl obtained")
+
+    # Step 2: POST file bytes to uploadUrl as multipart/form-data
+    boundary = f"----FormBoundary{int(_time.time())}"
+    body_parts = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{ru_filename}"\r\n'
+        f"Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n"
+        f"\r\n"
+    ).encode("utf-8") + file_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    req = urllib.request.Request(
+        upload_url,
+        data=body_parts,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        step2 = json.loads(resp.read())
+    if "error" in step2:
+        raise RuntimeError(f"File upload to uploadUrl failed: {step2}")
+    disk_id = step2["result"]["ID"]
+    print(f"  [b24] file uploaded, disk_id={disk_id}")
+
+    # Step 3: commit file to chat — sends it as a proper attachment message
     commit_body = json.dumps({
         "CHAT_ID": PILOT_CHAT_ID,
         "DISK_ID": disk_id,
@@ -345,26 +363,23 @@ def _send_via_vibecode(file_bytes: bytes, filename: str, forecast_date: str) -> 
     file_msg_id = commit_result.get("result", {}).get("MESSAGE_ID")
     print(f"  [b24] file message sent, message_id={file_msg_id}")
 
-    # Step 3: send a text header message via VibeCode
-    d = date_type.fromisoformat(forecast_date)
-    weekday_name = WEEKDAY_RU[d.weekday()]
-    msg_text = (
-        f"[b]Прогноз выпечки — {d.strftime('%d.%m.%Y')} ({weekday_name})[/b]\n"
-        f"Все пилотные пекарни · {len(PILOT_BAKERY_IDS)} пекарен\n"
-        f"Прогноз + прогноз с учётом кратности по каждой позиции"
-    )
-    msg_body = json.dumps({"message": msg_text}).encode()
+    # Step 4: send short text message via VibeCode
+    msg_text = f"Прогноз — {d.strftime('%d.%m.%Y')} ({weekday_name})"
+    msg_body = json.dumps({"message": msg_text}).encode("utf-8")
     req = urllib.request.Request(
         f"{VIBECODE_API_BASE}/chats/{PILOT_CHAT_DIALOG_ID}/messages",
         data=msg_body,
-        headers=vibe_headers,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         msg_result = json.loads(resp.read())
     if not msg_result.get("success"):
         raise RuntimeError(f"Message send failed: {msg_result}")
-    print(f"  [vibecode] header message sent, id={msg_result['data']}")
+    print(f"  [vibecode] text message sent, id={msg_result['data']}")
 
 
 def main() -> None:
@@ -414,7 +429,7 @@ def main() -> None:
         return
 
     print(f"  sending to {PILOT_CHAT_DIALOG_ID}...")
-    _send_via_vibecode(file_bytes, filename, forecast_date)
+    _send_to_chat(file_bytes, filename, forecast_date)
     print("  done.")
 
 
