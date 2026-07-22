@@ -21,6 +21,23 @@ DEFAULT_ALL_STOCKOUTS = (
     ROOT / "reports/pilot_stockout_responsibility/stockout_cases_classified.csv"
 )
 DEFAULT_OUTPUT = ROOT / "reports/demand_adjusted_stockout_history"
+CASE_MODES = {
+    "robust_demand_loss",
+    "not_robust_allocation",
+    "standard_demand_loss",
+}
+
+
+def select_cases(classified: pd.DataFrame, *, mode: str) -> pd.DataFrame:
+    if mode == "robust_demand_loss":
+        mask = classified["robust_case_type"].eq("demand_loss")
+    elif mode == "not_robust_allocation":
+        mask = ~classified["robust_case_type"].eq("allocation")
+    elif mode == "standard_demand_loss":
+        mask = classified["case_type"].eq("demand_loss")
+    else:
+        raise ValueError(f"Unsupported case mode: {mode}")
+    return classified[mask].copy()
 
 
 def load_hourly_sales(
@@ -109,7 +126,8 @@ def reconstruct_cases(
         ].copy()
         if not history.empty:
             history["is_known_stockout"] = [
-                (date, bakery_id, product_id) in stockout_keys for date in history["date"]
+                (date, bakery_id, product_id) in stockout_keys
+                for date in history["date"]
             ]
             history = history[~history["is_known_stockout"]]
         reference_days = int(history["date"].nunique())
@@ -245,9 +263,9 @@ def build_adjusted_history(
     profile_rows["observed_share"] = profile_rows["observed_sales"] / profile_rows[
         "bakery_observed_sales"
     ].replace(0.0, np.nan)
-    profile_rows["adjusted_share"] = profile_rows["demand_adjusted_sales"] / profile_rows[
-        "bakery_adjusted_sales"
-    ].replace(0.0, np.nan)
+    profile_rows["adjusted_share"] = profile_rows[
+        "demand_adjusted_sales"
+    ] / profile_rows["bakery_adjusted_sales"].replace(0.0, np.nan)
     profile = profile_rows.groupby(
         ["bakery_id", "product_id", "product_name", "dow"], as_index=False
     ).agg(
@@ -266,14 +284,22 @@ def main() -> None:
     parser.add_argument("--cases", default=str(DEFAULT_CASES))
     parser.add_argument("--all-stockouts", default=str(DEFAULT_ALL_STOCKOUTS))
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT))
+    parser.add_argument(
+        "--case-mode",
+        choices=sorted(CASE_MODES),
+        default="robust_demand_loss",
+    )
     args = parser.parse_args()
 
     classified = pd.read_csv(args.cases, encoding="utf-8-sig")
     classified["date"] = pd.to_datetime(classified["date"]).dt.normalize()
-    cases = classified[classified["robust_case_type"].eq("demand_loss")].copy()
+    cases = select_cases(classified, mode=args.case_mode)
     all_stockouts = pd.read_csv(args.all_stockouts, encoding="utf-8-sig")
     client = create_client(args.env_file)
-    date_from = max(cases["date"].min() - pd.Timedelta(days=42), pd.Timestamp("2026-05-03"))
+    date_from = max(
+        cases["date"].min() - pd.Timedelta(days=42),
+        pd.Timestamp("2026-05-03"),
+    )
     hourly = load_hourly_sales(
         client,
         bakery_ids=sorted(classified["bakery_id"].unique().tolist()),
@@ -298,7 +324,9 @@ def main() -> None:
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     audit.to_csv(output / "case_adjustments.csv", index=False, encoding="utf-8-sig")
-    hourly_audit.to_csv(output / "hourly_adjustments.csv", index=False, encoding="utf-8-sig")
+    hourly_audit.to_csv(
+        output / "hourly_adjustments.csv", index=False, encoding="utf-8-sig"
+    )
     bakery_adjustments.to_csv(
         output / "bakery_day_adjustments.csv", index=False, encoding="utf-8-sig"
     )
@@ -312,7 +340,8 @@ def main() -> None:
         output / "demand_adjusted_share_profile.csv", index=False, encoding="utf-8-sig"
     )
     summary = {
-        "robust_demand_loss_cases": int(len(cases)),
+        "case_mode": args.case_mode,
+        "selected_cases": int(len(cases)),
         "cases_with_adjustment": int(audit["imputed_demand"].gt(0).sum()),
         "imputed_demand_units": float(audit["imputed_demand"].sum()),
         "median_case_imputation": float(audit["imputed_demand"].median()),
@@ -321,7 +350,9 @@ def main() -> None:
         "adjusted_sku_day_rows": int(len(daily_sku)),
         "adjusted_bakery_day_rows": int(len(daily_bakery)),
         "profile_rows": int(len(adjusted_profile)),
-        "max_profile_share_delta_pp": float(adjusted_profile["share_delta"].max() * 100),
+        "max_profile_share_delta_pp": float(
+            adjusted_profile["share_delta"].max() * 100
+        ),
         "production_write": False,
     }
     (output / "summary.json").write_text(

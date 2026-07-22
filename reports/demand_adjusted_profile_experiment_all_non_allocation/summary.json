@@ -1,0 +1,186 @@
+{
+  "train_end": "2026-07-05",
+  "holdout_start": "2026-07-06",
+  "holdout_end": "2026-07-19",
+  "bakeries": 11,
+  "train_imputed_units": 2758.3752728353593,
+  "train_adjusted_cases": 430,
+  "adjusted_pairs": 232,
+  "profile_rows": 8434,
+  "profile_rows_changed": 2801,
+  "max_abs_share_delta_pp": 100.0,
+  "max_abs_share_delta_stable_routing_pp": 63.893420209181365,
+  "max_abs_share_delta_stable_tier1_membership_pp": 4.844248285630471,
+  "baseline_exact_triples": 977,
+  "adjusted_exact_triples": 978,
+  "new_exact_triples": 1,
+  "removed_exact_triples": 0,
+  "new_tier1_rows": 90,
+  "removed_tier1_rows": 0,
+  "triples_with_new_tier1_member": 66,
+  "metric_deltas_adjusted_minus_baseline": {
+    "all_holdout": {
+      "mae_delta": -0.009594981506485745,
+      "wape_delta": -0.0025258092695874534,
+      "underforecast_qty_delta": -219.55705685685098,
+      "overforecast_qty_delta": -219.55705685686553,
+      "sku_day_mae_delta": -0.026465406472439668,
+      "sku_day_wape_delta": -0.003131498647286235,
+      "sku_day_underforecast_qty_delta": -272.20686645976093,
+      "sku_day_overforecast_qty_delta": -272.20686645976093
+    },
+    "clean_bakery_days": {
+      "mae_delta": 0.012229173248867298,
+      "wape_delta": -0.00023297593589055587,
+      "underforecast_qty_delta": -2.9042041634456837,
+      "overforecast_qty_delta": -2.9042041634475027,
+      "sku_day_mae_delta": 0.014136209241255138,
+      "sku_day_wape_delta": 0.0007990047963615243,
+      "sku_day_underforecast_qty_delta": 9.960140506920652,
+      "sku_day_overforecast_qty_delta": 9.96014050692429
+    },
+    "clean_sku_days": {
+      "mae_delta": -0.010686565041350349,
+      "wape_delta": -0.003728661982782766,
+      "underforecast_qty_delta": -194.0845833318017,
+      "overforecast_qty_delta": -432.0504581143323,
+      "sku_day_mae_delta": -0.031484022361278896,
+      "sku_day_wape_delta": -0.003816156838258866,
+      "sku_day_underforecast_qty_delta": -201.43086401004985,
+      "sku_day_overforecast_qty_delta": -439.3967387925659
+    },
+    "adjusted_pairs_clean_sku_days": {
+      "mae_delta": -0.02165146933838491,
+      "wape_delta": 0.0045792908118906794,
+      "underforecast_qty_delta": -224.3721202372617,
+      "overforecast_qty_delta": 464.8856322593783,
+      "sku_day_mae_delta": -0.006347754643549308,
+      "sku_day_wape_delta": 0.0015756195297806919,
+      "sku_day_underforecast_qty_delta": -303.2515317767484,
+      "sku_day_overforecast_qty_delta": 386.0062207198898
+    },
+    "stable_routing_clean_sku_days": {
+      "mae_delta": -0.013450044349755164,
+      "wape_delta": -0.003909689662567439,
+      "underforecast_qty_delta": -209.1736584908067,
+      "overforecast_qty_delta": -447.13953327332274,
+      "sku_day_mae_delta": -0.03537195031335916,
+      "sku_day_wape_delta": -0.004189673433714902,
+      "sku_day_underforecast_qty_delta": -232.67386673539295,
+      "sku_day_overforecast_qty_delta": -470.63974151789444
+    },
+    "new_exact_routing_clean_sku_days": {
+      "mae_delta": 2.5650543067462763,
+      "wape_delta": 0.5341265543013678,
+      "underforecast_qty_delta": 15.089075159013653,
+      "overforecast_qty_delta": 15.089075159013653,
+      "sku_day_mae_delta": 2.5650543067462763,
+      "sku_day_wape_delta": 0.5341265543013678,
+      "sku_day_underforecast_qty_delta": 15.089075159013653,
+      "sku_day_overforecast_qty_delta": 15.089075159013653
+    },
+    "stable_tier1_membership_clean_sku_days": {
+      "mae_delta": -0.004627089303349319,
+      "wape_delta": 7.255020838492499e-05,
+      "underforecast_qty_delta": 5.793704367606551,
+      "overforecast_qty_delta": 5.705738941687741,
+      "sku_day_mae_delta": -0.002415891732348463,
+      "sku_day_wape_delta": -3.968298341738841e-05,
+      "sku_day_underforecast_qty_delta": -3.100958068826003,
+      "sku_day_overforecast_qty_delta": -3.188923494744813
+    },
+    "new_tier1_member_clean_sku_days": {
+      "mae_delta": -0.11057349836088504,
+      "wape_delta": -0.06767781844193133,
+      "underforecast_qty_delta": -199.87828769941189,
+      "overforecast_qty_delta": -437.75619705600184,
+      "sku_day_mae_delta": -0.11927212855633318,
+      "sku_day_wape_delta": -0.06975898789899349,
+      "sku_day_underforecast_qty_delta": -209.6822784676806,
+      "sku_day_overforecast_qty_delta": -447.56018782427054
+    }
+  },
+  "metric_deltas_guarded_routing_minus_baseline": {
+    "all_holdout": {
+      "mae_delta": -0.012275220986947222,
+      "wape_delta": -0.002695851956554307,
+      "underforecast_qty_delta": -234.33809053979348,
+      "overforecast_qty_delta": -234.33809053980804,
+      "sku_day_mae_delta": -0.030255081060011513,
+      "sku_day_wape_delta": -0.0034872961288543447,
+      "sku_day_underforecast_qty_delta": -303.1347155379772,
+      "sku_day_overforecast_qty_delta": -303.1347155379917
+    },
+    "clean_bakery_days": {
+      "mae_delta": -0.008064540813346177,
+      "wape_delta": -0.0014187139081265343,
+      "underforecast_qty_delta": -17.685237846399104,
+      "overforecast_qty_delta": -17.685237846399104,
+      "sku_day_mae_delta": -0.014881269390566665,
+      "sku_day_wape_delta": -0.0016820344758733397,
+      "sku_day_underforecast_qty_delta": -20.96770857130832,
+      "sku_day_overforecast_qty_delta": -20.967708571304684
+    },
+    "clean_sku_days": {
+      "mae_delta": -0.013418242852803797,
+      "wape_delta": -0.0039047054070018294,
+      "underforecast_qty_delta": -208.86561701475875,
+      "overforecast_qty_delta": -446.8314917972748,
+      "sku_day_mae_delta": -0.035329649189192125,
+      "sku_day_wape_delta": -0.004184510268218089,
+      "sku_day_underforecast_qty_delta": -232.35871308828064,
+      "sku_day_overforecast_qty_delta": -470.3245878707821
+    },
+    "adjusted_pairs_clean_sku_days": {
+      "mae_delta": -0.026075376632356484,
+      "wape_delta": 0.0036076955099171304,
+      "underforecast_qty_delta": -228.52677930860227,
+      "overforecast_qty_delta": 418.01016288048413,
+      "sku_day_mae_delta": -0.022057622428418355,
+      "sku_day_wape_delta": 0.0006935434455193068,
+      "sku_day_underforecast_qty_delta": -305.05532667175976,
+      "sku_day_overforecast_qty_delta": 341.4816155173248
+    },
+    "stable_routing_clean_sku_days": {
+      "mae_delta": -0.013450044349755164,
+      "wape_delta": -0.003909689662567439,
+      "underforecast_qty_delta": -209.1736584908067,
+      "overforecast_qty_delta": -447.13953327332274,
+      "sku_day_mae_delta": -0.03537195031335916,
+      "sku_day_wape_delta": -0.004189673433714902,
+      "sku_day_underforecast_qty_delta": -232.67386673539295,
+      "sku_day_overforecast_qty_delta": -470.63974151789444
+    },
+    "new_exact_routing_clean_sku_days": {
+      "mae_delta": 0.0050088044887737215,
+      "wape_delta": 0.010904123046356906,
+      "underforecast_qty_delta": 0.30804147605959287,
+      "overforecast_qty_delta": 0.30804147605959287,
+      "sku_day_mae_delta": 0.0050088044887737215,
+      "sku_day_wape_delta": 0.010904123046356906,
+      "sku_day_underforecast_qty_delta": 0.30804147605959287,
+      "sku_day_overforecast_qty_delta": 0.30804147605959287
+    },
+    "stable_tier1_membership_clean_sku_days": {
+      "mae_delta": -0.004627089303349319,
+      "wape_delta": 7.255020838492499e-05,
+      "underforecast_qty_delta": 5.793704367606551,
+      "overforecast_qty_delta": 5.705738941687741,
+      "sku_day_mae_delta": -0.002415891732348463,
+      "sku_day_wape_delta": -3.968298341738841e-05,
+      "sku_day_underforecast_qty_delta": -3.100958068826003,
+      "sku_day_overforecast_qty_delta": -3.188923494744813
+    },
+    "new_tier1_member_clean_sku_days": {
+      "mae_delta": -0.1607198226837192,
+      "wape_delta": -0.07081550355117616,
+      "underforecast_qty_delta": -214.65932138236622,
+      "overforecast_qty_delta": -452.53723073895617,
+      "sku_day_mae_delta": -0.20414680384565065,
+      "sku_day_wape_delta": -0.07289667300823832,
+      "sku_day_underforecast_qty_delta": -224.46331215063583,
+      "sku_day_overforecast_qty_delta": -462.34122150722396
+    }
+  },
+  "production_write": false
+}

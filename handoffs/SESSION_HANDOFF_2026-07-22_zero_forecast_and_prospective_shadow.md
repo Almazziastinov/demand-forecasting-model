@@ -71,3 +71,23 @@ left 553 one-day/low-volume missing rows diagnostic-only, as intended.
 Conclusion: retain the 2/2 threshold. Historical evidence supports the local
 publication guard, but it has not been deployed. Full methodology and caveats:
 `docs/assortment_coverage_guard_backtest_20260722.md`.
+
+## Demand-adjusted profile prototype
+
+Expanded demand preprocessing from model-underforecast rows to all 1,296 clear
+stockout SKU-days. The inverse mechanism rule selected 591 cases not robustly
+classified as allocation; 581 were reconstructed for 3,775 units. A temporal
+A/B trained through 2026-07-05 and evaluated 2026-07-06..2026-07-19.
+
+The experiment now mirrors the production `n_days >= 8` exact-profile gate and
+fallback routing. Reconstruction added 90 tier-1 SKU rows in 66 existing exact
+contexts and improved their clean SKU-day WAPE by 0.0729. One whole context was
+promoted from fallback to exact and worsened sharply, so the guarded candidate
+freezes exact/fallback routing to the observed-sales profile while allowing new
+SKU members inside already-exact contexts.
+
+With guarded routing, clean SKU-day WAPE improved from 0.8301 to 0.8259 and
+clean bakery-day hourly WAPE improved from 1.2254 to 1.2240. Pair-level results
+are mixed: underforecast decreased while overforecast increased. No production
+state changed. Next: rolling-cutoff validation and a separate bakery-day target
+experiment. See `docs/demand_adjusted_profile_experiment_20260722.md`.

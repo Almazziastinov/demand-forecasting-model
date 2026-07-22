@@ -1,0 +1,14 @@
+{
+  "case_mode": "not_robust_allocation",
+  "selected_cases": 591,
+  "cases_with_adjustment": 581,
+  "imputed_demand_units": 3775.163818426524,
+  "median_case_imputation": 4.940717739581777,
+  "max_case_imputation": 20.000000000000004,
+  "reference_coverage": 0.9830795262267343,
+  "adjusted_sku_day_rows": 114852,
+  "adjusted_bakery_day_rows": 858,
+  "profile_rows": 15839,
+  "max_profile_share_delta_pp": 0.43576887700480027,
+  "production_write": false
+}
