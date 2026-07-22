@@ -72,12 +72,14 @@ def _build_report(forecast_date: str) -> list[dict]:
     run_id = str(run_df.iloc[0]["run_id"])
 
     # Bakery names for pilot bakeries
+    # dim_bakeries uses zero-padded string bakery_id ("000000016"), same as baking_sku_meta
+    pilot_bids_str = [f"{b:09d}" for b in PILOT_BAKERY_IDS]
     bakery_df = client.query_df(
         "select bakery_id as bid, any(bakery_name) as name, any(city) as city "
         "from dim_bakeries "
         "where bakery_id in %(bids)s "
         "group by bakery_id",
-        parameters={"bids": [str(b) for b in PILOT_BAKERY_IDS]},
+        parameters={"bids": pilot_bids_str},
     )
     bakery_info: dict[int, dict] = {}
     for row in bakery_df.to_dict("records"):
