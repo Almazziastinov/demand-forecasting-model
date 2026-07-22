@@ -347,25 +347,7 @@ def _send_to_chat(file_bytes: bytes, filename: str, forecast_date: str) -> None:
     disk_id = step2["result"]["ID"]
     print(f"  [b24] file uploaded, disk_id={disk_id}")
 
-    # Step 3: commit file to chat — sends it as a proper attachment message
-    commit_body = json.dumps({
-        "CHAT_ID": PILOT_CHAT_ID,
-        "DISK_ID": disk_id,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        f"{b24_webhook_base}/im.disk.file.commit",
-        data=commit_body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        commit_result = json.loads(resp.read())
-    if "error" in commit_result:
-        raise RuntimeError(f"im.disk.file.commit failed: {commit_result}")
-    file_msg_id = commit_result.get("result", {}).get("MESSAGE_ID")
-    print(f"  [b24] file message sent, message_id={file_msg_id}")
-
-    # Step 4: send short text message via VibeCode
+    # Step 3: send short text message first via VibeCode
     msg_text = f"Прогноз — {d.strftime('%d.%m.%Y')} ({weekday_name})"
     msg_body = json.dumps({"message": msg_text}).encode("utf-8")
     req = urllib.request.Request(
@@ -382,6 +364,24 @@ def _send_to_chat(file_bytes: bytes, filename: str, forecast_date: str) -> None:
     if not msg_result.get("success"):
         raise RuntimeError(f"Message send failed: {msg_result}")
     print(f"  [vibecode] text message sent, id={msg_result['data']}")
+
+    # Step 4: commit file to chat — sends it as a proper attachment message
+    commit_body = json.dumps({
+        "CHAT_ID": PILOT_CHAT_ID,
+        "DISK_ID": disk_id,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{b24_webhook_base}/im.disk.file.commit",
+        data=commit_body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        commit_result = json.loads(resp.read())
+    if "error" in commit_result:
+        raise RuntimeError(f"im.disk.file.commit failed: {commit_result}")
+    file_msg_id = commit_result.get("result", {}).get("MESSAGE_ID")
+    print(f"  [b24] file message sent, message_id={file_msg_id}")
 
 
 def main() -> None:
