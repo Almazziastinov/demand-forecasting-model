@@ -3,7 +3,8 @@
 ## Completed
 
 - Classified all 47 clear-stockout rows with missing/zero forecasts.
-- Confirmed 46 historical assortment exclusions and one forecast-grid drop.
+- Corrected the as-of logic to include `loaded_at` and exact latest-batch
+  selection; all 47 cases are historical allocation-assortment exclusions.
 - Added a read-only cause-analysis script and local CSV/JSON artifacts.
 - Added a prospective journal keyed by Moscow calendar date.
 - Integrated the journal into the complete stockout-direction shadow runner.
@@ -25,8 +26,15 @@ replay days are deliberately not imported into this counter.
 
 ## Next work
 
-1. Trace product 4944 at bakery 257 through forecast-grid construction.
-2. Validate that the production refresh publishes effective assortment before
-   forecast generation, without changing production during investigation.
-3. Run the shadow once on each new Moscow calendar day until 21 observations.
-4. Review gates and only then prepare a separate production proposal.
+1. Keep the existing two-day assortment freshness guard and monitor refresh
+   completion before forecast allocation.
+2. Run the shadow once on each new Moscow calendar day until 21 observations.
+3. Review gates and only then prepare a separate production proposal.
+
+## Correction after detailed trace
+
+The originally reported single grid-drop was historical lookahead: its
+assortment row became valid for 2026-07-19 but was loaded on 2026-07-20, after
+the forecast run. Current run `prod_base_bakery_raw_uplift_sku_20260722_h14`
+contains all 18 historically affected bakery/SKU pairs on 14/14 horizon days.
+The 20 July refresh repair has therefore removed the observed failure mode.

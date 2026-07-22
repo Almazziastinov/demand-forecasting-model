@@ -40,6 +40,33 @@ def classify_causes(cases: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def membership_in_latest_batch(
+    frame: pd.DataFrame, row: pd.Series, *, include_scope: bool = False
+) -> bool:
+    """Match the latest city batch actually available before the forecast run."""
+    available = frame[
+        frame["city"].eq(row.city)
+        & (pd.to_datetime(frame["valid_from"]) <= row.date)
+        & (pd.to_datetime(frame["loaded_at"], utc=True) <= row.run_generated_at)
+    ]
+    if available.empty:
+        return False
+    latest_valid_from = pd.to_datetime(available["valid_from"]).max()
+    subset = available[
+        pd.to_datetime(available["valid_from"]).eq(latest_valid_from)
+        & available["product_id"].eq(int(row.product_id))
+        & (
+            available["valid_to"].isna()
+            | (pd.to_datetime(available["valid_to"]) >= row.date)
+        )
+    ]
+    if include_scope and not subset.empty:
+        bakery_match = subset["bakery_id"].fillna(-1).astype(int).eq(int(row.bakery_id))
+        city_scope = subset["scope"].astype(str).str.lower().ne("bakery")
+        subset = subset[bakery_match | city_scope]
+    return not subset.empty
+
+
 def load_evidence(client, cases: pd.DataFrame) -> pd.DataFrame:
     bakery_ids = sorted(cases["bakery_id"].astype(int).unique().tolist())
     product_ids = sorted(cases["product_id"].astype(int).unique().tolist())
@@ -55,7 +82,7 @@ def load_evidence(client, cases: pd.DataFrame) -> pd.DataFrame:
 
     assortment = client.query_df(
         """
-        select city, toInt64(product_id) product_id, valid_from, valid_to
+        select city, toInt64(product_id) product_id, valid_from, valid_to, loaded_at
         from assortment_city_products
         where toInt64(product_id) in %(product_ids)s and is_active = 1
           and valid_from <= toDate(%(date_to)s)
@@ -70,7 +97,7 @@ def load_evidence(client, cases: pd.DataFrame) -> pd.DataFrame:
     bakeable = client.query_df(
         """
         select city, toInt64(product_id) product_id, scope, bakery_id,
-               valid_from, valid_to
+               valid_from, valid_to, loaded_at
         from bakeable_products
         where toInt64(product_id) in %(product_ids)s and is_active = 1
           and is_bakeable = 1 and valid_from <= toDate(%(date_to)s)
@@ -94,31 +121,12 @@ def load_evidence(client, cases: pd.DataFrame) -> pd.DataFrame:
         map(tuple, profile[["bakery_id", "product_id"]].astype(int).values)
     )
 
-    def active(
-        frame: pd.DataFrame, row: pd.Series, include_scope: bool = False
-    ) -> bool:
-        subset = frame[
-            frame["product_id"].eq(int(row.product_id))
-            & frame["city"].eq(row.city)
-            & (pd.to_datetime(frame["valid_from"]) <= row.date)
-            & (
-                frame["valid_to"].isna()
-                | (pd.to_datetime(frame["valid_to"]) >= row.date)
-            )
-        ]
-        if include_scope and not subset.empty:
-            bakery_match = (
-                subset["bakery_id"].fillna(-1).astype(int).eq(int(row.bakery_id))
-            )
-            city_scope = subset["scope"].astype(str).str.lower().ne("bakery")
-            subset = subset[bakery_match | city_scope]
-        return not subset.empty
-
     evidence["assortment_asof"] = evidence.apply(
-        lambda row: active(assortment, row), axis=1
+        lambda row: membership_in_latest_batch(assortment, row), axis=1
     )
     evidence["bakeable_asof"] = evidence.apply(
-        lambda row: active(bakeable, row, include_scope=True), axis=1
+        lambda row: membership_in_latest_batch(bakeable, row, include_scope=True),
+        axis=1,
     )
     evidence["current_profile_present"] = [
         (int(row.bakery_id), int(row.product_id)) in profile_keys
@@ -141,8 +149,19 @@ def main() -> None:
         labels["stockout_group"].eq("clear_stockout") & ~labels["has_forecast"]
     ].copy()
     choices = choose_dominant_runs(labels)
+    run_times = (
+        labels[labels["source_run_id"].notna()]
+        .assign(
+            run_generated_at=lambda frame: pd.to_datetime(
+                frame["latest_generated_at"], errors="coerce", utc=True
+            )
+        )
+        .groupby("source_run_id", as_index=False)["run_generated_at"]
+        .max()
+    )
+    choices = choices.merge(run_times, on="source_run_id", how="left")
     cases = cases.drop(columns=["source_run_id"], errors="ignore").merge(
-        choices[["date", "bakery_id", "source_run_id"]],
+        choices[["date", "bakery_id", "source_run_id", "run_generated_at"]],
         on=["date", "bakery_id"],
         how="left",
     )
@@ -159,7 +178,8 @@ def main() -> None:
         "unique_skus": int(result["product_id"].nunique()),
         "causes": {str(k): int(v) for k, v in result["cause"].value_counts().items()},
         "evidence_note": (
-            "assortment_asof and bakeable_asof use validity intervals; "
+            "assortment_asof and bakeable_asof use the latest city batch "
+            "loaded before the historical run plus validity intervals; "
             "current_profile_present is not historical because the profile "
             "table is unversioned"
         ),

@@ -5,8 +5,7 @@
   "unique_bakeries": 8,
   "unique_skus": 11,
   "causes": {
-    "excluded_by_assortment_asof": 46,
-    "forecast_grid_drop": 1
+    "excluded_by_assortment_asof": 47
   },
-  "evidence_note": "assortment_asof and bakeable_asof use validity intervals; current_profile_present is not historical because the profile table is unversioned"
+  "evidence_note": "assortment_asof and bakeable_asof use the latest city batch loaded before the historical run plus validity intervals; current_profile_present is not historical because the profile table is unversioned"
 }
