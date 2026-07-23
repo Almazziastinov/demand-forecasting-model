@@ -128,10 +128,19 @@ class Window:
 
 
 def parse_windows(workbook: Workbook, sheet_name: str) -> list[Window]:
-    """Parse the window column headers (row 5, columns from C onward)."""
+    """Parse the window column headers (row 5, columns from C onward).
+
+    Stops at the first hidden column — templates have a second coarser block
+    (8:00-10:00, 10:00-12:00, 12:00-15:00) separated from the hourly block
+    by a hidden sentinel column. Only the first (hourly) block is returned so
+    that defrost/двухдневка are placed within the same hourly windows.
+    """
     sheet = workbook[sheet_name]
     windows: list[Window] = []
     for cell in sheet[WINDOWS_HEADER_ROW][2:]:
+        col_dim = sheet.column_dimensions.get(cell.column_letter)
+        if col_dim and col_dim.hidden:
+            break  # hidden column = boundary between block 1 and block 2
         value = cell.value
         if value is None:
             continue
