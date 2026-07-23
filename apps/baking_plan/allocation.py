@@ -24,7 +24,7 @@ LAST_SALES_HOUR = 23
 # Night-defrost columns are prep for tomorrow's morning batches; size them
 # from tomorrow's forecast over hours [FIRST_SALES_HOUR .. DEFROST_EARLY_CUTOFF - 1].
 DEFROST_EARLY_CUTOFF = 12
-DEFROST_MARKERS = ("дефр", "ночн")
+DEFROST_MARKERS = ("дефр", "ночн", "доп. парти")
 
 # Template SKU names occasionally drift from the live product catalogue
 # (renames, bez-suffix variants). Matched after normalize_sku_name().
