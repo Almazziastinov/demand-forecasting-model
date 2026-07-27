@@ -1,0 +1,807 @@
+﻿variant,product_id,is_stockout_sku_day,sku_days,net_prediction_delta,positive_prediction_delta,product_name
+conservative_total_conservative_profile,1071,False,296,-155.94110277605068,523.15125009441,Треугольник курица безд
+conservative_total_conservative_profile,10340,False,289,287.96372266531137,494.75213262788657,Кыстыбый П
+conservative_total_conservative_profile,1076,False,260,239.7131042187341,346.4934212117023,Треугольник говядина безд
+conservative_total_conservative_profile,57,False,300,43.03297000973667,287.0578341152343,Сосиска в тесте
+conservative_total_conservative_profile,34,False,287,189.24800605452475,232.27439122865968,Беккен капуста
+conservative_total_conservative_profile,11474,False,292,167.75028862177066,222.0193289948215,Маковка
+conservative_total_conservative_profile,10346,False,292,111.60873545171638,221.6166900741659,Сосиска под шубой
+conservative_total_conservative_profile,108,False,290,171.91395465944265,211.30895903264832,Сметанник
+conservative_total_conservative_profile,10667,False,293,86.42371121889146,203.0868493268247,Элеш с курицей
+conservative_total_conservative_profile,1272,False,292,124.9467236295044,187.40004888254478,Сэндвич курица
+conservative_total_conservative_profile,36,False,276,112.9900430458477,170.15003095731836,Вак-бэлиш
+conservative_total_conservative_profile,10556,False,288,125.89739491609018,166.5984792927929,Треугольник острый
+conservative_total_conservative_profile,10485,False,295,107.98355696405791,154.32727755410883,ЖарПицца Пикантная
+conservative_total_conservative_profile,10760,False,286,-3.322842611326556,153.8117694336378,Пицца с колбасой
+conservative_total_conservative_profile,10347,False,298,-71.3536603329271,143.15879359133746,Жар пицца с курицей
+conservative_total_conservative_profile,4629,False,285,96.32262959999242,127.94016630743562,Конвертик курица
+conservative_total_conservative_profile,205,False,280,-780.6158219234148,108.00239121737015,Пакет спасибо
+conservative_total_conservative_profile,10340,True,19,93.59175978769463,106.8030799855523,Кыстыбый П
+conservative_total_conservative_profile,45,False,279,63.62286179915435,101.50137015194375,Пирожок яблоко
+conservative_total_conservative_profile,1071,True,12,74.13040681940642,84.5005511340315,Треугольник курица безд
+conservative_total_conservative_profile,4399,False,292,49.21373986007455,77.91840619506286,Сметанник мини
+conservative_total_conservative_profile,1076,True,20,64.85919653053834,69.23093017109827,Треугольник говядина безд
+conservative_total_conservative_profile,10909,False,281,42.302088197819735,62.33922563869029,Корзинка ягодная
+conservative_total_conservative_profile,67,False,286,47.86908536146713,61.65540448973318,Ватрушка
+conservative_total_conservative_profile,1845,False,277,37.46084839860324,60.766956245201776,Киш грибы курица
+conservative_total_conservative_profile,10760,True,22,43.99717336068257,59.74106478131627,Пицца с колбасой
+conservative_total_conservative_profile,1070,True,3,57.131591832538085,57.131591832538085,Картофель и мясо
+conservative_total_conservative_profile,1722,False,292,32.012619406079175,55.48240379670936,Губадия мини
+conservative_total_conservative_profile,1070,False,25,51.474259662423094,52.990044918817254,Картофель и мясо
+conservative_total_conservative_profile,10442,False,296,-4.854800398672079,44.33908453238614,ЖарПицца Оригинальная
+conservative_total_conservative_profile,10169,False,285,18.712723158375425,43.17942450470359,Бейгл курица
+conservative_total_conservative_profile,10714,False,28,39.431287524942924,41.33072958853163,Пирог Хуплу
+conservative_total_conservative_profile,1272,True,16,37.07211649071755,41.18704456274885,Сэндвич курица
+conservative_total_conservative_profile,100,False,251,31.30981729796274,39.80553107142331,Губадия
+conservative_total_conservative_profile,10485,True,13,37.052420534997836,39.63638892261391,ЖарПицца Пикантная
+conservative_total_conservative_profile,1844,False,283,-5.486144685508078,38.86523051471813,Киш курица
+conservative_total_conservative_profile,57,True,8,37.01132700432683,37.79004270735814,Сосиска в тесте
+conservative_total_conservative_profile,204,False,265,-34.33527396009549,34.968747825615495,Пакет звезды
+conservative_total_conservative_profile,10965,False,286,24.472522495206075,34.253466325606865,Трехслойник НОВЫЙ
+conservative_total_conservative_profile,10298,False,281,6.627540070214732,31.238928804946127,Пирожок с горбушей
+conservative_total_conservative_profile,11301,False,287,15.84893905182029,28.864567257143886,Клубника и банан НОВЫЙ
+conservative_total_conservative_profile,1069,False,25,25.648593791817824,27.55601525246575,Хуплу
+conservative_total_conservative_profile,4816,False,300,10.0959197147445,25.041666441430312,Капучино 300
+conservative_total_conservative_profile,45,True,29,21.77339821156223,24.99867195596091,Пирожок яблоко
+conservative_total_conservative_profile,4424,False,300,15.951575846219614,24.10793380986118,Жар Киш курица
+conservative_total_conservative_profile,4947,False,257,-10.446967255371954,23.462648923442572,Капуста и курица
+conservative_total_conservative_profile,101,False,285,22.155960473678544,23.368485204623788,Капустный
+conservative_total_conservative_profile,11251,False,287,7.724401845923735,22.733786056360834,ЖарПицца с салями
+conservative_total_conservative_profile,34,True,21,19.869828393672297,22.68991819149303,Беккен капуста
+conservative_total_conservative_profile,110,False,289,15.314867973284757,22.387028478792786,Яблочный
+conservative_total_conservative_profile,10346,True,16,18.0430222948346,21.29330190415059,Сосиска под шубой
+conservative_total_conservative_profile,10661,False,255,14.577974635192398,21.15552926754478,Хот-дог Датский говяжий
+conservative_total_conservative_profile,70,False,292,4.759052480342058,21.151032750220637,Московская плюшка П
+conservative_total_conservative_profile,10347,True,10,16.33424734324717,20.456201117179972,Жар пицца с курицей
+conservative_total_conservative_profile,58,False,301,-115.53716685596675,18.94800273943845,Сочень
+conservative_total_conservative_profile,4423,False,281,15.64319537231335,17.414107730600453,Жар Киш грибы курица
+conservative_total_conservative_profile,1745,False,293,-3.464741777822926,16.78633320104289,Шафран творог
+conservative_total_conservative_profile,42,False,234,-1.0075601077951224,14.616411419154165,Пирожок зеленый лук
+conservative_total_conservative_profile,10556,True,20,12.209637978472225,14.166271777713208,Треугольник острый
+conservative_total_conservative_profile,36,True,32,7.046385120671003,13.93593000319618,Вак-бэлиш
+conservative_total_conservative_profile,10426,False,289,11.773725648213386,13.770595891105346,Пирог Ханский
+conservative_total_conservative_profile,107,False,261,9.113170781562177,13.311314043861083,Капуста и мясо
+conservative_total_conservative_profile,4817,False,296,3.1489105583414174,12.375683950585488,Капучино 200
+conservative_total_conservative_profile,10667,True,15,5.7344357264932855,12.052516556424122,Элеш с курицей
+conservative_total_conservative_profile,1069,True,3,11.747757693691518,11.747757693691518,Хуплу
+conservative_total_conservative_profile,11473,False,274,5.56706575591948,11.450278540444762,Сметанник маковый
+conservative_total_conservative_profile,11429,False,218,1.3420139277539052,10.123974973740777,Сэндвич Мюнхенский
+conservative_total_conservative_profile,10735,False,279,-3.1572738718341653,9.693150958618247,Пшеничный 900
+conservative_total_conservative_profile,1845,True,31,4.414750597608943,9.691280671359886,Киш грибы курица
+conservative_total_conservative_profile,5258,False,298,-13.757909848465196,8.941519781408516,Чай черный малый
+conservative_total_conservative_profile,10670,False,84,-13.33596017510386,8.924887971204186,Пицца Мясная кусок
+conservative_total_conservative_profile,517,False,307,-1.7401376672691826,8.803922441668144,Багет чесночный
+conservative_total_conservative_profile,102,False,291,-2.861797993270977,8.578995898551527,Королевская ватрушка
+conservative_total_conservative_profile,10324,False,268,0.036148777932756115,7.873100156313894,Горбуша саго
+conservative_total_conservative_profile,10662,False,251,-0.1623746056777713,7.394680624188943,Хот-дог Датский куриный
+conservative_total_conservative_profile,1844,True,25,4.488135539946983,7.354466463163905,Киш курица
+conservative_total_conservative_profile,5108,False,288,-0.14390218000505176,7.120008174248257,Латте 300
+conservative_total_conservative_profile,10736,False,280,-15.98904935327045,6.9550252727631525,Пшенично-ржаной 900
+conservative_total_conservative_profile,11465,False,289,2.652602452337385,6.897710766717809,Пирог с Манго
+conservative_total_conservative_profile,213,False,259,1.9972059082354483,6.796715375444155,Тесто дрожжевое
+conservative_total_conservative_profile,11428,False,182,-0.6174251042766815,6.596133357990843,Трубочка со сгущенкой П
+conservative_total_conservative_profile,996,False,275,2.220362441403296,6.148717361834757,Домашний
+conservative_total_conservative_profile,127,False,303,-4.090465835077253,6.060141460147481,Пирожное Каприз
+conservative_total_conservative_profile,10966,False,287,-10.059612830418484,5.951232687210338,Рожок с кремом
+conservative_total_conservative_profile,10144,False,283,-3.8197460984216924,5.94449850102282,Кейк- попс
+conservative_total_conservative_profile,4820,False,295,0.43979682756133964,5.704000835583839,Американо 200
+conservative_total_conservative_profile,10581,False,246,1.7402490758987772,5.578874282279875,Компот сухофрукты 300 мл кулинария
+conservative_total_conservative_profile,10524,False,135,-6.355601913149001,5.396733227318316,Булочка шведский стол
+conservative_total_conservative_profile,5027,False,260,-3.9931289809007757,5.393041288613611,ЖарЧай Облепиха стандартный
+conservative_total_conservative_profile,1814,False,112,-13.078541875123612,5.284961738724789,Роллы Филадельфия
+conservative_total_conservative_profile,1003,False,276,-2.365987805347724,5.135874218987196,Батон нарезной
+conservative_total_conservative_profile,4818,False,268,3.0348546620245087,5.0819033664129485,Латте 200
+conservative_total_conservative_profile,10348,False,281,-4.6681584091309025,4.900919184115542,Чизкейк брауни
+conservative_total_conservative_profile,10442,True,12,4.090482812326474,4.835654735175533,ЖарПицца Оригинальная
+conservative_total_conservative_profile,4944,False,26,-6.850889780373704,4.766142644487229,Пирожок капуста и курица
+conservative_total_conservative_profile,1350,False,280,-1.4294601790134727,4.6617221093708645,Пончик Шоколад
+conservative_total_conservative_profile,142,False,253,-1.4586229212319268,4.613650055640236,Эклер сливочный
+conservative_total_conservative_profile,10767,False,102,-10.298462688869451,4.509410606384819,Они гири с креветкой
+conservative_total_conservative_profile,140,False,247,-0.3603351708507255,4.3937519792343664,Эклер классический
+conservative_total_conservative_profile,1838,False,273,-9.725382117825621,4.341562101267646,Картошка ассорти
+conservative_total_conservative_profile,10543,False,251,-5.806792357748929,4.267738043848388,БонаАква 500 негаз
+conservative_total_conservative_profile,4629,True,23,3.719853420358799,4.208730764184425,Конвертик курица
+conservative_total_conservative_profile,5106,False,84,-23.66577078426213,4.185778179385086,Пицца с салями кусок
+conservative_total_conservative_profile,5,False,277,0.7164226397930126,4.128581597109596,Зерновой
+conservative_total_conservative_profile,10965,True,19,3.7501550970495634,4.1050437185917374,Трехслойник НОВЫЙ
+conservative_total_conservative_profile,11473,True,19,3.114865581950978,3.9976633770297,Сметанник маковый
+conservative_total_conservative_profile,129,False,239,-0.9035952352791454,3.9820486768157926,Графские развалины
+conservative_total_conservative_profile,10595,False,272,0.3488878895179573,3.9783908672258317,Хлеб Фитнес
+conservative_total_conservative_profile,1722,True,16,3.1507234967818416,3.8500388347256003,Губадия мини
+conservative_total_conservative_profile,100,True,23,3.071804042463153,3.843472208110911,Губадия
+conservative_total_conservative_profile,10052,False,259,-4.213106350035609,3.8114386979142756,Эклер Шоколадный посыпка
+conservative_total_conservative_profile,11465,True,13,3.567507108094971,3.666517909779071,Пирог с Манго
+conservative_total_conservative_profile,5088,False,277,-2.3498120172884653,3.650796794432644,Ржаной бездр заварной
+conservative_total_conservative_profile,10663,False,232,0.2717669158193481,3.5482611867574785,Хот-дог Баварский куриный
+conservative_total_conservative_profile,10298,True,27,1.8278382167624576,3.527161955282439,Пирожок с горбушей
+conservative_total_conservative_profile,1349,False,280,-1.1997284684196918,3.4900124233785874,Пончик Малина
+conservative_total_conservative_profile,4947,True,16,2.9137262376569684,3.2885554252774916,Капуста и курица
+conservative_total_conservative_profile,10620,False,234,-3.903653049725955,3.264446513250322,Пирожное со сливками
+conservative_total_conservative_profile,1347,False,246,1.7458434721680232,3.22057758418827,Пончик Белый шоколад
+conservative_total_conservative_profile,125,False,269,-7.700834597626957,3.1771996060250176,Кольцо творог
+conservative_total_conservative_profile,2201,False,83,-3.8466393330082163,3.0788661269578563,Соус соевый
+conservative_total_conservative_profile,10169,True,20,1.7907331983476156,3.0727582150658965,Бейгл курица
+conservative_total_conservative_profile,4423,True,8,2.860653100523227,2.9137006382575423,Жар Киш грибы курица
+conservative_total_conservative_profile,11435,False,271,-0.04905377303229358,2.816976958243572,Круассан с малиной
+conservative_total_conservative_profile,101,True,20,2.1574397219193173,2.6932300765222745,Капустный
+conservative_total_conservative_profile,108,True,18,2.4443749384114484,2.600483861643042,Сметанник
+conservative_total_conservative_profile,10876,False,248,1.9333022213554851,2.5422193474443793,Хлеб Ржаной 100% бездрож
+conservative_total_conservative_profile,10741,False,101,-1.0605584910066312,2.537582399537997,Они гири с курицей
+conservative_total_conservative_profile,11301,True,19,2.03828258065176,2.4384959956323167,Клубника и банан НОВЫЙ
+conservative_total_conservative_profile,11437,False,225,0.6082232152443372,2.4367292911052814,Малиновое сердце
+conservative_total_conservative_profile,11223,False,267,0.06884506456672079,2.407220713745015,Пирог с черносливом и грец орехом
+conservative_total_conservative_profile,5236,False,221,1.4891923992386544,2.3990984182056945,ЖарЧай Клюква стандартный
+conservative_total_conservative_profile,1391,False,232,1.6936737804835225,2.3902344421693718,Добрый 200 Яблоко
+conservative_total_conservative_profile,110,True,14,1.9173201550089112,2.329869870869654,Яблочный
+conservative_total_conservative_profile,10486,False,223,0.5543578607478754,2.2984241984218556,Хот-дог Баварский говяжий
+conservative_total_conservative_profile,10723,False,102,-0.29955342821013686,2.183790429680912,Они гири с лососем
+conservative_total_conservative_profile,5022,False,201,-1.0324142600101653,2.1772812374723878,ЖарЧай Облепиха малый
+conservative_total_conservative_profile,5109,False,230,1.5011680984777696,2.1403281305252806,Американо 300
+conservative_total_conservative_profile,11519,False,251,-2.965483518489794,2.126041166326838,Тартин со злаками
+conservative_total_conservative_profile,10166,False,273,-0.4290362934988521,2.124684251448933,Тартин
+conservative_total_conservative_profile,10909,True,23,0.7024482478725694,2.110854339649342,Корзинка ягодная
+conservative_total_conservative_profile,11436,False,264,0.10121385919583412,2.1080373361234765,Круассан с шоколадом
+conservative_total_conservative_profile,11548,False,39,1.6010275282621114,2.091213853682775,Пицца студенческая
+conservative_total_conservative_profile,10328,False,260,-4.6962940633983505,2.079555729358143,Чизкейк классический
+conservative_total_conservative_profile,11213,False,57,-2.5224847444756096,1.9731067246279608,Роллы Вулкан с курицей
+conservative_total_conservative_profile,4399,True,16,-6.11301391921822,1.9368883532564825,Сметанник мини
+conservative_total_conservative_profile,10242,False,209,0.8853781305207191,1.885486847486559,Чай черный стандарт
+conservative_total_conservative_profile,11009,False,239,-2.387125740143837,1.8157677783257586,Пирожное Малина
+conservative_total_conservative_profile,4819,False,240,-1.7360465767409112,1.6513966160214844,Эспрессо прем 35
+conservative_total_conservative_profile,10047,False,260,0.9269016007597567,1.6171502188131854,Круассан миндальный
+conservative_total_conservative_profile,5105,False,83,0.5964525820449935,1.5817644134640463,Пицца Маргарита кусок
+conservative_total_conservative_profile,11472,False,240,-0.9281741755772479,1.5424817219851819,Меренговый с вишней
+conservative_total_conservative_profile,4424,True,6,1.4714782788396428,1.5153271310287022,Жар Киш курица
+conservative_total_conservative_profile,10511,False,231,0.12709671371793263,1.475915487389779,Добрый Кола 500
+conservative_total_conservative_profile,10732,False,111,-1.3677895293512774,1.4718276720444836,Роллы зап. с креветкой
+conservative_total_conservative_profile,4012,False,111,-0.8698788659928064,1.4658393011930924,Роллы лосось запеч
+conservative_total_conservative_profile,1540,False,201,1.0343971072141485,1.461273171199997,Добрый 200 Яблоко Вишня
+conservative_total_conservative_profile,10369,False,242,-0.39955692524867176,1.299374735823617,Винегрет вес сеть
+conservative_total_conservative_profile,1742,False,132,0.48582318557496545,1.2923326941875037,Печенье Имбирное
+conservative_total_conservative_profile,107,True,17,0.8638325821392377,1.2711467245520955,Капуста и мясо
+conservative_total_conservative_profile,10696,False,101,-0.017875278024873084,1.2675345039351393,Холодный латте
+conservative_total_conservative_profile,11549,False,260,-8.121038020620535,1.2277619216727926,Тарталетка Ягодная ЦП
+conservative_total_conservative_profile,1346,False,155,-1.3944478388692443,1.2124881330507604,"Стакан 0,2"
+conservative_total_conservative_profile,1390,False,157,0.8197477706723723,1.1602096640857193,Добрый 200 Персик Яблоко
+conservative_total_conservative_profile,10525,False,192,0.5950581022416412,1.1139491099510876,Чай зел малый
+conservative_total_conservative_profile,10074,False,176,-0.9295569358897011,1.054542861807109,Пирожное Шоколадно-карамельное
+conservative_total_conservative_profile,10435,False,226,-1.2987518312524902,1.051321149351218,Манты курица вес сеть
+conservative_total_conservative_profile,10685,False,185,-0.6065579106025056,1.0346833076226432,Манты с говядиной и картофелем вес сеть
+conservative_total_conservative_profile,10376,False,228,0.007467746667295452,1.0302703049719721,Салат крабовый вес сеть
+conservative_total_conservative_profile,10324,True,16,-0.9371174072911146,1.0176374654712679,Горбуша саго
+conservative_total_conservative_profile,67,True,17,-0.28841206324718444,1.015636199664347,Ватрушка
+conservative_total_conservative_profile,10462,False,64,0.8433967392347478,0.9986769028855456,Тарталетка Малиновая ЦП
+conservative_total_conservative_profile,1397,False,197,-2.005844194668302,0.9927529179545689,Pulpy Апельсин
+conservative_total_conservative_profile,11474,True,16,-2.5678971539902573,0.9871893654581934,Маковка
+conservative_total_conservative_profile,1355,False,230,-0.5750933918422201,0.9865707877748996,Бородино
+conservative_total_conservative_profile,10377,False,233,-0.4915324102254236,0.9779392796457422,Салат курица по-корейски вес сеть
+conservative_total_conservative_profile,10380,False,187,-1.1942286879781856,0.9567714693842988,Салат сельдь под шубой вес сеть
+conservative_total_conservative_profile,10513,False,175,0.5676289464813493,0.9311902231701027,Рич 500 Зел чай
+conservative_total_conservative_profile,10176,False,219,-0.7739007483747962,0.9276293669257052,Котлеты Нежные кур вес
+conservative_total_conservative_profile,11471,False,224,0.24567339319826906,0.916476243489021,Меренговый с абрикосом
+conservative_total_conservative_profile,5257,False,67,0.8541168902169533,0.9136524207140504,Чай зел жасмин малый
+conservative_total_conservative_profile,10544,False,177,0.40569517353099505,0.8955741220254219,БонаАква 500 газ
+conservative_total_conservative_profile,1745,True,14,0.23155827857539238,0.8910742591496092,Шафран творог
+conservative_total_conservative_profile,10345,False,28,-2.629612882100955,0.8627146653534226,Ромашка П
+conservative_total_conservative_profile,10661,True,3,0.22438207380205522,0.8568140486232118,Хот-дог Датский говяжий
+conservative_total_conservative_profile,10527,False,184,-2.9471675104576303,0.8545437271145765,Печенье Детское 250
+conservative_total_conservative_profile,11229,False,165,-0.1103360086472563,0.8480926596867806,Салат Буженина индейки вес
+conservative_total_conservative_profile,10372,False,146,0.3594524548170008,0.8348982129157374,Пюре картофельное П вес сеть
+conservative_total_conservative_profile,10075,False,166,-0.14282660815454065,0.819821347110814,Пирожное Медовик
+conservative_total_conservative_profile,10463,False,76,-0.283453311279771,0.8144651848595723,Сметана порц сеть
+conservative_total_conservative_profile,11441,False,170,0.2405141074205024,0.7606087738224707,Кукис Орео ЦП
+conservative_total_conservative_profile,1393,False,192,0.2536424092204543,0.7593596197253778,Добрый 300 Яблоко
+conservative_total_conservative_profile,4192,False,69,0.6672802672126052,0.7556294153906891,Вишневый
+conservative_total_conservative_profile,10453,False,191,-0.27227993288873376,0.7537528876643927,Салат Цезарь вес сеть
+conservative_total_conservative_profile,11536,False,124,0.4440277027041674,0.7302560321958129,Суп лапша с курицей 300мл
+conservative_total_conservative_profile,11280,False,149,0.09552544132801659,0.6924889075292869,Пирог Ягодный
+conservative_total_conservative_profile,10539,False,163,-0.4427450270290459,0.6910713895013758,Курица по французски вес сеть
+conservative_total_conservative_profile,10371,False,202,0.10246013132173096,0.6692943593089613,Плов с курицей вес сеть
+conservative_total_conservative_profile,10498,False,152,0.024435032643230672,0.664844402738451,Салат Мимоза вес
+conservative_total_conservative_profile,11440,False,154,-0.034266806572256836,0.6645484855380136,Кукис красный вельвет ЦП
+conservative_total_conservative_profile,10515,False,167,0.3561168400883348,0.6503857144680304,Рич 500 Черный чай Лимон
+conservative_total_conservative_profile,10378,False,231,-0.22804585736761757,0.6383594575927252,Салат Оливье вес сеть
+conservative_total_conservative_profile,1399,False,177,0.22851657013233173,0.637024070811171,Pulpy Тропик
+conservative_total_conservative_profile,10662,True,3,0.45820828652541223,0.630512709366879,Хот-дог Датский куриный
+conservative_total_conservative_profile,10367,False,239,0.10689925999794544,0.6282235628381349,Сырники вес сеть
+conservative_total_conservative_profile,10440,False,221,0.21009913546209558,0.6210925725595144,Запеканка творожная вес сеть
+conservative_total_conservative_profile,5235,False,141,0.32657269394245664,0.6159911608434755,ЖарЧай Клюква малый
+conservative_total_conservative_profile,1392,False,196,0.29485642239994825,0.6157547340461149,Добрый 300 Мультифрукт
+conservative_total_conservative_profile,10375,False,237,0.02477471189085513,0.5726798891226464,Блины творог вес сеть
+conservative_total_conservative_profile,10514,False,175,0.3022351898418273,0.5700511042529848,Рич 500 Зел чай манго
+conservative_total_conservative_profile,10368,False,203,-0.619114520803013,0.5639274098552679,Крылышки терияки П вес сеть
+conservative_total_conservative_profile,58,True,7,0.3625348918456506,0.5256606882359374,Сочень
+conservative_total_conservative_profile,11444,False,170,-0.03746518118461353,0.481265670565756,Кукис Лимонный ЦП
+conservative_total_conservative_profile,10516,False,143,0.18880928882901685,0.47828015878941516,Рич 500 Черный чай Персик
+conservative_total_conservative_profile,10510,False,157,-0.07915936383132255,0.46993171881078966,Добрый Апельсин газ 500
+conservative_total_conservative_profile,11537,False,124,0.2678986297911366,0.4686074939885487,Борщ 300мл
+conservative_total_conservative_profile,10695,False,90,-0.19744154652353,0.41760625188083855,Апельсиновый кофе
+conservative_total_conservative_profile,10239,False,25,0.38139247543732996,0.409118147695086,Чай зел жасмин стандарт
+conservative_total_conservative_profile,10798,False,187,0.05412825793898568,0.40906619728602595,Блины с курицей вес сеть
+conservative_total_conservative_profile,11543,False,28,-1.1837517593831186,0.40676290311276797,Капучино 300 СК
+conservative_total_conservative_profile,11442,False,49,0.12415289830844192,0.40401100711585725,Кукис Малиновый ЦП
+conservative_total_conservative_profile,10426,True,8,-0.529679595376319,0.3625652467835507,Пирог Ханский
+conservative_total_conservative_profile,11535,False,89,0.29883442596316645,0.36132442456640634,Солянка мясная сборная 300мл
+conservative_total_conservative_profile,10638,False,117,-0.6885500340519353,0.35635205414029464,Картофель по-деревенски П вес сеть
+conservative_total_conservative_profile,10427,False,142,0.015493931961224477,0.35481159100762166,Котлеты куриные вес сеть
+conservative_total_conservative_profile,1311,False,25,0.0463705998307804,0.3484165427622008,Хлеб кусок
+conservative_total_conservative_profile,11215,False,22,-0.13613659046857704,0.31642177525412124,Роллы Сливочные с креветкой
+conservative_total_conservative_profile,10747,False,52,0.09586165704979462,0.30389978482266267,Сгущенка
+conservative_total_conservative_profile,1388,False,12,0.3032266008164163,0.3032266008164163,Добрый 200 Мультифрукт
+conservative_total_conservative_profile,11293,False,16,0.28751552130946856,0.2975850710341962,Жар Киш зел лук
+conservative_total_conservative_profile,11251,True,14,-1.8987081537198747,0.29517198984650783,ЖарПицца с салями
+conservative_total_conservative_profile,10500,False,164,0.07628093659309783,0.2871482132351827,Добрый Лимон Лайм 500
+conservative_total_conservative_profile,10358,False,151,-0.024228661679262978,0.27435929631869993,Салат Светофор вес сеть
+conservative_total_conservative_profile,10963,False,39,0.08417797190122969,0.25388880682799486,Печенье Праздничное имбирное
+conservative_total_conservative_profile,11222,False,28,0.1338524689333223,0.25383998531444535,Вишневый Пай
+conservative_total_conservative_profile,10703,False,110,0.07505049118265672,0.2518822190616141,Добрый Кола газ 300
+conservative_total_conservative_profile,10207,False,132,0.11657899440115631,0.24115688404035912,Салат по-ирански весовой
+conservative_total_conservative_profile,10410,False,143,0.07851059748112986,0.22881280361171513,Салат Наслаждение вес сеть
+conservative_total_conservative_profile,11429,True,19,-1.486617122520935,0.2155597832407694,Сэндвич Мюнхенский
+conservative_total_conservative_profile,10718,False,81,0.19830651397757443,0.2120047899530157,"Манго-Ананас,Клубника Холодный чай"
+conservative_total_conservative_profile,11500,False,40,0.19196968826015226,0.21079150959598925,"Добрый 0,5л Дыня газ НОВИНКА"
+conservative_total_conservative_profile,11542,False,28,-0.06225317261801033,0.2084241130098421,Капучино 200 СК
+conservative_total_conservative_profile,10745,False,13,0.20684688466789747,0.20684688466789747,Конфитюр Вишня
+conservative_total_conservative_profile,10776,False,18,0.19779625081951968,0.19779625081951968,Ржаной безд заварной Упак
+conservative_total_conservative_profile,10770,False,28,-1.9939455582332197,0.18421211690736544,Батон нарезной Упак
+conservative_total_conservative_profile,10780,False,24,0.1753019412232178,0.17773349577869407,Зерновой Упак
+conservative_total_conservative_profile,10775,False,22,0.17715980216778093,0.17715980216778093,Домашний безд Упак
+conservative_total_conservative_profile,10535,False,78,0.08349978978192163,0.16621882374494618,Гречка с овощами П вес сеть
+conservative_total_conservative_profile,10628,False,41,0.03153739381679255,0.16175582438682728,Пицца с салями П
+conservative_total_conservative_profile,10469,False,88,0.03611342181041349,0.16074847744467463,Макароны П вес сеть
+conservative_total_conservative_profile,10215,False,20,0.15428795970120024,0.15428795970120024,Сметана
+conservative_total_conservative_profile,11544,False,26,0.12143325852887663,0.1511080156138796,Латте 200 СК
+conservative_total_conservative_profile,10541,False,26,0.14630172040193978,0.14961915064610531,Пицца Семейная
+conservative_total_conservative_profile,10627,False,47,-0.04490525942266729,0.14864653012948573,Пицца Мясная П
+conservative_total_conservative_profile,156,False,42,0.018609476079167298,0.14411132030683815,Горячий шоколад 220
+conservative_total_conservative_profile,102,True,11,-0.3055878849455826,0.12461748794235028,Королевская ватрушка
+conservative_total_conservative_profile,11550,False,114,0.04539682067977356,0.12420256115385285,Салат с тунцом весовой
+conservative_total_conservative_profile,11306,False,49,0.02031991173862633,0.12390318798144521,Картофель беби
+conservative_total_conservative_profile,10779,False,21,0.11917731046823843,0.12065759119253283,Бородино Упак
+conservative_total_conservative_profile,11545,False,28,0.09263310588997997,0.11001176399733348,Латте 300 СК
+conservative_total_conservative_profile,10512,False,61,0.06547715433028571,0.1080908308552976,Добрый Кола без сахара 500
+conservative_total_conservative_profile,10507,False,77,0.052707195258236944,0.09736960185929774,Добрый Апельсин газ 330
+conservative_total_conservative_profile,11551,False,38,0.04538340529113081,0.08813929063396707,Лазанья с мясом весовой
+conservative_total_conservative_profile,1926,False,97,0.0775618707113187,0.08786778962629815,Pulpy Ананас Манго
+conservative_total_conservative_profile,93,False,41,0.029046435508551682,0.08697743251174939,Сметанник ЗКЗ
+conservative_total_conservative_profile,10970,False,23,0.07849385840821954,0.08319328020577477,Хлеб Ржаной 100% УПАК
+conservative_total_conservative_profile,10464,False,40,0.054805141378059155,0.07882508145600121,Майонез порц сеть
+conservative_total_conservative_profile,10880,False,51,0.06205346396925937,0.07562678636410913,"Персик,Клубника Холодный чай"
+conservative_total_conservative_profile,10526,False,89,0.031126440548312734,0.06604778323395907,Чай зел стандарт
+conservative_total_conservative_profile,5259,False,42,0.06289474095437947,0.06289474095437947,Чай черн бергамот малый
+conservative_total_conservative_profile,10343,False,27,0.05006131438737682,0.06157116064041601,Хлеб тостовый пшеничный
+conservative_total_conservative_profile,10778,False,19,0.061303714024877665,0.061303714024877665,Тартин Упак
+conservative_total_conservative_profile,78,False,41,0.03433852402766269,0.05970955913317899,Губадия ЗКЗ
+conservative_total_conservative_profile,10625,False,31,0.01626177602363621,0.0589340809080825,Пицца Маргарита П
+conservative_total_conservative_profile,94,False,10,0.01787217184602774,0.052409158255349864,Трехслойник ЗКЗ
+conservative_total_conservative_profile,10702,False,42,0.04259876104566196,0.051441896538001464,Добрый Кола без сахара 300
+conservative_total_conservative_profile,10715,False,50,0.028264868231883344,0.050251792891429226,"Юдзу-Клубника,Черника Холодный чай"
+conservative_total_conservative_profile,11531,False,103,-0.7552502211420069,0.048356055495305916,Поке с креветкой
+conservative_total_conservative_profile,202,False,60,0.029501244067346333,0.04724746867045493,Лапша 130
+conservative_total_conservative_profile,10716,False,89,-0.40636836774196977,0.047033928844388395,"Юдзу-Клубника,Клубника Холодный чай"
+conservative_total_conservative_profile,10605,False,25,-0.007658516539309268,0.04694654497146056,Чай черный Тропик малый
+conservative_total_conservative_profile,11005,False,37,0.02422643597939189,0.046439172817606955,Трехслойник ЗКЗ Новый
+conservative_total_conservative_profile,11522,False,27,-0.022997251434238697,0.04269721439735452,Паста с ветчиной и соусом бешамель вес сеть
+conservative_total_conservative_profile,1998,False,16,0.025210121944455183,0.039896973467975744,я_не_исп Сахар стик
+conservative_total_conservative_profile,3047,False,39,-0.00932584424828553,0.0385241346716827,Чак-чак шарики ассорти Т
+conservative_total_conservative_profile,11498,False,29,0.0298163240472773,0.03332681805912252,"Добрый 0,33л ж/б Кола газ"
+conservative_total_conservative_profile,203,False,80,0.027252258954473585,0.03174731633241279,Лапша 270
+conservative_total_conservative_profile,10772,False,16,0.022949065153937506,0.030347108559303893,Ржано-пшеничный 900 Упак
+conservative_total_conservative_profile,10542,False,26,-1.0998563219906694,0.028786803109749626,Пицца с колбасками ЧБ
+conservative_total_conservative_profile,10072,False,61,0.012310192011004362,0.021661107789921363,Горячий шоколад 300
+conservative_total_conservative_profile,10606,False,13,0.014139409771287248,0.01931871300614807,Чай черный Тропик стандарт
+conservative_total_conservative_profile,10717,False,42,0.00864024483214132,0.018101347456141448,"Манго-Ананас,Черника Холодный чай"
+conservative_total_conservative_profile,10430,False,89,-0.008112948706638222,0.017991395282679762,Окрошка вес
+conservative_total_conservative_profile,1001,False,19,0.01368751102216098,0.017488623211734833,Коррекс мал
+conservative_total_conservative_profile,11530,False,16,0.0048483149142285464,0.015766541378020887,Котлеты бургер вес
+conservative_total_conservative_profile,11223,True,6,-0.558256855910082,0.014127450835691668,Пирог с черносливом и грец орехом
+conservative_total_conservative_profile,4944,True,2,0.014011672757267168,0.014011672757267168,Пирожок капуста и курица
+conservative_total_conservative_profile,11540,False,27,0.0035600855713591173,0.011166240599279842,Американо 200 СК
+conservative_total_conservative_profile,209,False,53,0.0035412171131823933,0.011090887142442551,Чак-чак 450
+conservative_total_conservative_profile,10771,False,11,0.00830149979688033,0.010420797841592055,Пшеничный Упак
+conservative_total_conservative_profile,4826,False,43,-0.00022880092147226083,0.005097138094387166,Горячий шоколад 200
+conservative_total_conservative_profile,76,False,1,0.0,0.0,Капуста и грибы пост ЗКЗ
+conservative_total_conservative_profile,79,False,6,0.0,0.0,Зур бэлиш ЗКЗ
+conservative_total_conservative_profile,80,False,9,0.0,0.0,Капустный ЗКЗ
+conservative_total_conservative_profile,81,False,5,0.0,0.0,Капустный постный ЗКЗ
+conservative_total_conservative_profile,82,False,3,0.0,0.0,Королевская ватрушка ЗКЗ
+conservative_total_conservative_profile,83,False,3,0.0,0.0,Курник ЗКЗ
+conservative_total_conservative_profile,87,False,7,0.0,0.0,Капуста и мясо ЗКЗ
+conservative_total_conservative_profile,92,False,7,0.0,0.0,Свадебный каравай ЗКЗ
+conservative_total_conservative_profile,95,False,10,0.0,0.0,Яблочный ЗКЗ
+conservative_total_conservative_profile,96,False,4,0.0,0.0,Яблочный постный ЗКЗ
+conservative_total_conservative_profile,112,False,2,0.0,0.0,Грибы и капуста пост
+conservative_total_conservative_profile,207,False,43,0.0,0.0,Чак-чак 180
+conservative_total_conservative_profile,208,False,55,0.0,0.0,Чак-чак 270
+conservative_total_conservative_profile,586,False,2,0.0,0.0,Паштет чернослив постный
+conservative_total_conservative_profile,1396,False,29,0.0,0.0,Добрый 300 Томат
+conservative_total_conservative_profile,1744,False,5,0.0,0.0,Клубника и банан ЗКЗ
+conservative_total_conservative_profile,1964,False,2,0.0,0.0,Зур Балиш Байрам
+conservative_total_conservative_profile,1987,False,1,0.0,0.0,Треугольник мини с говядиной ЗКЗ
+conservative_total_conservative_profile,3045,False,18,0.0,0.0,Чак-чак 350 Т
+conservative_total_conservative_profile,3046,False,31,0.0,0.0,Чак-чак шарики Т
+conservative_total_conservative_profile,4041,False,1,0.0,0.0,Треугольник мини с курицей ЗКЗ
+conservative_total_conservative_profile,4189,False,1,0.0,0.0,Элеш мини ЗКЗ
+conservative_total_conservative_profile,4271,False,118,-0.021755718492422915,0.0,"Квас 0,45"
+conservative_total_conservative_profile,4749,False,1,0.0,0.0,Пирожок яблоко пост
+conservative_total_conservative_profile,4917,False,6,0.0,0.0,Салат Цезарь 150
+conservative_total_conservative_profile,4919,False,8,0.0,0.0,Крабовый 150
+conservative_total_conservative_profile,4920,False,8,0.0,0.0,Сельдь под шубой 150
+conservative_total_conservative_profile,4921,False,6,0.0,0.0,Курица по-корейски 150
+conservative_total_conservative_profile,4922,False,8,0.0,0.0,Оливье 150
+conservative_total_conservative_profile,4925,False,3,0.0,0.0,Винегрет 150
+conservative_total_conservative_profile,4933,False,2,0.0,0.0,Манты с говядиной 180
+conservative_total_conservative_profile,4939,False,1,0.0,0.0,Блины с курицей 200
+conservative_total_conservative_profile,5112,False,1,0.0,0.0,250 Гречка с мясом
+conservative_total_conservative_profile,5113,False,3,0.0,0.0,250 Карт дерев котл кур
+conservative_total_conservative_profile,5116,False,2,0.0,0.0,250 Карт пюре котл кур
+conservative_total_conservative_profile,5118,False,4,0.0,0.0,250 Пюре карт Фрикадельки слив соус
+conservative_total_conservative_profile,5119,False,5,0.0,0.0,250 Рис овощи Фрикадельки слив соус
+conservative_total_conservative_profile,5120,False,2,0.0,0.0,250 Плов курица
+conservative_total_conservative_profile,5126,False,3,0.0,0.0,250 Макароны Бантики сосиска
+conservative_total_conservative_profile,5260,False,50,0.0,0.0,Чай черн чабрец малый
+conservative_total_conservative_profile,10067,False,1,0.0,0.0,Соба с курицей и овощами 250г
+conservative_total_conservative_profile,10073,False,23,0.0,0.0,Чак-чак 200 Т
+conservative_total_conservative_profile,10181,False,1,0.0,0.0,Суп лапша курица вес
+conservative_total_conservative_profile,10224,False,117,-0.0003984125548767911,0.0,Салат Греческий вес
+conservative_total_conservative_profile,10228,False,1,0.0,0.0,Сырный соус
+conservative_total_conservative_profile,10240,False,21,0.0,0.0,Чай черн бергамот стандарт
+conservative_total_conservative_profile,10241,False,35,0.0,0.0,Чай черн чабрец стандарт
+conservative_total_conservative_profile,10246,False,2,0.0,0.0,250 Пюре карт Гуляш кур
+conservative_total_conservative_profile,10305,False,6,0.0,0.0,Нежность 150
+conservative_total_conservative_profile,10437,False,18,0.0,0.0,Горбуша саго ЗКЗ
+conservative_total_conservative_profile,10449,False,10,0.0,0.0,Печенье Подарочное
+conservative_total_conservative_profile,10456,False,15,0.0,0.0,Кисло-сладкий соус сеть
+conservative_total_conservative_profile,10457,False,25,0.0,0.0,Сырный соус сеть
+conservative_total_conservative_profile,10502,False,45,0.0,0.0,Добрый Лимон Лайм 330
+conservative_total_conservative_profile,10540,False,1,0.0,0.0,Горбуша саго постный
+conservative_total_conservative_profile,10559,False,2,0.0,0.0,Чак-чак 500 Т
+conservative_total_conservative_profile,10560,False,23,0.0,0.0,Лапша 220 Т
+conservative_total_conservative_profile,10561,False,49,0.0,0.0,Лапша 130 Т
+conservative_total_conservative_profile,10622,False,4,0.0,0.0,Пакет для коробки от пиццы
+conservative_total_conservative_profile,10660,False,1,0.0,0.0,Круассан малиновый ЦП
+conservative_total_conservative_profile,10726,False,3,0.0,0.0,Васаби с соусничкой шт
+conservative_total_conservative_profile,10746,False,4,0.0,0.0,Соус Мандарин
+conservative_total_conservative_profile,10748,False,4,0.0,0.0,Соус Сливочно-чесночный
+conservative_total_conservative_profile,10749,False,8,0.0,0.0,Кетчуп порц
+conservative_total_conservative_profile,10774,False,15,0.0,0.0,Фитнес Упак
+conservative_total_conservative_profile,10814,False,1,0.0,0.0,Пирог Клубничный мусс с мятой
+conservative_total_conservative_profile,10881,False,34,0.0,0.0,"Персик,Черника Холодный чай"
+conservative_total_conservative_profile,10979,False,1,0.0,0.0,"Персик,Черника 600 Холодный чай"
+conservative_total_conservative_profile,11051,False,151,0.0,0.0,Школьное пирожное
+conservative_total_conservative_profile,11186,False,1,0.0,0.0,"Стакан 0,3"
+conservative_total_conservative_profile,11298,False,1,0.0,0.0,Роллы Креветка кунжут
+conservative_total_conservative_profile,11307,False,1,0.0,0.0,Пирог с черносливом и грец орехом ЗКЗ
+conservative_total_conservative_profile,11426,False,1,0.0,0.0,Капуста и курица ЗКЗ
+conservative_total_conservative_profile,11427,False,1,0.0,0.0,Клубника и банан НОВЫЙ ЗКЗ
+conservative_total_conservative_profile,11499,False,18,0.0,0.0,"Добрый 0,33л ж/б Кола Дыня газ"
+conservative_total_conservative_profile,11520,False,18,-0.41593164594207,0.0,Тартин со злаками Упак
+conservative_total_conservative_profile,11532,False,96,-0.10986058833972023,0.0,Поке с лососем
+conservative_total_conservative_profile,11533,False,1,0.0,0.0,Поке с крабом и икрой
+conservative_total_conservative_profile,11534,False,97,-0.0043727603381436,0.0,Роллы зап. с курицей
+conservative_total_conservative_profile,11541,False,20,0.0,0.0,Американо 300 СК
+conservative_total_conservative_profile,11562,False,181,-0.35637605841054965,0.0,Кукис Фисташковый ЦП
+conservative_total_conservative_profile,11565,False,42,0.0,0.0,Роллы тубус Филадельфия
+conservative_total_conservative_profile,11566,False,43,0.0,0.0,Роллы тубус Вулкан с курицей
+conservative_total_conservative_profile,11567,False,57,0.0,0.0,Жар ролл ветчина
+conservative_total_conservative_profile,11568,False,56,0.0,0.0,Жар ролл краб
+conservative_total_conservative_profile,11569,False,27,0.0,0.0,Мексиканский ролл с курицей
+conservative_total_conservative_profile,11570,False,46,0.0,0.0,Мини бургер с котлетой
+conservative_total_conservative_profile,11571,False,80,0.0,0.0,Белая Дама торт ЦП
+conservative_total_conservative_profile,11572,False,37,0.0,0.0,Пирожок с картошкой
+conservative_total_conservative_profile,11573,False,6,0.0,0.0,Пирожок с картошкой с луком фри
+conservative_total_conservative_profile,11574,False,42,0.0,0.0,Пицца закрытая
+conservative_total_conservative_profile,11576,False,138,0.0,0.0,Наполеон с бананом
+conservative_total_conservative_profile,11577,False,101,0.0,0.0,Наполеон
+conservative_total_conservative_profile,11596,False,136,0.0,0.0,Хлеб Здоровье
+conservative_total_conservative_profile,11597,False,90,0.0,0.0,Хлеб Боярский
+conservative_total_conservative_profile,11613,False,33,0.0,0.0,Пирог Изумрудный
+conservative_total_conservative_profile,11615,False,23,0.0,0.0,Плетенка кленовая
+conservative_total_conservative_profile,11616,False,19,0.0,0.0,Плетенка с черникой
+conservative_total_conservative_profile,11617,False,24,0.0,0.0,Плетенка с земляникой
+conservative_total_conservative_profile,11618,False,14,0.0,0.0,Тропический
+conservative_total_conservative_profile,11619,False,24,0.0,0.0,Пирожок Курица рис
+conservative_total_conservative_profile,11621,False,1,0.0,0.0,Пирог с Манго ЗКЗ
+conservative_total_guarded_profile,10340,False,289,271.19598451206,467.3612152730148,Кыстыбый П
+conservative_total_guarded_profile,1071,False,296,-181.11998145015187,460.0057705682459,Треугольник курица безд
+conservative_total_guarded_profile,57,False,300,95.55744743669509,302.8460840583953,Сосиска в тесте
+conservative_total_guarded_profile,1076,False,260,153.76323717072432,242.58543769082831,Треугольник говядина безд
+conservative_total_guarded_profile,10346,False,292,138.8175371131427,232.94668370400467,Сосиска под шубой
+conservative_total_guarded_profile,34,False,287,199.01738474167104,219.95418661414325,Беккен капуста
+conservative_total_guarded_profile,11474,False,292,197.49802987697916,215.55992130282107,Маковка
+conservative_total_guarded_profile,108,False,290,185.96620685190305,210.56828735623046,Сметанник
+conservative_total_guarded_profile,10760,False,286,18.72993761819682,155.36116319210868,Пицца с колбасой
+conservative_total_guarded_profile,10347,False,298,-40.23494198182659,150.46836214987195,Жар пицца с курицей
+conservative_total_guarded_profile,10667,False,293,40.420086701405104,139.37502833908906,Элеш с курицей
+conservative_total_guarded_profile,10485,False,295,105.3436113395254,135.6962207804317,ЖарПицца Пикантная
+conservative_total_guarded_profile,205,False,280,-764.235677809424,110.72129404110005,Пакет спасибо
+conservative_total_guarded_profile,4629,False,285,93.88748178354182,109.09036908281034,Конвертик курица
+conservative_total_guarded_profile,10556,False,288,85.11563025356843,98.39763804766373,Треугольник острый
+conservative_total_guarded_profile,45,False,279,84.94572969687891,93.79800959233614,Пирожок яблоко
+conservative_total_guarded_profile,1071,True,12,78.2967200021593,85.6898179043504,Треугольник курица безд
+conservative_total_guarded_profile,36,False,276,33.79671987063667,73.59092083701387,Вак-бэлиш
+conservative_total_guarded_profile,4399,False,292,56.34762774891028,71.6034316255988,Сметанник мини
+conservative_total_guarded_profile,1076,True,20,65.19156423571124,69.82659305804981,Треугольник говядина безд
+conservative_total_guarded_profile,10760,True,22,46.37704984314667,61.422786925249284,Пицца с колбасой
+conservative_total_guarded_profile,1272,False,292,13.726171107485891,61.1803414435538,Сэндвич курица
+conservative_total_guarded_profile,10909,False,281,51.86494730877729,54.71189997148219,Корзинка ягодная
+conservative_total_guarded_profile,10442,False,296,9.39031549879622,47.04442159471671,ЖарПицца Оригинальная
+conservative_total_guarded_profile,10714,False,28,42.599414277602946,42.632355868247,Пирог Хуплу
+conservative_total_guarded_profile,1272,True,16,40.20801123263223,41.734689369369924,Сэндвич курица
+conservative_total_guarded_profile,10340,True,19,27.57280929346026,40.89812679675213,Кыстыбый П
+conservative_total_guarded_profile,1722,False,291,25.394417738198793,40.16931281544085,Губадия мини
+conservative_total_guarded_profile,10485,True,13,38.525679900441915,39.86018117756279,ЖарПицца Пикантная
+conservative_total_guarded_profile,10169,False,285,21.65606074458333,39.16904074820144,Бейгл курица
+conservative_total_guarded_profile,57,True,8,37.787039211459664,38.108210854416775,Сосиска в тесте
+conservative_total_guarded_profile,204,False,265,-25.558166429779504,37.596047844483394,Пакет звезды
+conservative_total_guarded_profile,1845,False,277,30.690101574553044,35.995800921807366,Киш грибы курица
+conservative_total_guarded_profile,1844,False,283,20.833436579942294,32.90311033434572,Киш курица
+conservative_total_guarded_profile,1069,False,25,30.27949942008959,31.340706695070562,Хуплу
+conservative_total_guarded_profile,4816,False,302,17.179839263925377,26.50062105919878,Капучино 300
+conservative_total_guarded_profile,34,True,21,23.498641035881533,24.981901237033924,Беккен капуста
+conservative_total_guarded_profile,58,False,301,-84.60897729302299,24.28903973355139,Сочень
+conservative_total_guarded_profile,11251,False,287,20.343527327670113,22.513184573192085,ЖарПицца с салями
+conservative_total_guarded_profile,10346,True,16,19.488990047634413,22.190285879647377,Сосиска под шубой
+conservative_total_guarded_profile,10298,False,281,17.851777315119794,21.969986385421088,Пирожок с горбушей
+conservative_total_guarded_profile,70,False,292,12.236020527228014,21.214380755439404,Московская плюшка П
+conservative_total_guarded_profile,10347,True,10,18.28596699663029,20.710944837842607,Жар пицца с курицей
+conservative_total_guarded_profile,45,True,29,17.125721559059368,17.92004992583046,Пирожок яблоко
+conservative_total_guarded_profile,42,False,236,11.128792481504139,16.20207333321688,Пирожок зеленый лук
+conservative_total_guarded_profile,1745,False,293,10.52780036224677,15.259386504784388,Шафран творог
+conservative_total_guarded_profile,67,False,286,10.312960530646121,14.893098696876063,Ватрушка
+conservative_total_guarded_profile,10556,True,20,14.031522492726848,14.604332264861466,Треугольник острый
+conservative_total_guarded_profile,4947,False,257,-14.023837611800571,13.451576945484705,Капуста и курица
+conservative_total_guarded_profile,4817,False,296,8.141965790000368,12.632838797943123,Капучино 200
+conservative_total_guarded_profile,1069,True,3,11.866610530393679,11.866610530393679,Хуплу
+conservative_total_guarded_profile,10667,True,15,7.190394476728854,11.815979650190286,Элеш с курицей
+conservative_total_guarded_profile,36,True,32,7.333055836209189,10.981629102950395,Вак-бэлиш
+conservative_total_guarded_profile,11429,False,218,7.312995542694691,10.828208686208118,Сэндвич Мюнхенский
+conservative_total_guarded_profile,10735,False,279,2.5822510928667914,10.510758212508447,Пшеничный 900
+conservative_total_guarded_profile,517,False,307,7.484886005369087,10.156700083831982,Багет чесночный
+conservative_total_guarded_profile,10670,False,84,-11.363364085403866,10.146214784303233,Пицца Мясная кусок
+conservative_total_guarded_profile,5258,False,298,-8.483404695817724,9.073247261431714,Чай черный малый
+conservative_total_guarded_profile,4424,False,300,7.219047866204143,9.041467179371374,Жар Киш курица
+conservative_total_guarded_profile,10581,False,246,6.962795080380455,8.777204010903624,Компот сухофрукты 300 мл кулинария
+conservative_total_guarded_profile,10736,False,280,-8.880761712395662,8.447874438209931,Пшенично-ржаной 900
+conservative_total_guarded_profile,5108,False,288,5.441582328150643,8.404078005890282,Латте 300
+conservative_total_guarded_profile,1845,True,31,6.469741249085326,7.989337083437177,Киш грибы курица
+conservative_total_guarded_profile,101,False,284,6.189005876662923,7.809744988609782,Капустный
+conservative_total_guarded_profile,1814,False,112,-9.646588005070438,7.753552417639913,Роллы Филадельфия
+conservative_total_guarded_profile,10966,False,287,0.8453477426057425,7.08689943252095,Рожок с кремом
+conservative_total_guarded_profile,10144,False,285,5.279326421605462,6.862415729928443,Кейк- попс
+conservative_total_guarded_profile,127,False,303,5.0919721040013854,6.858144277908332,Пирожное Каприз
+conservative_total_guarded_profile,10661,False,255,4.232886534249673,6.84817967867051,Хот-дог Датский говяжий
+conservative_total_guarded_profile,11465,False,288,5.200064075570448,6.406177803066408,Пирог с Манго
+conservative_total_guarded_profile,10767,False,102,-5.83411507475035,6.33084913182844,Они гири с креветкой
+conservative_total_guarded_profile,1844,True,25,5.385153669547133,6.183189027622928,Киш курица
+conservative_total_guarded_profile,10524,False,135,5.405811006618088,6.090252419264775,Булочка шведский стол
+conservative_total_guarded_profile,213,False,259,3.9353188233274574,6.0537163160684795,Тесто дрожжевое
+conservative_total_guarded_profile,1838,False,274,4.753886826777565,6.003686190662049,Картошка ассорти
+conservative_total_guarded_profile,4820,False,295,3.9919554168012468,5.936058224343739,Американо 200
+conservative_total_guarded_profile,11428,False,182,2.014859165229001,5.640241982370654,Трубочка со сгущенкой П
+conservative_total_guarded_profile,5106,False,84,-19.251027609127288,5.487713229497113,Пицца с салями кусок
+conservative_total_guarded_profile,10543,False,251,3.380289086362067,5.423613594420707,БонаАква 500 негаз
+conservative_total_guarded_profile,10662,False,252,4.003923811693964,5.394152940827618,Хот-дог Датский куриный
+conservative_total_guarded_profile,1003,False,276,3.1255333408262294,5.358369831283566,Батон нарезной
+conservative_total_guarded_profile,5027,False,260,3.386732208149885,5.210345849482454,ЖарЧай Облепиха стандартный
+conservative_total_guarded_profile,10965,False,286,3.2288321904034305,5.157430664002081,Трехслойник НОВЫЙ
+conservative_total_guarded_profile,10442,True,12,5.050414424148325,5.056906406610653,ЖарПицца Оригинальная
+conservative_total_guarded_profile,102,False,291,3.4841900930499845,4.878845388252066,Королевская ватрушка
+conservative_total_guarded_profile,4818,False,268,3.363571434145467,4.875725636625144,Латте 200
+conservative_total_guarded_profile,125,False,271,3.5396883537268353,4.7168280877699775,Кольцо творог
+conservative_total_guarded_profile,996,False,275,2.9142043359523764,4.358322039189744,Домашний
+conservative_total_guarded_profile,2201,False,83,-1.2324158025967908,4.340896074678131,Соус соевый
+conservative_total_guarded_profile,110,False,289,2.8129335282442693,4.310434173585261,Яблочный
+conservative_total_guarded_profile,10595,False,272,2.864293283410752,4.276173346260554,Хлеб Фитнес
+conservative_total_guarded_profile,11301,False,283,2.8488823496392537,4.211674230250822,Клубника и банан НОВЫЙ
+conservative_total_guarded_profile,107,False,261,3.028249561778495,4.160845315359586,Капуста и мясо
+conservative_total_guarded_profile,4629,True,23,3.743984126200112,4.036313756986201,Конвертик курица
+conservative_total_guarded_profile,5088,False,278,2.5805874146164585,4.00087701497804,Ржаной бездр заварной
+conservative_total_guarded_profile,1349,False,282,2.489093491418707,3.9203461598948124,Пончик Малина
+conservative_total_guarded_profile,10348,False,282,2.8678248753841067,3.829246686095004,Чизкейк брауни
+conservative_total_guarded_profile,1350,False,280,2.7114510778652985,3.75401254544227,Пончик Шоколад
+conservative_total_guarded_profile,142,False,253,2.6777939799849246,3.7334437507223353,Эклер сливочный
+conservative_total_guarded_profile,5,False,277,2.17043306171963,3.6548299750971083,Зерновой
+conservative_total_guarded_profile,10052,False,264,2.5212246347760905,3.6393243012464467,Эклер Шоколадный посыпка
+conservative_total_guarded_profile,4944,False,26,-2.7994307710654462,3.608462302957048,Пирожок капуста и курица
+conservative_total_guarded_profile,129,False,243,2.8054536041510443,3.5406305359820545,Графские развалины
+conservative_total_guarded_profile,10663,False,234,2.841807189718404,3.4448723669827883,Хот-дог Баварский куриный
+conservative_total_guarded_profile,10741,False,101,2.809238706209399,3.4178951367738835,Они гири с курицей
+conservative_total_guarded_profile,10298,True,27,3.1741157239049373,3.293338297942948,Пирожок с горбушей
+conservative_total_guarded_profile,140,False,247,2.372727185623169,3.278340064168898,Эклер классический
+conservative_total_guarded_profile,11465,True,13,3.1175554095653806,3.206868132452174,Пирог с Манго
+conservative_total_guarded_profile,11473,False,274,2.1641592060649404,3.1500928951559715,Сметанник маковый
+conservative_total_guarded_profile,10620,False,235,2.3389542638761993,3.0058075330180696,Пирожное со сливками
+conservative_total_guarded_profile,10328,False,261,2.1256076047986765,2.930901986176041,Чизкейк классический
+conservative_total_guarded_profile,100,False,248,1.2587876968043157,2.9001562191109866,Губадия
+conservative_total_guarded_profile,10723,False,102,2.069789710694509,2.7590343431846978,Они гири с лососем
+conservative_total_guarded_profile,10166,False,273,2.0211673007085214,2.7511352661242263,Тартин
+conservative_total_guarded_profile,11549,False,260,2.0695920349981667,2.652119725276911,Тарталетка Ягодная ЦП
+conservative_total_guarded_profile,10486,False,223,2.216878976063799,2.6227899197992715,Хот-дог Баварский говяжий
+conservative_total_guarded_profile,11435,False,271,1.8470834670993972,2.590988417625935,Круассан с малиной
+conservative_total_guarded_profile,10169,True,20,2.4592747944146645,2.5453838523514127,Бейгл курица
+conservative_total_guarded_profile,108,True,18,2.4000385181948705,2.458769422065144,Сметанник
+conservative_total_guarded_profile,11223,False,267,1.4796344557658827,2.370479844352676,Пирог с черносливом и грец орехом
+conservative_total_guarded_profile,11437,False,227,1.821615751388866,2.3684586165012145,Малиновое сердце
+conservative_total_guarded_profile,4423,False,281,1.5933498096755907,2.281807533980782,Жар Киш грибы курица
+conservative_total_guarded_profile,1347,False,247,1.6839201517955436,2.2751217359553753,Пончик Белый шоколад
+conservative_total_guarded_profile,10324,False,267,1.3343237879726173,2.1919667365744977,Горбуша саго
+conservative_total_guarded_profile,11436,False,265,1.3750083940308075,2.132065919410134,Круассан с шоколадом
+conservative_total_guarded_profile,10426,False,289,1.4391684695964815,2.0996519852426148,Пирог Ханский
+conservative_total_guarded_profile,11548,False,39,1.6197340176618995,2.0687885016245433,Пицца студенческая
+conservative_total_guarded_profile,4012,False,111,1.2214917677188228,2.060339367502282,Роллы лосось запеч
+conservative_total_guarded_profile,5022,False,201,1.1789561921392928,2.041311071783416,ЖарЧай Облепиха малый
+conservative_total_guarded_profile,10511,False,231,1.119866956696432,2.03039165258682,Добрый Кола 500
+conservative_total_guarded_profile,11009,False,240,1.492044162763675,2.0158162061817837,Пирожное Малина
+conservative_total_guarded_profile,5236,False,222,1.5575587962125226,1.9870054076138581,ЖарЧай Клюква стандартный
+conservative_total_guarded_profile,1391,False,232,1.2647388463904208,1.9485818712576801,Добрый 200 Яблоко
+conservative_total_guarded_profile,10732,False,111,1.212519038717747,1.9433238703417675,Роллы зап. с креветкой
+conservative_total_guarded_profile,5109,False,230,1.285520351662524,1.935190598705573,Американо 300
+conservative_total_guarded_profile,5105,False,83,1.4371865276452809,1.9027697552067036,Пицца Маргарита кусок
+conservative_total_guarded_profile,4399,True,16,-3.7225365608945893,1.8212536004471913,Сметанник мини
+conservative_total_guarded_profile,10876,False,248,1.045573380848039,1.7876500545277811,Хлеб Ржаной 100% бездрож
+conservative_total_guarded_profile,10696,False,102,1.4086991173781866,1.786870269527768,Холодный латте
+conservative_total_guarded_profile,11213,False,57,-2.323602787435633,1.7859815461104058,Роллы Вулкан с курицей
+conservative_total_guarded_profile,4819,False,240,1.4851648579693255,1.7759063717408963,Эспрессо прем 35
+conservative_total_guarded_profile,10047,False,260,1.0347626222608195,1.6650483616780798,Круассан миндальный
+conservative_total_guarded_profile,10242,False,209,1.2771245879731692,1.6280712604819605,Чай черный стандарт
+conservative_total_guarded_profile,10369,False,243,0.9392794787020963,1.5967226840637325,Винегрет вес сеть
+conservative_total_guarded_profile,11519,False,252,0.9793958731194953,1.590535641766843,Тартин со злаками
+conservative_total_guarded_profile,11472,False,241,0.9397845588589485,1.4192760678816825,Меренговый с вишней
+conservative_total_guarded_profile,10074,False,178,1.0415060567054124,1.3904710055750025,Пирожное Шоколадно-карамельное
+conservative_total_guarded_profile,1355,False,230,1.091671566083053,1.383226615053768,Бородино
+conservative_total_guarded_profile,10176,False,219,1.0783193589931026,1.3423214712981952,Котлеты Нежные кур вес
+conservative_total_guarded_profile,10525,False,192,0.8268021334771898,1.2959059477844488,Чай зел малый
+conservative_total_guarded_profile,1540,False,201,0.8372287613576537,1.2800059117749842,Добрый 200 Яблоко Вишня
+conservative_total_guarded_profile,101,True,20,1.2710524401805263,1.271052440180526,Капустный
+conservative_total_guarded_profile,1390,False,157,0.9760687930379931,1.2497104580573046,Добрый 200 Персик Яблоко
+conservative_total_guarded_profile,11474,True,16,0.7713683586698136,1.214001178897325,Маковка
+conservative_total_guarded_profile,10435,False,226,0.751843121552347,1.2029123988480603,Манты курица вес сеть
+conservative_total_guarded_profile,10380,False,188,0.7853004412280529,1.154305233090957,Салат сельдь под шубой вес сеть
+conservative_total_guarded_profile,1346,False,156,1.0119463326797882,1.1269971955016518,"Стакан 0,2"
+conservative_total_guarded_profile,10376,False,228,0.7181940305582505,1.116720830701239,Салат крабовый вес сеть
+conservative_total_guarded_profile,58,True,7,1.0662294643607577,1.0662294643607577,Сочень
+conservative_total_guarded_profile,1070,False,25,1.019293167466193,1.0491342644491624,Картофель и мясо
+conservative_total_guarded_profile,1742,False,133,0.7584408877773154,1.0010483415763916,Печенье Имбирное
+conservative_total_guarded_profile,11471,False,225,0.7275663262930625,0.9803505327258202,Меренговый с абрикосом
+conservative_total_guarded_profile,10075,False,167,0.45136437408159297,0.97360723388069,Пирожное Медовик
+conservative_total_guarded_profile,10345,False,28,0.9388608598015853,0.9649256697776696,Ромашка П
+conservative_total_guarded_profile,10377,False,233,0.4443258389111107,0.9607932657253632,Салат курица по-корейски вес сеть
+conservative_total_guarded_profile,1393,False,192,0.5378345425825449,0.9516878327398437,Добрый 300 Яблоко
+conservative_total_guarded_profile,11215,False,24,0.9383925835350225,0.9447286192655471,Роллы Сливочные с креветкой
+conservative_total_guarded_profile,10527,False,185,0.6390316509299958,0.9326227455107823,Печенье Детское 250
+conservative_total_guarded_profile,10685,False,186,0.625160601365319,0.920022662453296,Манты с говядиной и картофелем вес сеть
+conservative_total_guarded_profile,10909,True,23,0.42734649187175794,0.9051618075691734,Корзинка ягодная
+conservative_total_guarded_profile,1397,False,197,0.31528029155339515,0.8816238393931997,Pulpy Апельсин
+conservative_total_guarded_profile,10544,False,177,0.383223161078362,0.8791078847084709,БонаАква 500 газ
+conservative_total_guarded_profile,10453,False,193,0.5992380808806861,0.8720975396065828,Салат Цезарь вес сеть
+conservative_total_guarded_profile,10513,False,175,0.4986234542800895,0.861473568491084,Рич 500 Зел чай
+conservative_total_guarded_profile,10463,False,76,0.35173474230952606,0.85992974750987,Сметана порц сеть
+conservative_total_guarded_profile,1722,True,16,0.6813182589407645,0.8559998585247226,Губадия мини
+conservative_total_guarded_profile,10371,False,206,0.6102412617521548,0.8296686275503935,Плов с курицей вес сеть
+conservative_total_guarded_profile,10539,False,163,0.5694457089975372,0.7941890183572531,Курица по французски вес сеть
+conservative_total_guarded_profile,10372,False,146,0.5684610344636044,0.7934037284432757,Пюре картофельное П вес сеть
+conservative_total_guarded_profile,11440,False,154,0.4407250834274566,0.7737172911318559,Кукис красный вельвет ЦП
+conservative_total_guarded_profile,1399,False,177,0.46781756199901925,0.7658011484368942,Pulpy Тропик
+conservative_total_guarded_profile,11229,False,166,0.4373425156630284,0.752699603299761,Салат Буженина индейки вес
+conservative_total_guarded_profile,10378,False,232,0.4956722240889716,0.7494882222777357,Салат Оливье вес сеть
+conservative_total_guarded_profile,5257,False,67,0.6227353822560133,0.7485120679829498,Чай зел жасмин малый
+conservative_total_guarded_profile,10368,False,203,0.5633044900618445,0.7365564166501825,Крылышки терияки П вес сеть
+conservative_total_guarded_profile,11536,False,124,0.4934373878178727,0.7316540733930121,Суп лапша с курицей 300мл
+conservative_total_guarded_profile,11441,False,170,0.43775346001610377,0.7309214213644829,Кукис Орео ЦП
+conservative_total_guarded_profile,10462,False,66,0.6370901694898201,0.7284787353356017,Тарталетка Малиновая ЦП
+conservative_total_guarded_profile,11280,False,149,0.41696277545998944,0.72596716436984,Пирог Ягодный
+conservative_total_guarded_profile,1745,True,14,0.6165393909759447,0.7051329858100651,Шафран творог
+conservative_total_guarded_profile,10440,False,222,0.476676000553466,0.7024601147877694,Запеканка творожная вес сеть
+conservative_total_guarded_profile,10375,False,237,0.4481097296059915,0.6436230464252415,Блины творог вес сеть
+conservative_total_guarded_profile,10515,False,167,0.3511100056817611,0.6429150642624224,Рич 500 Черный чай Лимон
+conservative_total_guarded_profile,11444,False,170,0.26638089960886524,0.6156197406702404,Кукис Лимонный ЦП
+conservative_total_guarded_profile,10498,False,154,0.38256574170465674,0.6151032313054868,Салат Мимоза вес
+conservative_total_guarded_profile,10367,False,240,0.3663087391108318,0.577755884850734,Сырники вес сеть
+conservative_total_guarded_profile,5235,False,143,0.34868115317000425,0.5653588753790427,ЖарЧай Клюква малый
+conservative_total_guarded_profile,10514,False,175,0.31807798280890814,0.563522796191834,Рич 500 Зел чай манго
+conservative_total_guarded_profile,1392,False,196,0.21822892851776332,0.5446876630913438,Добрый 300 Мультифрукт
+conservative_total_guarded_profile,100,True,23,0.44236887287266513,0.5394004478454875,Губадия
+conservative_total_guarded_profile,11543,False,28,0.35682694799671616,0.5020375314914003,Капучино 300 СК
+conservative_total_guarded_profile,11537,False,124,0.30673303172533306,0.48721097128171365,Борщ 300мл
+conservative_total_guarded_profile,10638,False,117,0.3651974664655423,0.47615001045667654,Картофель по-деревенски П вес сеть
+conservative_total_guarded_profile,11442,False,51,0.39160691275315657,0.4638937046954528,Кукис Малиновый ЦП
+conservative_total_guarded_profile,10516,False,143,0.16712202679488142,0.46071502062307357,Рич 500 Черный чай Персик
+conservative_total_guarded_profile,10510,False,157,0.1673887840888041,0.4549336610103339,Добрый Апельсин газ 500
+conservative_total_guarded_profile,10695,False,90,0.3235022450851175,0.43822469223686467,Апельсиновый кофе
+conservative_total_guarded_profile,10239,False,25,0.3884980765093998,0.4137430522678595,Чай зел жасмин стандарт
+conservative_total_guarded_profile,4192,False,69,0.2796732146686305,0.40111971625862425,Вишневый
+conservative_total_guarded_profile,11429,True,19,0.2548606093431476,0.37295112236992917,Сэндвич Мюнхенский
+conservative_total_guarded_profile,4947,True,16,0.25984356207306103,0.3722848807288668,Капуста и курица
+conservative_total_guarded_profile,10324,True,16,0.35558543546359284,0.35558543546359284,Горбуша саго
+conservative_total_guarded_profile,10427,False,143,0.20335452636693965,0.3497367963620709,Котлеты куриные вес сеть
+conservative_total_guarded_profile,10798,False,192,0.22461087216283881,0.3408284606519246,Блины с курицей вес сеть
+conservative_total_guarded_profile,11535,False,89,0.24669034359279068,0.3369852609856082,Солянка мясная сборная 300мл
+conservative_total_guarded_profile,1311,False,25,0.007701577310890828,0.33033971423715336,Хлеб кусок
+conservative_total_guarded_profile,10358,False,153,0.20522188072097597,0.308359686603875,Салат Светофор вес сеть
+conservative_total_guarded_profile,10703,False,110,0.20036476778727536,0.3075639622055421,Добрый Кола газ 300
+conservative_total_guarded_profile,10500,False,164,0.13017173761369577,0.2995116382012318,Добрый Лимон Лайм 500
+conservative_total_guarded_profile,11473,True,19,0.27689031162373096,0.2960108411017608,Сметанник маковый
+conservative_total_guarded_profile,67,True,17,0.046013779581749015,0.2906959376653473,Ватрушка
+conservative_total_guarded_profile,10770,False,28,0.2702435977998453,0.28429491257857065,Батон нарезной Упак
+conservative_total_guarded_profile,10747,False,52,0.047055107917917796,0.27601026560456254,Сгущенка
+conservative_total_guarded_profile,107,True,17,0.27194341666852234,0.2730837775710834,Капуста и мясо
+conservative_total_guarded_profile,11542,False,28,0.19126471280632762,0.25431360703748096,Капучино 200 СК
+conservative_total_guarded_profile,10207,False,132,0.12872875048373314,0.245583877615283,Салат по-ирански весовой
+conservative_total_guarded_profile,1070,True,3,0.2320751165152728,0.23876832205537823,Картофель и мясо
+conservative_total_guarded_profile,10410,False,143,0.11987548425315361,0.23298964674468736,Салат Наслаждение вес сеть
+conservative_total_guarded_profile,10963,False,39,0.03493708346009504,0.22810887079797715,Печенье Праздничное имбирное
+conservative_total_guarded_profile,10780,False,24,0.2198659860366676,0.22076937064064522,Зерновой Упак
+conservative_total_guarded_profile,10716,False,89,0.20046970496904737,0.21941745784823719,"Юдзу-Клубника,Клубника Холодный чай"
+conservative_total_guarded_profile,11222,False,32,0.1799765763951366,0.21173386859719778,Вишневый Пай
+conservative_total_guarded_profile,10627,False,47,0.062321282940969974,0.2040647669392032,Пицца Мясная П
+conservative_total_guarded_profile,10628,False,41,0.07940820257804465,0.189055569489529,Пицца с салями П
+conservative_total_guarded_profile,10535,False,78,0.10893544536031506,0.18327455382188815,Гречка с овощами П вес сеть
+conservative_total_guarded_profile,11251,True,14,0.17748240422440298,0.1807655774741116,ЖарПицца с салями
+conservative_total_guarded_profile,10469,False,88,0.08236833792696135,0.17950292214557406,Макароны П вес сеть
+conservative_total_guarded_profile,10965,True,19,0.02346676739153314,0.163597825331459,Трехслойник НОВЫЙ
+conservative_total_guarded_profile,102,True,11,0.1126806654721012,0.1630988127692682,Королевская ватрушка
+conservative_total_guarded_profile,11301,True,19,0.08191963280768438,0.15619169149374246,Клубника и банан НОВЫЙ
+conservative_total_guarded_profile,11544,False,26,0.12154506492793252,0.15117370313962622,Латте 200 СК
+conservative_total_guarded_profile,10745,False,13,0.14597080278718388,0.14737049830712634,Конфитюр Вишня
+conservative_total_guarded_profile,4423,True,8,0.07668597807846311,0.14497247016044768,Жар Киш грибы курица
+conservative_total_guarded_profile,11306,False,49,0.06423307865829364,0.14120679415555662,Картофель беби
+conservative_total_guarded_profile,10541,False,26,0.13613338373269834,0.13942006479274982,Пицца Семейная
+conservative_total_guarded_profile,11293,False,16,0.09232768778741263,0.1379248417536375,Жар Киш зел лук
+conservative_total_guarded_profile,4424,True,6,0.1330228543206574,0.1378412918082913,Жар Киш курица
+conservative_total_guarded_profile,10215,False,20,0.12637536929469795,0.12717455755714802,Сметана
+conservative_total_guarded_profile,11550,False,114,0.05000194001608392,0.12155396768201392,Салат с тунцом весовой
+conservative_total_guarded_profile,10779,False,21,0.11935444949264135,0.12085918302951293,Бородино Упак
+conservative_total_guarded_profile,10718,False,81,0.10079084171846545,0.11415849948113424,"Манго-Ананас,Клубника Холодный чай"
+conservative_total_guarded_profile,10343,False,27,0.10688366922777792,0.1080470181380827,Хлеб тостовый пшеничный
+conservative_total_guarded_profile,10775,False,22,0.10608335139025449,0.10743381105031391,Домашний безд Упак
+conservative_total_guarded_profile,10512,False,61,0.061360835386635504,0.10634131464720303,Добрый Кола без сахара 500
+conservative_total_guarded_profile,11551,False,38,0.06436030451664741,0.10314240556922144,Лазанья с мясом весовой
+conservative_total_guarded_profile,10542,False,27,0.09757523789558861,0.10262444678443042,Пицца с колбасками ЧБ
+conservative_total_guarded_profile,11531,False,103,0.07947826781526476,0.10048490249988837,Поке с креветкой
+conservative_total_guarded_profile,11545,False,28,0.07492649079747266,0.09837250545054593,Латте 300 СК
+conservative_total_guarded_profile,10970,False,25,0.09064132104564726,0.09518422235137464,Хлеб Ржаной 100% УПАК
+conservative_total_guarded_profile,156,False,42,0.08656289866629202,0.0875898496178607,Горячий шоколад 220
+conservative_total_guarded_profile,93,False,41,0.029046435508551016,0.08697743251174872,Сметанник ЗКЗ
+conservative_total_guarded_profile,10776,False,18,0.08337457274925092,0.08497128415505867,Ржаной безд заварной Упак
+conservative_total_guarded_profile,10507,False,77,0.03315558170396307,0.08462664454945312,Добрый Апельсин газ 330
+conservative_total_guarded_profile,110,True,14,0.02882617343875503,0.08212420715796014,Яблочный
+conservative_total_guarded_profile,1388,False,12,0.06163388374267434,0.06721314247994328,Добрый 200 Мультифрукт
+conservative_total_guarded_profile,10880,False,51,0.04933967674999484,0.06501630532822306,"Персик,Клубника Холодный чай"
+conservative_total_guarded_profile,78,False,41,0.0343385240276618,0.0597095591331781,Губадия ЗКЗ
+conservative_total_guarded_profile,10464,False,40,0.01836270812905999,0.05934123859583118,Майонез порц сеть
+conservative_total_guarded_profile,10772,False,16,0.0572376347689484,0.0578470653601893,Ржано-пшеничный 900 Упак
+conservative_total_guarded_profile,10625,False,31,0.012719162115086502,0.05725300233758901,Пицца Маргарита П
+conservative_total_guarded_profile,10778,False,19,0.05647556625861741,0.05647556625861741,Тартин Упак
+conservative_total_guarded_profile,11500,False,40,0.03777139544161201,0.056019961066014645,"Добрый 0,5л Дыня газ НОВИНКА"
+conservative_total_guarded_profile,10605,False,25,0.005277957519272958,0.05394037980047939,Чай черный Тропик малый
+conservative_total_guarded_profile,94,False,10,0.01787217184602774,0.052409158255349864,Трехслойник ЗКЗ
+conservative_total_guarded_profile,11522,False,27,0.0011028369612784417,0.05184158705306463,Паста с ветчиной и соусом бешамель вес сеть
+conservative_total_guarded_profile,10702,False,42,0.04104514572668072,0.050180011097453514,Добрый Кола без сахара 300
+conservative_total_guarded_profile,10715,False,50,0.026857630691284884,0.049398422433641676,"Юдзу-Клубника,Черника Холодный чай"
+conservative_total_guarded_profile,11520,False,21,0.04659479479883313,0.048488104868649545,Тартин со злаками Упак
+conservative_total_guarded_profile,11005,False,37,0.024226435979391225,0.04643917281760629,Трехслойник ЗКЗ Новый
+conservative_total_guarded_profile,5259,False,42,0.04226767069165921,0.046093849681044685,Чай черн бергамот малый
+conservative_total_guarded_profile,10526,False,89,-0.0006989154560655547,0.04346406735033305,Чай зел стандарт
+conservative_total_guarded_profile,202,False,60,0.023109443818712272,0.043382746502900416,Лапша 130
+conservative_total_guarded_profile,1998,False,16,0.02521012194445496,0.039896973467975744,я_не_исп Сахар стик
+conservative_total_guarded_profile,3047,False,39,-0.009325844248286419,0.03852413467168181,Чак-чак шарики ассорти Т
+conservative_total_guarded_profile,1926,False,97,0.021777228040065322,0.03446016236092586,Pulpy Ананас Манго
+conservative_total_guarded_profile,11562,False,181,0.004448065198009193,0.03301685561384746,Кукис Фисташковый ЦП
+conservative_total_guarded_profile,11498,False,29,0.028113250463098205,0.03194353885622003,"Добрый 0,33л ж/б Кола газ"
+conservative_total_guarded_profile,10430,False,89,0.017629362671475128,0.029652514747083247,Окрошка вес
+conservative_total_guarded_profile,203,False,80,0.020980093661255528,0.026976451911477795,Лапша 270
+conservative_total_guarded_profile,10661,True,3,0.0039412057822966196,0.024077027216449554,Хот-дог Датский говяжий
+conservative_total_guarded_profile,11223,True,6,0.02295029031755491,0.02295029031755491,Пирог с черносливом и грец орехом
+conservative_total_guarded_profile,10717,False,42,0.01611227238121682,0.02196097231369154,"Манго-Ананас,Черника Холодный чай"
+conservative_total_guarded_profile,10072,False,61,0.01231019201100425,0.021661107789921363,Горячий шоколад 300
+conservative_total_guarded_profile,10606,False,13,0.014139409771287248,0.01931871300614807,Чай черный Тропик стандарт
+conservative_total_guarded_profile,1001,False,19,0.01368751102216098,0.017488623211734833,Коррекс мал
+conservative_total_guarded_profile,11530,False,16,0.004783279362029713,0.015678020111753205,Котлеты бургер вес
+conservative_total_guarded_profile,4944,True,2,0.014011672757267168,0.014011672757267168,Пирожок капуста и курица
+conservative_total_guarded_profile,10426,True,8,-0.0044073380174719234,0.01271627506593323,Пирог Ханский
+conservative_total_guarded_profile,209,False,53,0.0035412171131820602,0.011090887142442218,Чак-чак 450
+conservative_total_guarded_profile,10771,False,11,0.00830149979688033,0.010420797841592055,Пшеничный Упак
+conservative_total_guarded_profile,11540,False,27,-0.00038375098513071526,0.009280415369951167,Американо 200 СК
+conservative_total_guarded_profile,10662,True,3,0.009253126327251365,0.009253126327251365,Хот-дог Датский куриный
+conservative_total_guarded_profile,11532,False,96,0.004184886075444982,0.004184886075444982,Поке с лососем
+conservative_total_guarded_profile,4826,False,43,-0.00189396811903203,0.004181276487587315,Горячий шоколад 200
+conservative_total_guarded_profile,11534,False,97,0.0041424078228530226,0.0041424078228530226,Роллы зап. с курицей
+conservative_total_guarded_profile,76,False,1,0.0,0.0,Капуста и грибы пост ЗКЗ
+conservative_total_guarded_profile,79,False,6,0.0,0.0,Зур бэлиш ЗКЗ
+conservative_total_guarded_profile,80,False,9,0.0,0.0,Капустный ЗКЗ
+conservative_total_guarded_profile,81,False,5,0.0,0.0,Капустный постный ЗКЗ
+conservative_total_guarded_profile,82,False,3,0.0,0.0,Королевская ватрушка ЗКЗ
+conservative_total_guarded_profile,83,False,3,0.0,0.0,Курник ЗКЗ
+conservative_total_guarded_profile,87,False,7,0.0,0.0,Капуста и мясо ЗКЗ
+conservative_total_guarded_profile,92,False,7,0.0,0.0,Свадебный каравай ЗКЗ
+conservative_total_guarded_profile,95,False,10,0.0,0.0,Яблочный ЗКЗ
+conservative_total_guarded_profile,96,False,4,0.0,0.0,Яблочный постный ЗКЗ
+conservative_total_guarded_profile,112,False,2,0.0,0.0,Грибы и капуста пост
+conservative_total_guarded_profile,207,False,43,0.0,0.0,Чак-чак 180
+conservative_total_guarded_profile,208,False,55,0.0,0.0,Чак-чак 270
+conservative_total_guarded_profile,586,False,2,0.0,0.0,Паштет чернослив постный
+conservative_total_guarded_profile,1396,False,29,0.0,0.0,Добрый 300 Томат
+conservative_total_guarded_profile,1744,False,5,0.0,0.0,Клубника и банан ЗКЗ
+conservative_total_guarded_profile,1964,False,2,0.0,0.0,Зур Балиш Байрам
+conservative_total_guarded_profile,1987,False,1,0.0,0.0,Треугольник мини с говядиной ЗКЗ
+conservative_total_guarded_profile,3045,False,18,0.0,0.0,Чак-чак 350 Т
+conservative_total_guarded_profile,3046,False,31,0.0,0.0,Чак-чак шарики Т
+conservative_total_guarded_profile,4041,False,1,0.0,0.0,Треугольник мини с курицей ЗКЗ
+conservative_total_guarded_profile,4189,False,1,0.0,0.0,Элеш мини ЗКЗ
+conservative_total_guarded_profile,4271,False,118,-0.007061089006545007,0.0,"Квас 0,45"
+conservative_total_guarded_profile,4749,False,1,0.0,0.0,Пирожок яблоко пост
+conservative_total_guarded_profile,4917,False,6,0.0,0.0,Салат Цезарь 150
+conservative_total_guarded_profile,4919,False,8,0.0,0.0,Крабовый 150
+conservative_total_guarded_profile,4920,False,8,0.0,0.0,Сельдь под шубой 150
+conservative_total_guarded_profile,4921,False,6,0.0,0.0,Курица по-корейски 150
+conservative_total_guarded_profile,4922,False,8,0.0,0.0,Оливье 150
+conservative_total_guarded_profile,4925,False,3,0.0,0.0,Винегрет 150
+conservative_total_guarded_profile,4933,False,2,0.0,0.0,Манты с говядиной 180
+conservative_total_guarded_profile,4939,False,1,0.0,0.0,Блины с курицей 200
+conservative_total_guarded_profile,5112,False,1,0.0,0.0,250 Гречка с мясом
+conservative_total_guarded_profile,5113,False,3,0.0,0.0,250 Карт дерев котл кур
+conservative_total_guarded_profile,5116,False,2,0.0,0.0,250 Карт пюре котл кур
+conservative_total_guarded_profile,5118,False,4,0.0,0.0,250 Пюре карт Фрикадельки слив соус
+conservative_total_guarded_profile,5119,False,5,0.0,0.0,250 Рис овощи Фрикадельки слив соус
+conservative_total_guarded_profile,5120,False,2,0.0,0.0,250 Плов курица
+conservative_total_guarded_profile,5126,False,3,0.0,0.0,250 Макароны Бантики сосиска
+conservative_total_guarded_profile,5260,False,50,0.0,0.0,Чай черн чабрец малый
+conservative_total_guarded_profile,10067,False,1,0.0,0.0,Соба с курицей и овощами 250г
+conservative_total_guarded_profile,10073,False,23,0.0,0.0,Чак-чак 200 Т
+conservative_total_guarded_profile,10181,False,1,0.0,0.0,Суп лапша курица вес
+conservative_total_guarded_profile,10224,False,117,-0.0009376442460414039,0.0,Салат Греческий вес
+conservative_total_guarded_profile,10228,False,1,0.0,0.0,Сырный соус
+conservative_total_guarded_profile,10240,False,21,0.0,0.0,Чай черн бергамот стандарт
+conservative_total_guarded_profile,10241,False,35,0.0,0.0,Чай черн чабрец стандарт
+conservative_total_guarded_profile,10246,False,2,0.0,0.0,250 Пюре карт Гуляш кур
+conservative_total_guarded_profile,10305,False,6,0.0,0.0,Нежность 150
+conservative_total_guarded_profile,10437,False,18,0.0,0.0,Горбуша саго ЗКЗ
+conservative_total_guarded_profile,10449,False,10,0.0,0.0,Печенье Подарочное
+conservative_total_guarded_profile,10456,False,15,0.0,0.0,Кисло-сладкий соус сеть
+conservative_total_guarded_profile,10457,False,25,0.0,0.0,Сырный соус сеть
+conservative_total_guarded_profile,10502,False,45,0.0,0.0,Добрый Лимон Лайм 330
+conservative_total_guarded_profile,10540,False,1,0.0,0.0,Горбуша саго постный
+conservative_total_guarded_profile,10559,False,2,0.0,0.0,Чак-чак 500 Т
+conservative_total_guarded_profile,10560,False,23,0.0,0.0,Лапша 220 Т
+conservative_total_guarded_profile,10561,False,49,0.0,0.0,Лапша 130 Т
+conservative_total_guarded_profile,10622,False,4,0.0,0.0,Пакет для коробки от пиццы
+conservative_total_guarded_profile,10660,False,1,0.0,0.0,Круассан малиновый ЦП
+conservative_total_guarded_profile,10726,False,3,0.0,0.0,Васаби с соусничкой шт
+conservative_total_guarded_profile,10746,False,4,0.0,0.0,Соус Мандарин
+conservative_total_guarded_profile,10748,False,4,0.0,0.0,Соус Сливочно-чесночный
+conservative_total_guarded_profile,10749,False,8,0.0,0.0,Кетчуп порц
+conservative_total_guarded_profile,10774,False,15,0.0,0.0,Фитнес Упак
+conservative_total_guarded_profile,10814,False,1,0.0,0.0,Пирог Клубничный мусс с мятой
+conservative_total_guarded_profile,10881,False,34,0.0,0.0,"Персик,Черника Холодный чай"
+conservative_total_guarded_profile,10979,False,1,0.0,0.0,"Персик,Черника 600 Холодный чай"
+conservative_total_guarded_profile,11051,False,151,0.0,0.0,Школьное пирожное
+conservative_total_guarded_profile,11186,False,1,0.0,0.0,"Стакан 0,3"
+conservative_total_guarded_profile,11298,False,1,0.0,0.0,Роллы Креветка кунжут
+conservative_total_guarded_profile,11307,False,1,0.0,0.0,Пирог с черносливом и грец орехом ЗКЗ
+conservative_total_guarded_profile,11426,False,1,0.0,0.0,Капуста и курица ЗКЗ
+conservative_total_guarded_profile,11427,False,1,0.0,0.0,Клубника и банан НОВЫЙ ЗКЗ
+conservative_total_guarded_profile,11499,False,18,0.0,0.0,"Добрый 0,33л ж/б Кола Дыня газ"
+conservative_total_guarded_profile,11533,False,1,0.0,0.0,Поке с крабом и икрой
+conservative_total_guarded_profile,11541,False,20,0.0,0.0,Американо 300 СК
+conservative_total_guarded_profile,11565,False,42,0.0,0.0,Роллы тубус Филадельфия
+conservative_total_guarded_profile,11566,False,43,0.0,0.0,Роллы тубус Вулкан с курицей
+conservative_total_guarded_profile,11567,False,57,0.0,0.0,Жар ролл ветчина
+conservative_total_guarded_profile,11568,False,56,0.0,0.0,Жар ролл краб
+conservative_total_guarded_profile,11569,False,27,0.0,0.0,Мексиканский ролл с курицей
+conservative_total_guarded_profile,11570,False,46,0.0,0.0,Мини бургер с котлетой
+conservative_total_guarded_profile,11571,False,80,0.0,0.0,Белая Дама торт ЦП
+conservative_total_guarded_profile,11572,False,37,0.0,0.0,Пирожок с картошкой
+conservative_total_guarded_profile,11573,False,6,0.0,0.0,Пирожок с картошкой с луком фри
+conservative_total_guarded_profile,11574,False,42,0.0,0.0,Пицца закрытая
+conservative_total_guarded_profile,11576,False,138,0.0,0.0,Наполеон с бананом
+conservative_total_guarded_profile,11577,False,101,0.0,0.0,Наполеон
+conservative_total_guarded_profile,11596,False,136,0.0,0.0,Хлеб Здоровье
+conservative_total_guarded_profile,11597,False,90,0.0,0.0,Хлеб Боярский
+conservative_total_guarded_profile,11613,False,33,0.0,0.0,Пирог Изумрудный
+conservative_total_guarded_profile,11615,False,23,0.0,0.0,Плетенка кленовая
+conservative_total_guarded_profile,11616,False,19,0.0,0.0,Плетенка с черникой
+conservative_total_guarded_profile,11617,False,24,0.0,0.0,Плетенка с земляникой
+conservative_total_guarded_profile,11618,False,14,0.0,0.0,Тропический
+conservative_total_guarded_profile,11619,False,24,0.0,0.0,Пирожок Курица рис
+conservative_total_guarded_profile,11621,False,1,0.0,0.0,Пирог с Манго ЗКЗ

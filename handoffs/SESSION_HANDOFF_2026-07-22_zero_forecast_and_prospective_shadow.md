@@ -216,3 +216,30 @@ is directional and not production evidence. Next: pass the conservative target
 through the SKU/profile layer and check clean-SKU bias plus delivery of uplift
 to affected SKUs. Production remained unchanged. Details:
 `docs/stockout_adjusted_bakery_target_experiment_20260722.md`.
+
+## Conservative SKU/profile end-to-end backtest
+
+Passed the conservative 50%/10-unit demand reconstruction through the current
+normalized SKU-hour profile on two non-overlapping 14-day holdouts. The
+experiment decomposes bakery-total-only, profile-only, combined, and
+guarded-profile effects. Actual hourly bakery shape is held as an oracle so the
+test isolates daily total and SKU allocation.
+
+No profile candidate passed. The conservative bakery total adds 833.1 units per
+window on average, but the unchanged profile sends only 46.6 units to stockout
+SKU-days, closing 3.2% of their pooled reconstructed gap. The full adjusted
+profile raises delivery to 20.6%, but stockout-SKU, clean-SKU, and
+adjusted-pair clean-SKU MAE all worsen in 2/2 windows. The guarded profile
+closes 16.8%; it improves overall clean-SKU MAE 2/2 but still worsens
+stockout-SKU and adjusted-pair clean-SKU MAE 2/2.
+
+The profile-only variant moves about 251 units per window toward stockout SKUs
+while holding the total nearly fixed, proving that normalized reconstructed
+profiles introduce implicit transfers. Full end-to-end delivery is also
+unstable: 9.1% of the gap in the first independent window and 34.9% in the
+second. Most uplift is dispersed over mature clean SKU shares.
+
+Decision: do not promote reconstructed normalized profiles. Next test an
+independent SKU-demand model without a fixed-sum share constraint, then sum or
+reconcile SKU forecasts to bakery totals. Production remained unchanged. See
+`docs/stockout_adjusted_sku_profile_experiment_20260727.md`.
