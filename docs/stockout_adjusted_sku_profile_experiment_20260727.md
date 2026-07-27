@@ -26,13 +26,19 @@ and SKU-profile effects from hour-level forecast error.
 - conservative total and a guarded profile that retains baseline exact routing
   and fallback.
 
-Stockout SKU-days are scored against observed sales as a lower bound, the
-conservative reconstructed target, and the full reconstructed point. Clean
-SKU-days use observed sales.
+The primary evaluation target is reconstructed demand over the entire holdout:
+clean SKU-days use observed sales and stockout SKU-days use observed sales plus
+reconstruction. Conservative and full reconstruction variants are both
+reported. Stockout-only and clean-only scopes remain diagnostics.
+
+All variants are aligned to the same union of SKU-days before scoring. Missing
+variant predictions are treated as zero. The resulting supports are 24,049 and
+21,582 SKU-days in the two windows.
 
 ## Result
 
-No SKU/profile variant is suitable for promotion.
+The reconstructed profile contains a positive distribution signal, but the
+full conservative bakery-total uplift is not yet stable at SKU level.
 
 ### Bakery total alone
 
@@ -47,10 +53,12 @@ With the bakery total held approximately fixed, the reconstructed profile
 moves 251.2 units per window toward stockout SKU-days. This is an implicit
 reallocation: almost the same amount is removed from clean SKU-days.
 
-Clean-SKU MAE improves in 2/2 windows at the aggregate all-SKU scope, but MAE
-on historically adjusted bakery/SKU pairs worsens in 2/2. Stockout-SKU MAE
-against the conservative target also worsens in 2/2. The profile therefore
-improves aggregate bias while assigning volume to the wrong individual rows.
+Against reconstructed demand over all SKU-days, MAE improves in 2/2 windows
+with a mean delta of -0.0196 units per SKU-day. Aggregate bias cannot change
+because the bakery total is fixed. MAE on historically adjusted bakery/SKU
+pairs and on the stockout-only subset worsens in 2/2, so the gain is broad
+distribution improvement rather than precise delivery to the current
+stockout rows.
 
 ### Conservative total and full profile
 
@@ -58,20 +66,20 @@ The end-to-end variant delivers 299.3 units per window to stockout SKU-days.
 This closes 20.6% of the pooled reconstructed gap. Delivery is unstable:
 9.1% after the 2026-06-21 cutoff and 34.9% after 2026-07-05.
 
-Aggregate stockout bias improves in 2/2 windows, but:
-
-- stockout-SKU MAE worsens in 2/2;
-- clean-SKU MAE worsens in 2/2;
-- adjusted-pair clean-SKU MAE worsens in 2/2;
-- roughly 65% of net added volume still goes to clean SKU-days.
+Against reconstructed demand over all SKU-days, absolute aggregate bias
+improves in 2/2 windows by 747.7 units per window on average. SKU-day MAE
+improves only 1/2 and is effectively neutral on average (-0.0001). The
+stockout-only and adjusted-pair scopes still worsen in 2/2. Roughly 65% of net
+added volume goes to clean SKU-days.
 
 ### Guarded profile
 
 The guarded end-to-end variant closes 16.8% of the pooled stockout gap and
 sends about 71% of net added volume to clean SKU-days. It improves overall
-clean-SKU MAE in 2/2 windows, but stockout-SKU MAE and adjusted-pair clean-SKU
-MAE both worsen in 2/2. Guarding routing reduces damage but does not solve
-delivery.
+reconstructed-demand absolute bias in 2/2 windows. SKU-day MAE improves only
+1/2, although its mean delta is favourable at -0.0195 because the second
+window improves strongly. Stockout-SKU MAE and adjusted-pair clean-SKU MAE
+both worsen in 2/2.
 
 The largest clean-day recipients include Kystybyi P, chicken and beef
 triangles, sausage pastry, cabbage bekken, Makovka, and sausage-under-coat.
@@ -80,17 +88,17 @@ profile shares rather than targeted at the censored SKU demand.
 
 ## Decision
 
-Do not feed reconstructed demand directly into the current normalized profile
-as a production candidate. Normalization necessarily converts part of the
-correction into implicit transfers, while an increased bakery total is spread
-mostly across existing mature shares.
+The earlier observed-sales-primary interpretation was too negative. When the
+entire holdout is evaluated on reconstructed demand, the adjusted profile alone
+improves SKU-day MAE consistently and should remain an offline candidate.
 
-The next useful experiment is an independent SKU-demand model trained on the
-stockout-adjusted target. SKU forecasts should be produced without a fixed-sum
-share constraint; the bakery total can then be obtained by summing or
-reconciling those SKU forecasts. This preserves the intended semantics:
-restoring one SKU's censored demand does not require subtracting volume from
-another SKU.
+Do not promote the full end-to-end variant yet: the complete bakery uplift
+improves aggregate reconstructed-demand bias but only wins SKU-day MAE in one
+window. The next experiment should keep the reconstructed profile and sweep a
+partial bakery-total uplift, for example 0%, 25%, 50%, 75%, and 100% of the
+conservative bakery correction. Selection must use all-SKU reconstructed
+demand on equal support, with stockout-only and adjusted-pair scopes as
+guardrails.
 
 ## Artifacts
 

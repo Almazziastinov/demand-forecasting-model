@@ -139,6 +139,34 @@ def normalize_to_bakery_prediction(
     return result
 
 
+def align_variant_support(
+    variant_frames: dict[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    universe = (
+        pd.concat(
+            [
+                frame[SKU_DAY_KEYS + ["observed_sales"]]
+                for frame in variant_frames.values()
+            ],
+            ignore_index=True,
+        )
+        .groupby(SKU_DAY_KEYS, as_index=False)
+        .agg(observed_sales=("observed_sales", "max"))
+    )
+    aligned: dict[str, pd.DataFrame] = {}
+    for variant, frame in variant_frames.items():
+        prediction = frame[SKU_DAY_KEYS + ["predicted_demand"]]
+        part = universe.merge(
+            prediction,
+            on=SKU_DAY_KEYS,
+            how="left",
+            validate="one_to_one",
+        )
+        part["predicted_demand"] = part["predicted_demand"].fillna(0.0)
+        aligned[variant] = part
+    return aligned
+
+
 def attach_targets_and_scopes(
     scored: pd.DataFrame,
     evaluation_targets: pd.DataFrame,
@@ -172,6 +200,14 @@ def summarize_variant(scored: pd.DataFrame, *, variant: str) -> pd.DataFrame:
         "all_sku_days_observed_sales": (
             pd.Series(True, index=scored.index),
             "observed_sales",
+        ),
+        "all_sku_days_conservative_demand": (
+            pd.Series(True, index=scored.index),
+            "conservative_target",
+        ),
+        "all_sku_days_full_reconstructed_demand": (
+            pd.Series(True, index=scored.index),
+            "full_point_target",
         ),
         "clean_sku_days_observed_sales": (
             ~scored["is_stockout_sku_day"],
@@ -362,6 +398,7 @@ def main() -> None:
                 baseline_profile,
             ),
         ]
+        unaligned_frames: dict[str, pd.DataFrame] = {}
         for (
             variant,
             profile,
@@ -375,13 +412,17 @@ def main() -> None:
                 allowed_exact_triples=allowed_exact,
                 fallback_source_profile=fallback_source,
             )
+            unaligned_frames[variant] = normalize_to_bakery_prediction(
+                profile_scored, day_prediction
+            )
+        aligned_frames = align_variant_support(unaligned_frames)
+        holdout_targets = evaluation_targets[
+            evaluation_targets[DATE_COL].between(holdout_start, holdout_end)
+        ]
+        for variant, aligned in aligned_frames.items():
             scored = attach_targets_and_scopes(
-                normalize_to_bakery_prediction(profile_scored, day_prediction),
-                evaluation_targets[
-                    evaluation_targets[DATE_COL].between(
-                        holdout_start, holdout_end
-                    )
-                ],
+                aligned,
+                holdout_targets,
                 adjusted_pairs,
             )
             scored["variant"] = variant

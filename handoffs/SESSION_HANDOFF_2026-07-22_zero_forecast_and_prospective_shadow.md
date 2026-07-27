@@ -225,13 +225,21 @@ experiment decomposes bakery-total-only, profile-only, combined, and
 guarded-profile effects. Actual hourly bakery shape is held as an oracle so the
 test isolates daily total and SKU allocation.
 
-No profile candidate passed. The conservative bakery total adds 833.1 units per
-window on average, but the unchanged profile sends only 46.6 units to stockout
-SKU-days, closing 3.2% of their pooled reconstructed gap. The full adjusted
-profile raises delivery to 20.6%, but stockout-SKU, clean-SKU, and
-adjusted-pair clean-SKU MAE all worsen in 2/2 windows. The guarded profile
-closes 16.8%; it improves overall clean-SKU MAE 2/2 but still worsens
-stockout-SKU and adjusted-pair clean-SKU MAE 2/2.
+The original interpretation over-weighted evaluation against observed sales.
+The corrected primary target is reconstructed demand over all SKU-days:
+observed sales on clean rows and observed plus imputation on stockout rows.
+All variants are also aligned to the same union support before scoring.
+
+Under the corrected evaluation, the reconstructed profile with the observed
+bakery total improves all-SKU reconstructed-demand MAE in 2/2 windows (mean
+delta -0.0196). It is therefore a valid offline distribution candidate.
+
+The conservative bakery total adds 833.1 units per window on average, but the
+unchanged profile sends only 46.6 units to stockout SKU-days, closing 3.2% of
+their pooled reconstructed gap. The full adjusted profile raises delivery to
+20.6% and improves reconstructed-demand aggregate bias 2/2, but SKU-day MAE
+improves only 1/2 and is neutral on average. The guarded profile also wins MAE
+only 1/2, despite a favourable mean driven by the second window.
 
 The profile-only variant moves about 251 units per window toward stockout SKUs
 while holding the total nearly fixed, proving that normalized reconstructed
@@ -239,7 +247,8 @@ profiles introduce implicit transfers. Full end-to-end delivery is also
 unstable: 9.1% of the gap in the first independent window and 34.9% in the
 second. Most uplift is dispersed over mature clean SKU shares.
 
-Decision: do not promote reconstructed normalized profiles. Next test an
-independent SKU-demand model without a fixed-sum share constraint, then sum or
-reconcile SKU forecasts to bakery totals. Production remained unchanged. See
-`docs/stockout_adjusted_sku_profile_experiment_20260727.md`.
+Decision: retain the reconstructed normalized profile offline, but do not
+promote the full bakery uplift. Next sweep 0/25/50/75/100% of the conservative
+bakery correction with the reconstructed profile, using all-SKU reconstructed
+demand on equal support as the primary target. Production remained unchanged.
+See `docs/stockout_adjusted_sku_profile_experiment_20260727.md`.
