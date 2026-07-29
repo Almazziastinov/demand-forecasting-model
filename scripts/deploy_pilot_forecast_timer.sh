@@ -37,13 +37,13 @@ StandardOutput=append:/var/log/pilot_forecast/publish.log
 StandardError=append:/var/log/pilot_forecast/publish.log
 EOF
 
-# --- systemd timer unit (08:00 Moscow time = 05:00 UTC) ---
+# --- systemd timer unit (06:00 Moscow time = 03:00 UTC) ---
 cat > /etc/systemd/system/pilot-forecast-publish.timer << 'EOF'
 [Unit]
-Description=Daily pilot baking forecast publish at 08:00 MSK
+Description=Daily pilot baking forecast publish at 06:00 MSK
 
 [Timer]
-OnCalendar=*-*-* 05:00:00 UTC
+OnCalendar=*-*-* 03:00:00 UTC
 Persistent=true
 
 [Install]

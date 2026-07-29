@@ -1,9 +1,10 @@
 """Generate and publish the daily pilot forecast summary to Bitrix24 chat.
 
-For the given date (default: tomorrow), queries ClickHouse for per-SKU
-daily forecasts for all pilot bakeries, applies kratnost rounding, and
-writes a single Excel file.  If VIBECODE_API_KEY is set (via .env or
-environment), uploads the file to the Bitrix24 pilot chat automatically.
+For the given date (default: today), queries ClickHouse for per-SKU
+daily forecasts and previous-day closing stock for all pilot bakeries.
+The stock is subtracted from forecast demand before kratnost rounding.
+If VIBECODE_API_KEY is set (via .env or environment), uploads the generated
+Excel file to the Bitrix24 pilot chat automatically.
 
 Usage (local / on VM):
     python scripts/publish_pilot_forecast.py --env-file .env
@@ -22,12 +23,26 @@ from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
 
+import pandas as pd
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "apps"))
 sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
-PILOT_BAKERY_IDS = [16, 20, 21, 22, 28, 80, 89, 107, 221, 222, 257]
+from src.experiments_v2.sku_systematic_correction import (  # noqa: E402
+    CorrectionConfig,
+    apply_category_neutral_corrections,
+    build_correction_registry,
+)
+from src.experiments_v2.sku_cold_start import (  # noqa: E402
+    ColdStartConfig,
+    apply_category_neutral_cold_start,
+    build_cold_start_registry,
+)
+
+PILOT_BAKERY_IDS = [20, 21, 22, 28, 80, 89, 107, 221, 222, 257]
 
 WEEKDAY_RU = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 
@@ -57,8 +72,13 @@ def _round_up_kratnost(value: float, kratnost: int) -> int:
     return int(math.ceil(value / kratnost - 1e-9) * kratnost)
 
 
-def _build_report(forecast_date: str) -> list[dict]:
-    """Return rows: bakery_name, category, product_name, forecast, forecast_kratnost."""
+def _build_report(
+    forecast_date: str,
+    *,
+    sku_correction_registry: str | Path | None = None,
+    enable_new_sku_cold_start: bool = True,
+) -> list[dict]:
+    """Build daily pilot rows with previous-day stock and production plan."""
     from app.db import get_client
     from app.table_names import table_name
 
@@ -115,6 +135,31 @@ def _build_report(forecast_date: str) -> list[dict]:
         print(f"  WARNING: no forecast rows for {forecast_date}, run {run_id}")
         return []
 
+    previous_date = str(date_type.fromisoformat(forecast_date) - timedelta(days=1))
+    stock_df = client.query_df(
+        """
+        select
+            toInt64OrZero(toString(m.bakery_id)) as bakery_id,
+            toInt64OrZero(toString(m.product_id)) as product_id,
+            sum(m.stock_balance) as stock_balance
+        from Svezhar.mart_zero_sales_60d as m
+        where m.dt = toDate(%(previous_date)s)
+          and toInt64OrZero(toString(m.bakery_id)) in %(bids)s
+        group by bakery_id, product_id
+        """,
+        parameters={
+            "previous_date": previous_date,
+            "bids": PILOT_BAKERY_IDS,
+        },
+    )
+    yesterday_stock: dict[tuple[int, int], float] = {}
+    for row in stock_df.to_dict("records"):
+        try:
+            key = (int(row["bakery_id"]), int(row["product_id"]))
+            yesterday_stock[key] = max(float(row.get("stock_balance") or 0), 0.0)
+        except (TypeError, ValueError):
+            continue
+
     # SKU meta (kratnost) — base + bakery overrides
     # baking_sku_meta.product_id is zero-padded string ("000001234")
     # sku_forecast_day_embedded.product_id is int64
@@ -151,6 +196,237 @@ def _build_report(forecast_date: str) -> list[dict]:
         else:
             base_kratnost[pid_int] = kr
 
+    corrected_forecast: dict[tuple[int, int], float] = {}
+    if sku_correction_registry or enable_new_sku_cold_start:
+        eligible = forecast_df.copy()
+        eligible["bakery_id"] = pd.to_numeric(
+            eligible["bakery_id"],
+            errors="coerce",
+        )
+        eligible["product_id"] = pd.to_numeric(
+            eligible["product_id"],
+            errors="coerce",
+        )
+        eligible = eligible[
+            eligible["bakery_id"].isin(PILOT_BAKERY_IDS)
+            & eligible["category_name"].isin(BAKEABLE_CATEGORIES)
+            & ~eligible["product_id"].isin(frozen_pids)
+        ].copy()
+        has_meta = eligible.apply(
+            lambda row: (
+                int(row["product_id"]) in base_kratnost
+                or (int(row["product_id"]), int(row["bakery_id"]))
+                in bakery_kratnost
+            ),
+            axis=1,
+        )
+        eligible = eligible[has_meta].copy()
+        eligible["date"] = pd.Timestamp(forecast_date)
+
+    if enable_new_sku_cold_start:
+        history_from = str(
+            date_type.fromisoformat(forecast_date) - timedelta(days=60)
+        )
+        sales_history = client.query_df(
+            """
+            select
+                dt as date,
+                toInt64(bakery_id) as bakery_id,
+                toInt64(product_id) as product_id,
+                sum(qty_sold) as sold_qty
+            from Svezhar.mart_zero_sales_60d
+            where dt >= toDate(%(history_from)s)
+              and dt < toDate(%(forecast_date)s)
+              and toInt64(bakery_id) in %(bids)s
+              and toInt64(product_id) in %(product_ids)s
+            group by date, bakery_id, product_id
+            """,
+            parameters={
+                "history_from": history_from,
+                "forecast_date": forecast_date,
+                "bids": PILOT_BAKERY_IDS,
+                "product_ids": list(ColdStartConfig().product_ids),
+            },
+        )
+        forecast_history = client.query_df(
+            """
+            select
+                forecast_date as date,
+                toInt64(bakery_id) as bakery_id,
+                toInt64(product_id) as product_id,
+                argMax(forecast_qty, generated_at) as forecast_qty
+            from Svezhar.sku_forecast_day_snapshots
+            where forecast_date >= toDate(%(history_from)s)
+              and forecast_date < toDate(%(forecast_date)s)
+              and lead_days = 1
+              and toInt64(bakery_id) in %(bids)s
+              and toInt64(product_id) in %(product_ids)s
+            group by date, bakery_id, product_id
+            """,
+            parameters={
+                "history_from": history_from,
+                "forecast_date": forecast_date,
+                "bids": PILOT_BAKERY_IDS,
+                "product_ids": list(ColdStartConfig().product_ids),
+            },
+        )
+        cold_history = sales_history.merge(
+            forecast_history,
+            on=["date", "bakery_id", "product_id"],
+            how="left",
+            validate="one_to_one",
+        )
+        cold_history["forecast_qty"] = cold_history["forecast_qty"].fillna(0.0)
+        cold_registry = build_cold_start_registry(
+            cold_history,
+            as_of_date=forecast_date,
+        )
+        eligible = apply_category_neutral_cold_start(
+            eligible,
+            cold_registry,
+        )
+        eligible["forecast_qty"] = eligible["cold_start_forecast_qty"]
+        print(
+            "  new-SKU cold start: "
+            f"{len(cold_registry)} bakery/SKU floors, "
+            "bakery/category totals preserved"
+        )
+
+    mature_registry = pd.DataFrame()
+    if sku_correction_registry:
+        registry_path = Path(sku_correction_registry)
+        if not registry_path.exists():
+            raise FileNotFoundError(
+                f"SKU correction registry not found: {registry_path}"
+            )
+        mature_registry = pd.read_csv(registry_path, encoding="utf-8-sig")
+    else:
+        mature_history_from = str(
+            date_type.fromisoformat(forecast_date)
+            - timedelta(days=CorrectionConfig().history_days)
+        )
+        mature_fact = client.query_df(
+            """
+            select
+                dt as date,
+                toInt64(bakery_id) as bakery_id,
+                toInt64(product_id) as product_id,
+                any(product_name) as product_name,
+                any(category_name) as category_name,
+                sum(qty_sold) as sold_qty,
+                sum(qty_produced) as produced_qty,
+                max(last_sale_time) as last_sale_time
+            from Svezhar.mart_zero_sales_60d
+            where dt >= toDate(%(history_from)s)
+              and dt < toDate(%(forecast_date)s)
+              and toInt64(bakery_id) in %(bids)s
+            group by date, bakery_id, product_id
+            """,
+            parameters={
+                "history_from": mature_history_from,
+                "forecast_date": forecast_date,
+                "bids": PILOT_BAKERY_IDS,
+            },
+        )
+        mature_forecast = client.query_df(
+            """
+            select
+                forecast_date as date,
+                toInt64(bakery_id) as bakery_id,
+                toInt64(product_id) as product_id,
+                argMax(forecast_qty, generated_at) as forecast_qty
+            from Svezhar.sku_forecast_day_snapshots
+            where forecast_date >= toDate(%(history_from)s)
+              and forecast_date < toDate(%(forecast_date)s)
+              and lead_days = 1
+              and toInt64(bakery_id) in %(bids)s
+            group by date, bakery_id, product_id
+            """,
+            parameters={
+                "history_from": mature_history_from,
+                "forecast_date": forecast_date,
+                "bids": PILOT_BAKERY_IDS,
+            },
+        )
+        mature_history = mature_fact.merge(
+            mature_forecast,
+            on=["date", "bakery_id", "product_id"],
+            how="left",
+            validate="one_to_one",
+        )
+        mature_history["forecast_qty"] = mature_history[
+            "forecast_qty"
+        ].fillna(0.0)
+        last_sale = pd.to_datetime(
+            mature_history["last_sale_time"],
+            errors="coerce",
+        )
+        day_start = last_sale.dt.normalize() + pd.Timedelta(hours=7)
+        day_end = last_sale.dt.normalize() + pd.Timedelta(hours=19)
+        elapsed_hours = (
+            (last_sale - day_start).dt.total_seconds() / 3600.0
+        )
+        remaining_hours = (
+            (day_end - last_sale).dt.total_seconds() / 3600.0
+        ).clip(lower=0.0)
+        full_realization = (
+            mature_history["produced_qty"].gt(0)
+            & mature_history["sold_qty"].ge(
+                mature_history["produced_qty"] - 0.01
+            )
+            & elapsed_hours.ge(2.0)
+            & last_sale.lt(day_end)
+        )
+        raw_lost = np.where(
+            full_realization,
+            mature_history["sold_qty"] / elapsed_hours * remaining_hours,
+            0.0,
+        )
+        conservative_cap = np.maximum(
+            mature_history["sold_qty"] * 1.5,
+            15.0,
+        )
+        mature_history["lost_demand_qty"] = np.minimum(
+            raw_lost,
+            conservative_cap,
+        )
+        mature_history["demand_qty"] = (
+            mature_history["sold_qty"]
+            + mature_history["lost_demand_qty"]
+        )
+        mature_registry = build_correction_registry(
+            mature_history,
+            as_of_date=forecast_date,
+        )
+
+    if not mature_registry.empty:
+        corrected = apply_category_neutral_corrections(
+            eligible,
+            mature_registry,
+        )
+        corrected_forecast = {
+            (int(row["bakery_id"]), int(row["product_id"])): float(
+                row["corrected_forecast_qty"]
+            )
+            for row in corrected.to_dict("records")
+        }
+        changed = (
+            corrected["corrected_forecast_qty"]
+            - corrected["forecast_qty"]
+        ).abs() > 1e-9
+        print(
+            "  systematic SKU correction: "
+            f"{int(changed.sum())} changed rows, "
+            "bakery/category totals preserved"
+        )
+    elif enable_new_sku_cold_start:
+        corrected_forecast = {
+            (int(row["bakery_id"]), int(row["product_id"])): float(
+                row["forecast_qty"]
+            )
+            for row in eligible.to_dict("records")
+        }
+
     rows = []
     for rec in forecast_df.to_dict("records"):
         try:
@@ -172,8 +448,13 @@ def _build_report(forecast_date: str) -> list[dict]:
             continue  # no baking meta → not a bakeable SKU
 
         kratnost = bakery_kratnost.get((pid_int, bid)) or base_kratnost.get(pid_int) or 1
-        forecast_qty = float(rec.get("forecast_qty") or 0)
-        forecast_rounded = _round_up_kratnost(forecast_qty, kratnost)
+        forecast_qty = corrected_forecast.get(
+            (bid, pid_int),
+            float(rec.get("forecast_qty") or 0),
+        )
+        stock_qty = yesterday_stock.get((bid, pid_int), 0.0)
+        net_need = max(forecast_qty - stock_qty, 0.0)
+        production_plan = _round_up_kratnost(net_need, kratnost)
 
         bname = bakery_info.get(bid, {}).get("name") or str(bid)
         rows.append({
@@ -182,7 +463,10 @@ def _build_report(forecast_date: str) -> list[dict]:
             "category": category,
             "product_name": str(rec.get("product_name") or ""),
             "forecast": round(forecast_qty, 1),
-            "forecast_kratnost": forecast_rounded,
+            "yesterday_stock": round(stock_qty, 1),
+            "net_need": round(net_need, 1),
+            "production_plan": production_plan,
+            "total_for_sale": round(production_plan + stock_qty, 1),
             "kratnost": kratnost,
         })
 
@@ -213,8 +497,18 @@ def _build_excel(rows: list[dict], forecast_date: str) -> bytes:
     ws["A1"].font = title_font
     ws.row_dimensions[1].height = 20
 
-    headers = ["Пекарня", "Категория", "Номенклатура", "Прогноз", "Прогноз (кратность)", "Кратность"]
-    col_widths = [35, 20, 40, 12, 20, 12]
+    headers = [
+        "Пекарня",
+        "Категория",
+        "Номенклатура",
+        "Прогноз",
+        "Остаток со вчерашнего дня",
+        "Чистая потребность",
+        "План выпуска",
+        "Итого на продажу",
+        "Кратность",
+    ]
+    col_widths = [35, 20, 40, 12, 24, 20, 16, 18, 12]
 
     for col_idx, (h, w) in enumerate(zip(headers, col_widths), start=1):
         cell = ws.cell(row=2, column=col_idx, value=h)
@@ -247,10 +541,13 @@ def _build_excel(rows: list[dict], forecast_date: str) -> bytes:
             data_row["category"],
             data_row["product_name"],
             data_row["forecast"],
-            data_row["forecast_kratnost"],
+            data_row["yesterday_stock"],
+            data_row["net_need"],
+            data_row["production_plan"],
+            data_row["total_for_sale"],
             data_row["kratnost"],
         ]
-        fmts = [None, None, None, number_fmt, int_fmt, int_fmt]
+        fmts = [None, None, None, number_fmt, number_fmt, number_fmt, int_fmt, number_fmt, int_fmt]
         for col_idx, (val, fmt) in enumerate(zip(values, fmts), start=1):
             cell = ws.cell(row=row_num, column=col_idx, value=val)
             cell.fill = fill
@@ -387,21 +684,37 @@ def _send_to_chat(file_bytes: bytes, filename: str, forecast_date: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", default=".env")
-    parser.add_argument("--date", default=None, help="Forecast date (YYYY-MM-DD); default: tomorrow")
+    parser.add_argument("--date", default=None, help="Forecast date (YYYY-MM-DD); default: today")
     parser.add_argument("--dry-run", action="store_true", help="Build Excel but do not send to Bitrix24")
     parser.add_argument("--out-dir", default="output/pilot_forecast")
+    parser.add_argument(
+        "--sku-correction-registry",
+        default=None,
+        help=(
+            "Optional mature-SKU correction registry CSV. "
+            "If omitted, PILOT_SKU_CORRECTION_REGISTRY is used."
+        ),
+    )
     args = parser.parse_args()
 
     if args.env_file and Path(args.env_file).exists():
         _load_env(args.env_file)
 
-    forecast_date = args.date or str(date_type.today() + timedelta(days=1))
+    forecast_date = args.date or str(date_type.today())
     d = date_type.fromisoformat(forecast_date)
     weekday_abbr = WEEKDAY_RU[d.weekday()][:2]
 
     print(f"Pilot forecast summary | date: {forecast_date} ({weekday_abbr})")
 
-    rows = _build_report(forecast_date)
+    registry_path = (
+        args.sku_correction_registry
+        or os.environ.get("PILOT_SKU_CORRECTION_REGISTRY")
+        or None
+    )
+    rows = _build_report(
+        forecast_date,
+        sku_correction_registry=registry_path,
+    )
     if not rows:
         print("No data found — aborting.")
         return

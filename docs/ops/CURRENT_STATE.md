@@ -1,19 +1,160 @@
 # Current Project State
 
-Last updated: 2026-07-20
+Last updated: 2026-07-29
+
+## Pilot SKU Corrections Deployed To Daily Publisher (2026-07-29)
+
+The 10-bakery pilot publisher now applies two category-neutral SKU correction
+layers before yesterday's stock subtraction and kratnost rounding:
+
+1. Forecast-cold-start products `11573` and `11574` use an own-sales EWMA
+   floor (`alpha=0.90`, minimum 3 sales days) while they have at most 13 prior
+   positive-forecast days. Lost-demand estimates are deliberately not used by
+   this floor.
+2. Products with at least 14 positive-forecast days can enter the mature-SKU
+   systematic correction registry described below. The transition between the
+   two mechanisms is automatic and non-overlapping.
+
+Both layers preserve each `date × bakery × category` forecast total. The
+combined rolling 28-day backtest through `2026-07-28` improved total WAPE from
+`25.7551%` to `25.0720%` (`-0.6831 pp`). For the two cold-start products,
+WAPE improved from `95.0597%` to `57.4101%`.
+
+Deployment target: Blackhole server
+`82bb03a8-c356-4225-97a4-a1540cdc29e6`.
+Remote dry-run for `2026-07-30`: 18 bakery/SKU cold-start floors, 426 changed
+rows after mature correction, 535 final SKU rows across 10 bakeries, valid
+28,739-byte workbook, no Bitrix24 send. The timer remains enabled and active
+for `03:00 UTC` / `06:00 MSK`.
+
+Rollback:
+`/opt/scripts/publish_pilot_forecast.py.backup_20260729_sku_corrections`.
+The added modules are
+`/opt/src/experiments_v2/sku_cold_start.py` and
+`/opt/src/experiments_v2/sku_systematic_correction.py`; the old publisher does
+not import them.
+
+## Mature-SKU Systematic Correction (2026-07-29)
+
+A conservative, category-neutral correction layer was implemented locally for
+the 10-bakery pilot and is active in the daily pilot-plan publisher as
+described above. It does not change the production forecast snapshots.
+
+The registry uses only information strictly earlier than each forecast date.
+Products `11573` and `11574` enter it automatically after leaving cold start;
+the maturity gates prevent overlap between the two mechanisms.
+Eligibility requires at least 28 observed days, at least 14 days with a
+positive forecast, age of at least 28 days, 150 units of demand, absolute bias
+of at least 15%, error directionality of at least 40%, and a same-direction
+recent seven-day bias of at least 10%. The positive-forecast maturity guard
+prevents established products with newly appeared forecast coverage from
+being treated as persistent underforecasts.
+Multipliers have no hard lower or upper bound. Their adaptive smoothing
+strength is selected in `[0.10, 0.30]` from directionality, recent bias,
+history length, demand volume, and repeated lost-demand evidence. Geometric
+smoothing (`full_multiplier ** smoothing`) is used so extreme ratios caused by
+near-zero forecasts do not pass through linearly. Registry entries expire
+after 14 days.
+
+After multipliers are applied, forecasts are renormalized to preserve the
+original `date × bakery × category` total. The base bakery/category forecast
+therefore does not change; only the SKU mix changes.
+
+Rolling 28-day backtest through `2026-07-28`:
+
+- baseline WAPE: `25.1106%`
+- corrected WAPE: `24.8957%`
+- delta: `-0.2149 pp`
+- underforecast reduced by `178.30` units
+- overforecast reduced by `178.30` units
+- exact total forecast and aggregate bias preserved
+- improved on `24/28` dates and all 10 bakeries
+- 102 distinct registry pairs appeared during the rolling test
+- current registry contains 58 pairs
+
+Implementation:
+
+- `src/experiments_v2/sku_systematic_correction.py`
+- `scripts/backtest_sku_systematic_correction.py`
+- `reports/sku_systematic_correction_backtest/`
+- optional publisher override: `--sku-correction-registry`
+
+Publisher dry-run for `2026-07-29` succeeded: 535 rows across 10 bakeries,
+185 rows changed by correction/renormalization, category totals preserved,
+and no Bitrix24 message sent.
+
+The publisher builds the registry from ClickHouse automatically on every run.
+The optional CSV argument is an override for controlled diagnostics; production
+does not depend on a static registry file.
+
+## Pilot Daily Forecast Publisher — Previous-Day Stock (2026-07-28)
+
+The Bitrix24 chat publisher for chat `179919`
+(`Пилот выставления планов выпекания ИИ`) now publishes the forecast for the
+current calendar day at `06:00 MSK` (`03:00 UTC`) instead of publishing the
+next day's forecast at `08:00 MSK`.
+
+Before kratnost rounding, the publisher subtracts all positive closing stock
+from the previous day:
+
+`net_need = max(forecast_qty - yesterday_stock, 0)`
+
+`production_plan = round_up_to_kratnost(net_need)`
+
+The Excel output columns are now:
+
+`Пекарня`, `Категория`, `Номенклатура`, `Прогноз`,
+`Остаток со вчерашнего дня`, `Чистая потребность`, `План выпуска`,
+`Итого на продажу`, `Кратность`.
+
+`Итого на продажу = План выпуска + Остаток со вчерашнего дня`.
+
+Runtime details:
+
+- script: `/opt/scripts/publish_pilot_forecast.py`
+- timer: `pilot-forecast-publish.timer`
+- schedule: `OnCalendar=*-*-* 03:00:00 UTC`
+- server: VibeCode/Blackhole `82bb03a8-c356-4225-97a4-a1540cdc29e6`
+- pre-deploy backup:
+  `/opt/scripts/publish_pilot_forecast.py.backup_20260728_123628`
+- remote dry-run for `2026-07-28`: 598 SKU rows, 258 rows with positive
+  previous-day stock, 158 rows with a reduced production plan
+
+## Base Pilot Reduced To 10 Bakeries (2026-07-29)
+
+Bakery `16` (`Кулагина 4 Казань`) is excluded from the base pilot until
+further notice. The current base pilot set is:
+
+`{20, 21, 22, 28, 80, 89, 107, 221, 222, 257}`
+
+The 10-bakery scope is now used by the Bitrix24 daily forecast publisher and
+by local pilot analysis/profile-building scripts. The deployed publisher is
+`/opt/scripts/publish_pilot_forecast.py`; its pre-change backup is
+`/opt/scripts/publish_pilot_forecast.py.backup_20260729_pilot10`.
+
+Post-deploy dry-run produced `535` SKU rows across `10` bakeries and did not
+send a Bitrix24 message. `pilot-forecast-publish.timer` remains enabled and
+active.
+
+The production writer VM still references the historical profile versions
+`pilots_evening_20260716` and `stockout_20260716`, which were built for the
+previous 11-bakery scope. They were not rebuilt or activated in this change
+because direct VM access was unavailable. New profile builds use the
+10-bakery base set; switching the active production profiles requires a
+separate controlled VM rollout.
 
 ## Summary
 
 The production forecast writer is the VM only. VibeCode/Blackhole is a
 read-only embedded UI/API over ClickHouse and must not run forecast generation.
 
-**Current pilot state (as of 2026-07-16):** Pilot expanded from 5 to **11
-bakeries** — {16, 20, 21, 22, 28, 80, 89, 107, 221, 222, 257}. All run under
-scenario `base_raw_uplift` with stockout-aware hourly correction as the sole
-uplift mechanism (mean-share floor = 1.0 for all pilot rows). Overall pilot
-bias vs 60-day avg: **+6.7%** (new bakeries +2.5%, old bakeries +11.4%). SKU
-cap at 1.2× rolling mean, hierarchical haircut target 1.15. Active run:
-`prod_base_bakery_raw_uplift_sku_20260716_h14`.
+**Current operational pilot state (as of 2026-07-29):** the base pilot
+contains **10 bakeries** —
+{20, 21, 22, 28, 80, 89, 107, 221, 222, 257}. Bakery 16
+(`Кулагина 4 Казань`) is excluded until further notice. The Bitrix24
+publisher and local pilot defaults use this set. The active production writer
+still references the historical 2026-07-16 uplift/correction profiles pending
+a controlled VM rollout.
 
 ## Production Source Of Truth
 
@@ -1346,6 +1487,25 @@ remove `demand_milp.py`, `capacity.py`, `constants.py`, `algorithms/`,
 `rendering_milp.py` from `/opt/baking_plan`. Or restore from the Blackhole
 backup that will be taken before this deploy.
 
+## ClickHouse Connection Leak Fixed (2026-07-21)
+
+`apps/forecast_embedded/app/db.py` previously called `get_client()` in a way
+that created a brand-new ClickHouse TCP/TLS connection on every invocation.
+With 17 call sites across `bakery.py` and `runs.py`, every user request
+leaked multiple file descriptors that were never explicitly closed. Under load
+these accumulated to the OS fd limit, crashing the Blackhole `app.service`
+with `OSError: [Errno 24] Too many open files` (observed 2026-07-21 12:48 UTC
+— 489 such errors before the server rebooted at 12:48:42).
+
+Fix (commit `9c7770b`): lazy singleton — `_client` module-level variable;
+first call creates the client, all subsequent calls reuse it.
+`clickhouse_connect` uses `urllib3` internally which is thread-safe and
+manages its own connection pool. Deployed to Blackhole via exec API
+(backup: `/opt/app/app/db.py.bak_20260721`); `app.service` restarted and
+verified `active` + `/health` → `{"ok":true}`.
+
+Rollback: restore `/opt/app/app/db.py.bak_20260721`, restart `app.service`.
+
 ## Do Not Do
 
 - Do not run production forecast generation from VibeCode/Blackhole.
@@ -1366,3 +1526,27 @@ Update this file after any change to:
 - ClickHouse active run contract;
 - forecast scenario, horizon, correction mode, or source tables;
 - emergency production state changes.
+## Stockout direction shadow update (2026-07-22)
+
+- Read-only, run-time-aware analysis classified all 47 clear-stockout SKU-days
+  with no forecast as exclusions by the latest allocation-assortment batch
+  available before the historical run. An earlier 46+1 split was lookahead
+  caused by ignoring `loaded_at` on a batch loaded the following day.
+- In `prod_base_bakery_raw_uplift_sku_20260722_h14`, all 18 affected
+  bakery/SKU pairs are present on all 14 horizon days; the refresh repair from
+  2026-07-20 has removed the observed failure mode.
+- The stockout shadow runner now records at most one prospective observation
+  per Moscow calendar date under
+  `reports/stockout_direction_shadow/history/`.
+- First observation: 2026-07-22, all gates pass, 1/21 distinct days observed.
+- Historical replay days do not count toward the prospective requirement.
+- No production state was changed.
+
+### Local assortment coverage guard (not deployed)
+
+- A fail-fast pre-allocation guard now exists locally. It compares the prior
+  seven days of sales with the selected allocation-assortment batch and rejects
+  established missing bakery/SKU pairs (>=2 selling days and >=2 units).
+- Read-only validation for the 2026-07-22 run: 211 bakeries, 29,578 recent
+  bakery/SKU pairs, zero blocking gaps.
+- This code has not been deployed to the production writer VM.

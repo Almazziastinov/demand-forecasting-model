@@ -10,6 +10,20 @@
 - Legacy baseline pipeline: `src/preprocessing.py`, `src/models/train_and_save.py`, `run_pipeline.py`
 - Demo UI: `web/`
 
+## Active pilot baking-plan correction
+
+The daily Bitrix24 baking-plan publisher for the 10-bakery pilot applies two
+temporary, category-neutral SKU correction layers:
+
+- own-sales cold start for forecast-immature products `11573` and `11574`;
+- adaptive persistent-bias correction for mature bakery/SKU pairs.
+
+The layers preserve bakery/category totals and run before previous-day stock
+subtraction and kratnost rounding. The combined 28-day walk-forward backtest
+improved WAPE from `25.7551%` to `25.0720%`. Implementation, deployment,
+rollback, and verification details are documented in
+[`docs/pilot_sku_corrections_20260729.md`](docs/pilot_sku_corrections_20260729.md).
+
 Подробное разделение ролей описано в [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Что считать актуальным
@@ -40,4 +54,3 @@
 - Для новых ML-гипотез: продолжать работу в `src/experiments_v2/`
 - Для сравнения с историческим baseline: использовать legacy pipeline как контрольную точку
 - Для демонстрации интерфейса: использовать `web/` без требования полного соответствия исследовательскому контуру
-
