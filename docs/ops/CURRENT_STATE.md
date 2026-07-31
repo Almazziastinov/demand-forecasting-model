@@ -1,6 +1,32 @@
 # Current Project State
 
-Last updated: 2026-07-29
+Last updated: 2026-07-31
+
+## Daily Pilot Publisher Expanded To 22 Bakeries (2026-07-31)
+
+The Blackhole Bitrix24 publisher scope is expanded from 10 to 22 bakeries:
+
+`{1, 20, 21, 22, 28, 39, 41, 56, 57, 66, 67, 69, 80, 89, 107, 125, 149, 155, 160, 221, 222, 257}`.
+
+Bakery `16` remains excluded. The deployed publisher applies the same
+cold-start, mature-SKU correction, previous-day stock subtraction, kratnost
+rounding, and Excel rendering path to every bakery in the expanded set.
+
+Deployment target: Blackhole server
+`82bb03a8-c356-4225-97a4-a1540cdc29e6`, script
+`/opt/scripts/publish_pilot_forecast.py`. Pre-deploy backup:
+`/opt/scripts/publish_pilot_forecast.py.backup_20260731_144758_pilot22`.
+
+Remote dry-run for `2026-08-01` completed successfully: 42 cold-start
+bakery/SKU floors, 1,000 rows changed by the mature correction, and 1,222
+final SKU rows across all 22 bakeries. The dry-run did not send a Bitrix24
+message. `pilot-forecast-publish.timer` remains enabled and active, with the
+next run at `2026-08-01 03:00 UTC` / `06:00 MSK`.
+
+The production forecast writer and its active uplift/stockout profile versions
+were not changed in this publisher-only rollout. New bakeries therefore use
+the existing network forecast upstream, followed by the same publisher-side
+processing as the original pilot set.
 
 ## Pilot SKU Corrections Deployed To Daily Publisher (2026-07-29)
 

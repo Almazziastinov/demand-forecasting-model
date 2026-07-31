@@ -21,7 +21,10 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "apps"))
 sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
-PILOT_BAKERY_IDS = [16, 20, 21, 22, 28, 80, 89, 107, 221, 222, 257]
+PILOT_BAKERY_IDS = [
+    1, 20, 21, 22, 28, 39, 41, 56, 57, 66, 67,
+    69, 80, 89, 107, 125, 149, 155, 160, 221, 222, 257,
+]
 
 
 def _load_env(env_file: str) -> None:

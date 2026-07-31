@@ -55,7 +55,10 @@ from baking_plan.allocation import coverage_hours
 CORRECTION_TABLE = "sku_hour_stockout_correction_embedded"
 
 # Bakeries for the pilot — others will be skipped until more validation done.
-PILOT_BAKERY_IDS = {16, 20, 21, 22, 28, 80, 89, 107, 221, 222, 257}
+PILOT_BAKERY_IDS = {
+    1, 20, 21, 22, 28, 39, 41, 56, 57, 66, 67,
+    69, 80, 89, 107, 125, 149, 155, 160, 221, 222, 257,
+}
 
 LOOKBACK_DAYS     = 60
 STOCKOUT_RATIO    = 0.90   # продано/выпуск >= this -> stockout day
