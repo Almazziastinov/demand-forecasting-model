@@ -875,3 +875,43 @@ Rationale and evidence:
 - After deploying corrected ordering, the live active ratio recovered from
   `0.787` average to `1.142` (`1.04..1.24`) while retaining both the SKU cap
   and the underforecast guardrail.
+
+## 2026-08-12 - Separate Pilot Forecast Quality, Execution, And Data Triage
+
+Decision:
+
+- Evaluate the base 10-bakery pilot through separate forecast-quality,
+  plan-execution, and data/process views. Do not collapse them into one score
+  or infer responsibility from an execution deviation alone.
+- Use full demand (`sales + accepted lost demand`) only where demand
+  completeness is supported. Always publish the corresponding coverage;
+  otherwise report observed-sales metrics separately.
+- Treat the exact published workbook as the authority for the issued forecast
+  and plan. Preserve publication provenance and conflicting versions rather
+  than reconstructing an official plan from current code or later snapshots.
+- Use `execution_triage.csv`, enriched with forecast WAPE, bias, MAE, demand
+  coverage, case shares, and whether bakery action moved supply closer to
+  demand, as the authoritative execution review queue. The older priority
+  files remain diagnostic.
+
+Rationale:
+
+- Read-only recovery of the Bitrix24 attachment history showed gaps and
+  conflicting publications that cannot be resolved safely from forecast
+  snapshots alone.
+- Corrected completeness rules increased full-demand coverage from the
+  preliminary 23.51% to 85.92%, materially changing the aggregate
+  interpretation: complete-demand bias is +2.82%, while WAPE remains 31.55%.
+- A bakery can deviate from the rounded plan and still move closer to demand
+  when the forecast or production multiple is imperfect. Forecast reliability
+  is therefore required context before an execution case is escalated.
+
+Constraints and next priority:
+
+- The 2026-07-29 publication is excluded from official KPIs until its 06:00:02
+  candidate is explicitly accepted or rejected by the business owner.
+- Resolve the product scope and renames using `product_id` as the canonical
+  key, then add an append-only publication journal. Only after these controls
+  are in place should the management UI consume the new summaries.
+- This decision records analytical contracts only; it made no production or
+  Bitrix24 state change.
