@@ -263,6 +263,7 @@ def index(
     bakery_id: int | None = Query(default=None),
     run_id: str | None = Query(default=None),
     scenario: str | None = Query(default=None),
+    category_group: str | None = Query(default=None),
 ) -> HTMLResponse:
     auth = get_auth_context(request)
     active_run = _resolve_run(auth, run_id)
@@ -274,6 +275,7 @@ def index(
     if not selected_week_start:
         raise HTTPException(status_code=404, detail="Forecast dates not found")
 
+    valid_group = category_group if category_group in bakery_service.CATEGORY_GROUPS else None
     base_context = _page_context(request, auth, active_run, selected_week_start, bakery_id, scenario=scenario)
     selected_bakery_id = base_context["selected_bakery_id"]
     week = _week_dates(selected_week_start)
@@ -289,7 +291,24 @@ def index(
         if selected_bakery_id and week
         else []
     )
+    if valid_group and selected_bakery_id and week:
+        cat_totals = bakery_service.get_category_week_totals(
+            active_run["run_id"],
+            week[0].isoformat(),
+            week[-1].isoformat(),
+            selected_bakery_id,
+            auth,
+            valid_group,
+            scenario=scenario,
+        )
+        for row in raw_week_rows:
+            day_key = str(row.get("forecast_date", ""))[:10]
+            if day_key in cat_totals:
+                row["forecast_final"] = cat_totals[day_key]["forecast_final"]
+                row["actual_qty"] = cat_totals[day_key]["actual_qty"]
+                row["actual_revenue"] = cat_totals[day_key]["actual_revenue"]
     week_rows = _prepare_week_rows(raw_week_rows, week)
+    weekly = bakery_service.get_weekly_analytics(selected_bakery_id, auth, weeks=10) if selected_bakery_id else []
 
     logger.warning(
         "embedded index request_id=%s user_id=%s email=%s portal_id=%s role=%s is_admin=%s week_start=%s bakeries=%s selected_bakery_id=%s",
@@ -314,6 +333,9 @@ def index(
                 (bakery for bakery in base_context["bakeries"] if int(bakery["bakery_id"]) == selected_bakery_id),
                 None,
             ),
+            "category_group": valid_group,
+            "category_groups": bakery_service.CATEGORY_GROUPS,
+            "weekly": weekly,
         },
     )
 
@@ -325,7 +347,7 @@ def bakery_detail(
     date: str = Query(...),
     week_start: str | None = Query(default=None),
     run_id: str | None = Query(default=None),
-    category: str | None = Query(default=None),
+    category_group: str | None = Query(default=None),
     scenario: str | None = Query(default=None),
 ) -> HTMLResponse:
     auth = get_auth_context(request)
@@ -339,19 +361,23 @@ def bakery_detail(
     if not bakery_day:
         raise HTTPException(status_code=404, detail="Bakery forecast not found")
 
-    categories = bakery_service.get_categories(active_run["run_id"], date, bakery_id, auth, scenario=scenario)
-    selected_category = category if category in categories else None
-    hourly_total = bakery_service.get_hourly_total(active_run["run_id"], date, bakery_id, auth, scenario=scenario)
+    valid_group = category_group if category_group in bakery_service.CATEGORY_GROUPS else None
+    hourly_total = bakery_service.get_hourly_total(
+        active_run["run_id"], date, bakery_id, auth, scenario=scenario, category_group=valid_group
+    )
     top_sku = bakery_service.get_top_sku(
         active_run["run_id"],
         date,
         bakery_id,
         auth,
         limit=100,
-        category=selected_category,
+        category_group=valid_group,
         scenario=scenario,
     )
     selected_date = _parse_date(date)
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    is_past = selected_date is not None and selected_date < today
+    production_qty = bakery_service.get_production_qty(date, bakery_id) if is_past else None
     return templates.TemplateResponse(
         request,
         "bakery.html",
@@ -365,8 +391,39 @@ def bakery_detail(
             "hourly_total": hourly_total,
             "hour_chart": _prepare_hour_chart(hourly_total, mark_discrepancies=True),
             "top_sku": top_sku,
-            "categories": categories,
-            "selected_category": selected_category,
+            "category_group": valid_group,
+            "category_groups": bakery_service.CATEGORY_GROUPS,
+            "production_qty": production_qty,
+            "is_past": is_past,
+        },
+    )
+
+
+@router.get("/bakery/{bakery_id}/analytics", response_class=HTMLResponse)
+def bakery_analytics(
+    request: Request,
+    bakery_id: int,
+    week_start: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+    scenario: str | None = Query(default=None),
+) -> HTMLResponse:
+    auth = get_auth_context(request)
+    active_run = _resolve_run(auth, run_id)
+    if not active_run:
+        raise HTTPException(status_code=404, detail="Forecast run not found")
+
+    dates = run_service.get_run_dates(active_run["run_id"])
+    selected_week_start = week_start or _default_week_start(dates)
+    weekly = bakery_service.get_weekly_analytics(bakery_id, auth, weeks=8)
+
+    return templates.TemplateResponse(
+        request,
+        "analytics.html",
+        {
+            **_page_context(request, auth, active_run, selected_week_start, bakery_id, scenario=scenario),
+            "bakery_id": bakery_id,
+            "weekly": weekly,
+            "selected_date": None,
         },
     )
 
