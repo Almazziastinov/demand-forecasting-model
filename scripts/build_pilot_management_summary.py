@@ -1183,14 +1183,13 @@ def extract_clickhouse(
         select check_date as date,
                toInt64(bakery_id) as bakery_id,
                toInt64(product_id) as product_id,
-               sumIf(toFloat64(line_amount), toFloat64(quantity) > 0)
-                   / sumIf(toFloat64(quantity), toFloat64(quantity) > 0) as price
+               sumIf(toFloat64(line_amount), toFloat64(quantity) > 0) as revenue
         from Svezhar.fct_check_lines
         where check_date between %(date_from)s and %(date_to)s
           and toInt64(bakery_id) in %(bakery_ids)s
           and hex(cash_event_type) = %(sales_event_hex)s
         group by date, bakery_id, product_id
-        having sumIf(toFloat64(quantity), toFloat64(quantity) > 0) > 0
+        having revenue > 0
         """,
         parameters=params,
     )
@@ -1217,7 +1216,7 @@ def main() -> None:
         detail, exclusions = build_detail(forecast, facts)
         forecast_source = "snapshot_fallback"
     if not prices.empty and not detail.empty:
-        prices_join = prices[["date", "bakery_id", "product_id", "price"]].copy()
+        prices_join = prices[["date", "bakery_id", "product_id", "revenue"]].copy()
         prices_join["date"] = prices_join["date"].astype(str).str[:10]
         detail["business_date"] = detail["business_date"].astype(str).str[:10]
         detail = detail.merge(
@@ -1225,6 +1224,9 @@ def main() -> None:
             on=["business_date", "bakery_id", "product_id"],
             how="left",
         )
+        # price = revenue / sold_qty so that sold_qty * price = actual revenue from check_lines
+        sold = detail["sold_qty"].clip(lower=0)
+        detail["price"] = detail["revenue"] / sold.where(sold > 0)
     company, bakery, week = build_kpis(detail)
     bakery_ranking, sku_priority, bakery_sku_priority, daily_trend = (
         build_rankings(detail)
