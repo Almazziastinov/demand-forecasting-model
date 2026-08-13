@@ -41,12 +41,10 @@
       <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
         <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">Упущ. спрос</div>
         <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">от прогноза</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.block1_lost_qty | round(0) | int | string ~ " шт") if summary.block1_lost_qty is not none else "—" }}</div>
-        {% if summary.block1_lost_revenue is not none %}<div style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">{{ "%.0f"|format(summary.block1_lost_revenue / 1000) }} тыс. ₽</div>{% endif %}
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.block1_lost_qty | round(0) | int | string ~ " шт") if summary.block1_lost_qty is not none else "—" }}{% if summary.block1_lost_revenue is not none %} / {{ "%.0f"|format(summary.block1_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
         <div style="border-top: 1px solid var(--border, #e5e7eb); margin: 0.35rem 0;"></div>
         <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">признанное</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.block1_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.block1_recognized_lost_qty is not none else "—" }}</div>
-        {% if summary.block1_recognized_lost_revenue is not none %}<div style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">{{ "%.0f"|format(summary.block1_recognized_lost_revenue / 1000) }} тыс. ₽</div>{% endif %}
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.block1_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.block1_recognized_lost_qty is not none else "—" }}{% if summary.block1_recognized_lost_revenue is not none %} / {{ "%.0f"|format(summary.block1_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
       </div>
       {{ kpi_card("Выполнение плана",
           pct(summary.execution_rate) if summary.execution_rate is not none else "нет данных") }}
@@ -64,12 +62,10 @@
       <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
         <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">Упущ. спрос</div>
         <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">от плана</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_lost_qty is not none else "—" }}</div>
-        {% if summary.kratnost_lost_revenue is not none %}<div style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">{{ "%.0f"|format(summary.kratnost_lost_revenue / 1000) }} тыс. ₽</div>{% endif %}
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_lost_qty is not none else "—" }}{% if summary.kratnost_lost_revenue is not none %} / {{ "%.0f"|format(summary.kratnost_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
         <div style="border-top: 1px solid var(--border, #e5e7eb); margin: 0.35rem 0;"></div>
         <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">признанное</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_recognized_lost_qty is not none else "—" }}</div>
-        {% if summary.kratnost_recognized_lost_revenue is not none %}<div style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">{{ "%.0f"|format(summary.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽</div>{% endif %}
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_recognized_lost_qty is not none else "—" }}{% if summary.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(summary.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
       </div>
       {{ kpi_card("Выполнение плана",
           pct(summary.kratnost_execution_rate) if summary.kratnost_execution_rate is not none else "нет данных") }}
