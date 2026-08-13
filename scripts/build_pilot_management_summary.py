@@ -28,6 +28,12 @@ from src.pilot_performance import (  # noqa: E402
     PerformanceInput,
     build_performance_rows,
 )
+from src.pilot_product_scope import (  # noqa: E402
+    COLD_START_PRODUCT_IDS,
+    classify_unmatched_reason,
+    normalize_product_name,
+    resolve_product_name,
+)
 
 PILOT_IDS = (20, 21, 22, 28, 80, 89, 107, 221, 222, 257)
 SCOPE_CATEGORIES = (
@@ -39,7 +45,6 @@ SCOPE_CATEGORIES = (
 )
 SCOPE_VERSION = "base_pilot_10_v1"
 METRIC_VERSION = "pilot_management_v1"
-COLD_START_PRODUCT_IDS = {11573, 11574}
 FORECAST_RELIABILITY_VERSION = "forecast_reliability_v1"
 OUTPUT_DIR = ROOT / "reports" / "pilot_management_summary"
 DEFAULT_PLAN_MANIFEST = ROOT / ".codex_tmp" / "pilot_plan_archive" / "manifest.json"
@@ -48,8 +53,13 @@ DEFAULT_PLAN_MANIFEST = ROOT / ".codex_tmp" / "pilot_plan_archive" / "manifest.j
 def load_effective_plan_archive(
     manifest_path: Path, facts: pd.DataFrame, *, date_to: date
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load effective Bitrix attachments and map workbook names to fact IDs."""
+    """Load effective Bitrix attachments and map workbook names to fact IDs.
 
+    Join key is ``product_id`` resolved from the fact table.  Unresolved names
+    are classified by ``classify_unmatched_reason`` and written to the exclusions
+    frame with a machine-readable ``reason`` column so callers can distinguish
+    confirmed renames, frozen products, cold-start SKUs and genuine unknowns.
+    """
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     items = [
         item
@@ -59,25 +69,39 @@ def load_effective_plan_archive(
     ]
     lookup = facts.copy()
     lookup["bakery_key"] = lookup["bakery_name"].map(normalize_header)
-    lookup["product_key"] = lookup["product_name"].map(normalize_header)
     bakery_map = lookup.drop_duplicates("bakery_key").set_index("bakery_key")[
         "bakery_id"
     ]
-    product_map = lookup.drop_duplicates("product_key").set_index("product_key")[
-        "product_id"
-    ]
+    # Build normalized-name → product_id from the fact universe.  product_id is
+    # the canonical join key; the name is used only for the initial lookup.
+    name_to_id: dict[str, int] = {}
+    if "product_name" in lookup.columns and "product_id" in lookup.columns:
+        for _, row in lookup.drop_duplicates("product_name").iterrows():
+            if pd.notna(row.get("product_name")) and pd.notna(row.get("product_id")):
+                key = normalize_product_name(row["product_name"])
+                if key:
+                    name_to_id[key] = int(row["product_id"])
+
     rows, exclusions = [], []
     for item in items:
         plan = parse_pilot_plan(item["path"])
         for source in plan.rows:
             bakery_id = bakery_map.get(normalize_header(source.bakery))
-            product_id = product_map.get(normalize_header(source.product_name))
-            if pd.isna(bakery_id) or pd.isna(product_id):
+            product_id, _match_type, _alias = resolve_product_name(
+                source.product_name, name_to_id
+            )
+            if pd.isna(bakery_id) or product_id is None:
+                if product_id is None:
+                    exc_reason = classify_unmatched_reason(source.product_name)
+                    reason = f"plan_{exc_reason.value}"
+                else:
+                    reason = "bakery_outside_scope"
                 exclusions.append(
                     {
                         "date": plan.target_date,
-                        "bakery_id": None,
-                        "reason": "plan_outside_scope_or_unmapped",
+                        "bakery_id": int(bakery_id) if pd.notna(bakery_id) else None,
+                        "product_name": source.product_name,
+                        "reason": reason,
                     }
                 )
                 continue
@@ -903,6 +927,160 @@ def build_execution_triage(detail: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+_DP_FLAG_TYPES = [
+    "invalid_plan",
+    "invalid_forecast",
+    "demand_incomplete",
+    "negative_stock",
+    "sales_exceed_available",
+    "invalid_production",
+    "invalid_sales",
+    "available_basis_missing",
+    "run_mismatch",
+]
+
+_DP_SCOPE_REASONS = frozenset({"forecast_outside_fact_universe"})
+
+
+def build_data_process_queue(
+    detail: pd.DataFrame,
+    exclusions: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build DATA/PROCESS priority queue at (bakery_id, product_id) × issue_type grain.
+
+    Identifies recurring DQ flags, lineage gaps, and scope issues. Assigns
+    priority tiers D1 (persistent/blocking) → D2 (recurring) → D3 (occasional).
+
+    Flags are aggregated from the ``dq_flags`` and ``blocking_flags`` columns of
+    the in-memory detail DataFrame (tuples of DataQualityFlag enum values).
+    Scope issues are drawn from exclusions with bakery_id and product_id set.
+    """
+    if detail.empty:
+        return pd.DataFrame()
+
+    def _flag_in(flags_tuple, flag_name: str) -> bool:
+        return any(str(f) == flag_name for f in (flags_tuple or ()))
+
+    rows: list[dict] = []
+
+    for (bakery_id, product_id), group in detail.groupby(["bakery_id", "product_id"]):
+        total_days = int(group["business_date"].nunique())
+        total_sales = float(group["sold_qty"].clip(lower=0).sum())
+        product_name = (
+            group["product_name"].dropna().iloc[0]
+            if "product_name" in group.columns and group["product_name"].notna().any()
+            else None
+        )
+
+        # Lineage gap: rows with no forecast_run_id
+        if "forecast_run_id" in group.columns:
+            gap_mask = group["forecast_run_id"].isna() | group["forecast_run_id"].eq("")
+            gap_days = int(gap_mask.sum())
+            if gap_days:
+                rows.append({
+                    "bakery_id": int(bakery_id),
+                    "product_id": int(product_id),
+                    "product_name": product_name,
+                    "issue_type": "lineage_gap",
+                    "affected_days": gap_days,
+                    "total_days": total_days,
+                    "issue_rate": gap_days / total_days if total_days else 0.0,
+                    "affected_sales_qty": float(
+                        group.loc[gap_mask, "sold_qty"].clip(lower=0).sum()
+                    ),
+                    "total_sales_qty": total_sales,
+                    "blocks_metric": True,
+                })
+
+        dq_series = group["dq_flags"] if "dq_flags" in group.columns else None
+        blocking_series = (
+            group["blocking_flags"] if "blocking_flags" in group.columns else None
+        )
+
+        for flag_name in _DP_FLAG_TYPES:
+            if dq_series is None:
+                continue
+            affected_mask = dq_series.apply(lambda t: _flag_in(t, flag_name))
+            affected_days = int(affected_mask.sum())
+            if not affected_days:
+                continue
+            blocks = (
+                bool(
+                    blocking_series[affected_mask]
+                    .apply(lambda t: _flag_in(t, flag_name))
+                    .any()
+                )
+                if blocking_series is not None
+                else False
+            )
+            rows.append({
+                "bakery_id": int(bakery_id),
+                "product_id": int(product_id),
+                "product_name": product_name,
+                "issue_type": flag_name,
+                "affected_days": affected_days,
+                "total_days": total_days,
+                "issue_rate": affected_days / total_days if total_days else 0.0,
+                "affected_sales_qty": float(
+                    group.loc[affected_mask, "sold_qty"].clip(lower=0).sum()
+                ),
+                "total_sales_qty": total_sales,
+                "blocks_metric": blocks,
+            })
+
+    # Scope issues from exclusions (only where bakery_id and product_id are known)
+    scope_excls = exclusions[
+        exclusions["reason"].isin(_DP_SCOPE_REASONS)
+        & exclusions["bakery_id"].notna()
+        & exclusions["product_id"].notna()
+    ]
+    for (bakery_id, product_id), grp in scope_excls.groupby(
+        ["bakery_id", "product_id"]
+    ):
+        rows.append({
+            "bakery_id": int(bakery_id),
+            "product_id": int(product_id),
+            "product_name": None,
+            "issue_type": str(grp["reason"].iloc[0]),
+            "affected_days": int(grp["date"].nunique()),
+            "total_days": None,
+            "issue_rate": None,
+            "affected_sales_qty": None,
+            "total_sales_qty": None,
+            "blocks_metric": False,
+        })
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+
+    def _tier(row: dict) -> str:
+        total = row["total_days"]
+        if total is None or total < 5:
+            return "D3"
+        rate = row["issue_rate"] or 0.0
+        blocking = bool(row["blocks_metric"])
+        if (rate >= 0.50 and row["affected_days"] >= 5) or (
+            blocking and rate >= 0.30
+        ):
+            return "D1"
+        if rate >= 0.25 and row["affected_days"] >= 3:
+            return "D2"
+        return "D3"
+
+    df["priority_tier"] = df.apply(_tier, axis=1)
+
+    tier_order = {"D1": 0, "D2": 1, "D3": 2}
+    df["_sort"] = df["priority_tier"].map(tier_order).fillna(3)
+    df = (
+        df.sort_values(["_sort", "affected_sales_qty"], ascending=[True, False])
+        .drop(columns=["_sort"])
+        .reset_index(drop=True)
+    )
+    return df
+
+
 def build_coverage_diagnostics(detail: pd.DataFrame) -> pd.DataFrame:
     """Explain missing publication rows and forecast-score exclusions by volume."""
 
@@ -959,14 +1137,18 @@ def build_coverage_diagnostics(detail: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
+
+
 def extract_clickhouse(
     client, date_from: date, date_to: date
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     params = {
         "date_from": date_from,
         "date_to": date_to,
         "bakery_ids": PILOT_IDS,
         "categories": SCOPE_CATEGORIES,
+        "sales_event_hex": SALES_EVENT_HEX,
     }
     forecast = client.query_df(
         """
@@ -996,7 +1178,23 @@ def extract_clickhouse(
         """,
         parameters=params,
     )
-    return forecast, facts
+    prices = client.query_df(
+        """
+        select check_date as date,
+               toInt64(bakery_id) as bakery_id,
+               toInt64(product_id) as product_id,
+               sumIf(toFloat64(line_amount), toFloat64(quantity) > 0)
+                   / sumIf(toFloat64(quantity), toFloat64(quantity) > 0) as price
+        from Svezhar.fct_check_lines
+        where check_date between %(date_from)s and %(date_to)s
+          and toInt64(bakery_id) in %(bakery_ids)s
+          and hex(cash_event_type) = %(sales_event_hex)s
+        group by date, bakery_id, product_id
+        having sumIf(toFloat64(quantity), toFloat64(quantity) > 0) > 0
+        """,
+        parameters=params,
+    )
+    return forecast, facts, prices
 
 
 def main() -> None:
@@ -1007,7 +1205,7 @@ def main() -> None:
     parser.add_argument("--plan-manifest", type=Path, default=DEFAULT_PLAN_MANIFEST)
     args = parser.parse_args()
     client = create_client(ROOT / ".env")
-    forecast, facts = extract_clickhouse(client, args.date_from, args.date_to)
+    forecast, facts, prices = extract_clickhouse(client, args.date_from, args.date_to)
     if args.plan_manifest.exists():
         archived, archive_exclusions = load_effective_plan_archive(
             args.plan_manifest, facts, date_to=args.date_to
@@ -1018,6 +1216,12 @@ def main() -> None:
     else:
         detail, exclusions = build_detail(forecast, facts)
         forecast_source = "snapshot_fallback"
+    if not prices.empty and not detail.empty:
+        detail = detail.merge(
+            prices[["date", "bakery_id", "product_id", "price"]].rename(columns={"date": "business_date"}),
+            on=["business_date", "bakery_id", "product_id"],
+            how="left",
+        )
     company, bakery, week = build_kpis(detail)
     bakery_ranking, sku_priority, bakery_sku_priority, daily_trend = (
         build_rankings(detail)
@@ -1031,6 +1235,11 @@ def main() -> None:
     )
     execution_triage = (
         build_execution_triage(detail) if not detail.empty else pd.DataFrame()
+    )
+    data_process_queue = (
+        build_data_process_queue(detail, exclusions)
+        if not detail.empty
+        else pd.DataFrame()
     )
     diagnostics = (
         build_coverage_diagnostics(detail) if not detail.empty else pd.DataFrame()
@@ -1050,6 +1259,7 @@ def main() -> None:
         ("model_priority", model_priority),
         ("execution_priority", execution_priority),
         ("execution_triage", execution_triage),
+        ("data_process_queue", data_process_queue),
     ):
         frame.to_csv(args.output_dir / f"{name}.csv", index=False, encoding="utf-8-sig")
     payload = {

@@ -117,31 +117,55 @@ class PilotManagementService:
 
         execution_rate = None
         block1_lost_qty = None
+        block1_lost_revenue = None
+        block1_recognized_lost_qty = None
+        block1_recognized_lost_revenue = None
         kratnost_wape = None
         kratnost_bias = None
         kratnost_bias_qty = None
         kratnost_mae_qty = None
         kratnost_lost_qty = None
         kratnost_n_eligible = 0
+        kratnost_lost_revenue = None
+        kratnost_recognized_lost_qty = None
+        kratnost_recognized_lost_revenue = None
         kratnost_execution_rate = None
         coverage_sku_eligible = 0
         coverage_sku_total = 0
 
         detail = self._load("detail")
         if not detail.empty:
-            # Block 1: produced / forecast; unmet = max(0, demand - forecast)
+            # Block 1: execution = produced / forecast
+            # lost = max(0, forecast - sold); recognized_lost = sum(lost_demand_recognized_qty)
             if "eligible_forecast_summary" in detail.columns:
                 b1 = detail[detail["eligible_forecast_summary"].astype(bool)]
                 if not b1.empty and "forecast_qty" in b1.columns:
-                    block1_lost_qty = float(
-                        (b1["demand_qty"] - b1["forecast_qty"]).clip(lower=0).sum()
-                    )
+                    if "sold_qty" in b1.columns:
+                        b1_lost = (b1["forecast_qty"] - b1["sold_qty"]).clip(lower=0)
+                        block1_lost_qty = float(b1_lost.sum())
+                        if "price" in b1.columns:
+                            block1_lost_revenue = float((b1_lost * b1["price"].fillna(0)).sum())
                     if "produced_qty" in b1.columns:
                         b1_exec = b1[b1["produced_qty"].notna()]
                         if not b1_exec.empty:
                             b1_forecast = float(b1_exec["forecast_qty"].sum())
                             b1_produced = float(b1_exec["produced_qty"].sum())
                             execution_rate = b1_produced / b1_forecast if b1_forecast > 0 else None
+            if (
+                "eligible_lost_demand" in detail.columns
+                and "lost_demand_recognized_qty" in detail.columns
+                and "forecast_qty" in detail.columns
+                and "sold_qty" in detail.columns
+            ):
+                ld = detail[
+                    detail["eligible_lost_demand"].astype(bool)
+                    & (detail["forecast_qty"] > detail["sold_qty"])
+                ]
+                if not ld.empty:
+                    ld_capped = (ld["forecast_qty"] - ld["sold_qty"]).clip(upper=ld["lost_demand_recognized_qty"])
+                    block1_recognized_lost_qty = float(ld_capped.sum())
+                    if "price" in ld.columns:
+                        block1_recognized_lost_revenue = float((ld_capped * ld["price"].fillna(0)).sum())
 
             # кратность block: issued_total_for_sale vs demand on forecast-eligible rows
             if "issued_total_for_sale" in detail.columns and "eligible_forecast_summary" in detail.columns:
@@ -157,15 +181,37 @@ class PilotManagementService:
                     kratnost_mae_qty = float(krat_err.abs().sum() / len(krat))
                     kratnost_bias_qty = float(krat_err.sum() / len(krat))
                     kratnost_n_eligible = len(krat)
-                    unmet = (krat["demand_qty"] - krat["issued_total_for_sale"]).clip(lower=0)
-                    kratnost_lost_qty = float(unmet.sum())
-                    # Block 2 execution: produced / issued_total_for_sale
+                    # Block 2: lost = max(0, issued - produced); execution = produced / issued
                     if "produced_qty" in krat.columns:
                         krat_exec = krat[krat["produced_qty"].notna()]
                         if not krat_exec.empty:
                             issued_sum = float(krat_exec["issued_total_for_sale"].sum())
                             b2_produced = float(krat_exec["produced_qty"].sum())
                             kratnost_execution_rate = b2_produced / issued_sum if issued_sum > 0 else None
+                            krat_lost = (krat_exec["issued_total_for_sale"] - krat_exec["produced_qty"]).clip(lower=0)
+                            kratnost_lost_qty = float(krat_lost.sum())
+                            if "price" in krat_exec.columns:
+                                kratnost_lost_revenue = float((krat_lost * krat_exec["price"].fillna(0)).sum())
+                # Block 2 recognized: min(issued - sold, lost_demand_recognized) where issued > sold
+                if (
+                    "eligible_lost_demand" in krat.columns
+                    and "lost_demand_recognized_qty" in krat.columns
+                    and "sold_qty" in krat.columns
+                ):
+                    ld2 = krat[
+                        krat["eligible_lost_demand"].astype(bool)
+                        & (krat["issued_total_for_sale"] > krat["sold_qty"])
+                    ]
+                    if not ld2.empty:
+                        ld2_capped = (
+                            (ld2["issued_total_for_sale"] - ld2["sold_qty"])
+                            .clip(upper=ld2["lost_demand_recognized_qty"])
+                        )
+                        kratnost_recognized_lost_qty = float(ld2_capped.sum())
+                        if "price" in ld2.columns:
+                            kratnost_recognized_lost_revenue = float(
+                                (ld2_capped * ld2["price"].fillna(0)).sum()
+                            )
 
             # unique SKU coverage
             if "product_id" in detail.columns and "eligible_forecast_summary" in detail.columns:
@@ -188,6 +234,9 @@ class PilotManagementService:
             "demand_qty": _maybe_float(kpi.get("demand_qty")),
             "recognized_lost_qty": _maybe_float(kpi.get("recognized_lost_qty")),
             "block1_lost_qty": block1_lost_qty,
+            "block1_lost_revenue": block1_lost_revenue,
+            "block1_recognized_lost_qty": block1_recognized_lost_qty,
+            "block1_recognized_lost_revenue": block1_recognized_lost_revenue,
             "forecast_coverage": _maybe_float(kpi.get("forecast_coverage")),
             "coverage_eligible": n_eligible,
             "coverage_total": int(kpi.get("rows_total") or 0),
@@ -200,6 +249,9 @@ class PilotManagementService:
             "kratnost_bias_qty": kratnost_bias_qty,
             "kratnost_mae_qty": kratnost_mae_qty,
             "kratnost_lost_qty": kratnost_lost_qty,
+            "kratnost_lost_revenue": kratnost_lost_revenue,
+            "kratnost_recognized_lost_qty": kratnost_recognized_lost_qty,
+            "kratnost_recognized_lost_revenue": kratnost_recognized_lost_revenue,
             "kratnost_n_eligible": kratnost_n_eligible,
             "kratnost_execution_rate": kratnost_execution_rate,
             "coverage_sku_eligible": coverage_sku_eligible,
