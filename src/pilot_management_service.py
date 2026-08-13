@@ -116,6 +116,7 @@ class PilotManagementService:
         bias_qty = error_qty_val / n_eligible if n_eligible > 0 else None
 
         execution_rate = None
+        block1_lost_qty = None
         kratnost_wape = None
         kratnost_bias = None
         kratnost_bias_qty = None
@@ -128,11 +129,19 @@ class PilotManagementService:
 
         detail = self._load("detail")
         if not detail.empty:
-            if has_exec and "eligible_execution" in detail.columns:
-                exec_rows = detail[detail["eligible_execution"].astype(bool)]
-                plan_sum = float(exec_rows["plan_qty"].sum()) if "plan_qty" in exec_rows.columns else 0.0
-                produced_sum = float(exec_rows["produced_qty"].sum()) if "produced_qty" in exec_rows.columns else 0.0
-                execution_rate = produced_sum / plan_sum if plan_sum > 0 else None
+            # Block 1: produced / forecast; unmet = max(0, demand - forecast)
+            if "eligible_forecast_summary" in detail.columns:
+                b1 = detail[detail["eligible_forecast_summary"].astype(bool)]
+                if not b1.empty and "forecast_qty" in b1.columns:
+                    block1_lost_qty = float(
+                        (b1["demand_qty"] - b1["forecast_qty"]).clip(lower=0).sum()
+                    )
+                    if "produced_qty" in b1.columns:
+                        b1_exec = b1[b1["produced_qty"].notna()]
+                        if not b1_exec.empty:
+                            b1_forecast = float(b1_exec["forecast_qty"].sum())
+                            b1_produced = float(b1_exec["produced_qty"].sum())
+                            execution_rate = b1_produced / b1_forecast if b1_forecast > 0 else None
 
             # кратность block: issued_total_for_sale vs demand on forecast-eligible rows
             if "issued_total_for_sale" in detail.columns and "eligible_forecast_summary" in detail.columns:
@@ -150,14 +159,13 @@ class PilotManagementService:
                     kratnost_n_eligible = len(krat)
                     unmet = (krat["demand_qty"] - krat["issued_total_for_sale"]).clip(lower=0)
                     kratnost_lost_qty = float(unmet.sum())
-                if "produced_qty" in detail.columns:
-                    both = detail[
-                        detail["eligible_forecast_summary"].astype(bool)
-                        & detail["produced_qty"].notna()
-                    ]
-                    both_demand = float(both["demand_qty"].sum())
-                    both_produced = float(both["produced_qty"].sum())
-                    kratnost_execution_rate = both_produced / both_demand if both_demand > 0 else None
+                    # Block 2 execution: produced / issued_total_for_sale
+                    if "produced_qty" in krat.columns:
+                        krat_exec = krat[krat["produced_qty"].notna()]
+                        if not krat_exec.empty:
+                            issued_sum = float(krat_exec["issued_total_for_sale"].sum())
+                            b2_produced = float(krat_exec["produced_qty"].sum())
+                            kratnost_execution_rate = b2_produced / issued_sum if issued_sum > 0 else None
 
             # unique SKU coverage
             if "product_id" in detail.columns and "eligible_forecast_summary" in detail.columns:
@@ -179,6 +187,7 @@ class PilotManagementService:
             "bias_qty": bias_qty,
             "demand_qty": _maybe_float(kpi.get("demand_qty")),
             "recognized_lost_qty": _maybe_float(kpi.get("recognized_lost_qty")),
+            "block1_lost_qty": block1_lost_qty,
             "forecast_coverage": _maybe_float(kpi.get("forecast_coverage")),
             "coverage_eligible": n_eligible,
             "coverage_total": int(kpi.get("rows_total") or 0),

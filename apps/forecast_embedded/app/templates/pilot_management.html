@@ -39,63 +39,42 @@
   </div>
   {% endmacro %}
 
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
-
-    {# Block 1: без кратности #}
-    <div>
-      {{ block_header("Прогноз", "— сравнение с спросом без учёта кратности") }}
-      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
-        {{ kpi_card("Точность", pct(summary.wape)) }}
-        {{ kpi_card("MAE", ("%.1f"|format(summary.mae_qty) ~ " шт") if summary.mae_qty is not none else "—") }}
-        {{ kpi_card("Смещение",
-            (('+' if summary.bias > 0 else '') ~ pct(summary.bias)) if summary.bias is not none else "—") }}
-        {{ kpi_card("Смещение, шт",
-            (('+' if summary.bias_qty > 0 else '') ~ "%.1f"|format(summary.bias_qty) ~ " шт") if summary.bias_qty is not none else "—") }}
-        {{ kpi_card("Упущ. спрос",
-            ((summary.recognized_lost_qty | round(0) | int | string) ~ " шт") if summary.recognized_lost_qty else "—") }}
-        {{ kpi_card("Выполнение плана",
-            pct(summary.execution_rate) if summary.execution_rate is not none else "нет данных") }}
-      </div>
+  {# Block 1: без кратности #}
+  <div style="margin-bottom: 1rem;">
+    {{ block_header("Прогноз", "— сравнение с спросом без учёта кратности") }}
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+      {{ kpi_card("Точность",
+          (pct(summary.wape) ~ " / " ~ "%.1f"|format(summary.mae_qty) ~ " шт") if (summary.wape is not none and summary.mae_qty is not none) else pct(summary.wape)) }}
+      {{ kpi_card("Смещение прогноза",
+          ((('+' if summary.bias > 0 else '') ~ pct(summary.bias)) ~ " / " ~ (('+' if summary.bias_qty > 0 else '') ~ "%.1f"|format(summary.bias_qty) ~ " шт")) if (summary.bias is not none and summary.bias_qty is not none) else "—") }}
+      {{ kpi_card("Упущ. спрос",
+          ((summary.recognized_lost_qty | round(0) | int | string) ~ " шт") if summary.recognized_lost_qty is not none else "—") }}
+      {{ kpi_card("Выполнение плана",
+          pct(summary.execution_rate) if summary.execution_rate is not none else "нет данных") }}
     </div>
+  </div>
 
-    {# Block 2: с кратностью #}
-    <div>
-      {{ block_header("С кратностью выпекания", "— итого на продажу (остаток + выпуск) vs спрос") }}
-      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
-        {{ kpi_card("Точность", pct(summary.kratnost_wape) if summary.kratnost_wape is not none else "—") }}
-        {{ kpi_card("MAE", ("%.1f"|format(summary.kratnost_mae_qty) ~ " шт") if summary.kratnost_mae_qty is not none else "—") }}
-        {{ kpi_card("Смещение",
-            (('+' if summary.kratnost_bias > 0 else '') ~ pct(summary.kratnost_bias)) if summary.kratnost_bias is not none else "—") }}
-        {{ kpi_card("Смещение, шт",
-            (('+' if summary.kratnost_bias_qty > 0 else '') ~ "%.1f"|format(summary.kratnost_bias_qty) ~ " шт") if summary.kratnost_bias_qty is not none else "—") }}
-        {{ kpi_card("Упущ. спрос",
-            ((summary.kratnost_lost_qty | round(0) | int | string) ~ " шт") if summary.kratnost_lost_qty is not none else "—") }}
-        {{ kpi_card("Выпуск / спрос",
-            (('+' if summary.kratnost_execution_rate > 1 else '') ~ pct(summary.kratnost_execution_rate)) if summary.kratnost_execution_rate is not none else "нет данных") }}
-      </div>
+  {# Block 2: с кратностью #}
+  <div style="margin-bottom: 1.5rem;">
+    {{ block_header("С кратностью выпекания", "— итого на продажу (остаток + выпуск) vs спрос") }}
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+      {{ kpi_card("Точность",
+          (pct(summary.kratnost_wape) ~ " / " ~ "%.1f"|format(summary.kratnost_mae_qty) ~ " шт") if (summary.kratnost_wape is not none and summary.kratnost_mae_qty is not none) else "—") }}
+      {{ kpi_card("Смещение прогноза",
+          ((('+' if summary.kratnost_bias > 0 else '') ~ pct(summary.kratnost_bias)) ~ " / " ~ (('+' if summary.kratnost_bias_qty > 0 else '') ~ "%.1f"|format(summary.kratnost_bias_qty) ~ " шт")) if (summary.kratnost_bias is not none and summary.kratnost_bias_qty is not none) else "—") }}
+      {{ kpi_card("Упущ. спрос",
+          ((summary.kratnost_lost_qty | round(0) | int | string) ~ " шт") if summary.kratnost_lost_qty is not none else "—") }}
+      {{ kpi_card("Выполнение плана",
+          pct(summary.kratnost_execution_rate) if summary.kratnost_execution_rate is not none else "нет данных") }}
     </div>
-
   </div>
 
   {# Coverage below both blocks #}
-  <div style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
-    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
-      <div>
-        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.2rem;">Покрытие ассортимента</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">
-          {{ summary.coverage_sku_eligible }} из {{ summary.coverage_sku_total }} SKU
-        </div>
-      </div>
-      <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent, #3b82f6);">{{ pct(summary.forecast_coverage) }}</div>
-    </div>
-    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem 1.25rem; display: flex; align-items: center; gap: 1rem;">
-      <div>
-        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.2rem;">Точность исполнения (WAPE)</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ pct(summary.execution_wape) if summary.execution_wape is not none else "нет данных" }}</div>
-      </div>
-      <div style="font-size: 0.75rem; color: var(--text-secondary, #6b7280);">
-        смещение {{ (('+' if summary.execution_bias > 0 else '') ~ pct(summary.execution_bias)) if summary.execution_bias is not none else "—" }}
-      </div>
+  <div style="margin-bottom: 2rem;">
+    <div style="display: inline-flex; align-items: center; gap: 1rem; background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.75rem 1.25rem;">
+      <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280);">Покрытие ассортимента</div>
+      <div style="font-size: 1.1rem; font-weight: 700;">{{ summary.coverage_sku_eligible }} из {{ summary.coverage_sku_total }} SKU</div>
+      <div style="font-size: 1.25rem; font-weight: 700; color: var(--accent, #3b82f6);">{{ pct(summary.forecast_coverage) }}</div>
     </div>
   </div>
 
