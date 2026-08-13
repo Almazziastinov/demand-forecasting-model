@@ -15,16 +15,7 @@
     <a href="/" style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Прогноз</a>
   </div>
 
-  {# ── DQ warning ── #}
-  {% if summary.has_dq_issues %}
-  <div style="background: #fff3cd; border: 1px solid #e6ac00; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
-    ⚠ <strong>{{ dq.d1_count }} проблема(ы) уровня D1</strong> (блокирующие метрики):
-    {% for issue in dq.top_issue_types %}{{ issue.issue_type }}{% if not loop.last %}, {% endif %}{% endfor %}.
-    <a href="/pilot" style="margin-left: 0.5rem;">Детали ниже ↓</a>
-  </div>
-  {% endif %}
-
-  {# ── Company KPIs: two parallel blocks ── #}
+{# ── Company KPIs: two parallel blocks ── #}
   {% macro kpi_card(label, primary, secondary=none) %}
   <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
     <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">{{ label }}</div>
