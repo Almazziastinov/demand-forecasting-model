@@ -1,0 +1,86 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="workspace" style="padding: 1.5rem 2rem; max-width: 1200px; margin: 0 auto;">
+
+  {# ── Header ── #}
+  <div class="workspace-header" style="margin-bottom: 1.5rem;">
+    <div>
+      <span class="eyebrow">Аналитика пилота — пекарня</span>
+      <h1>{{ bakery.bakery_name }}</h1>
+      {% if summary %}
+      <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">
+        {{ summary.date_from }} — {{ summary.date_to }} · {{ summary.scope_version }}
+      </p>
+      {% endif %}
+    </div>
+    <a href="/pilot" style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Сводка пилота</a>
+  </div>
+
+  {# ── Bakery KPIs ── #}
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    {% set kpis = [
+      ("WAPE прогноза", pct(bakery.wape)),
+      ("Смещение", pct(bakery.bias)),
+      ("Покрытие", pct(bakery.forecast_coverage)),
+      ("Спрос, шт", bakery.demand_qty | round(0) | int if bakery.demand_qty else "—"),
+      ("Упущ. спрос", bakery.recognized_lost_qty | round(0) | int if bakery.recognized_lost_qty else "—"),
+      ("WAPE исполнения", pct(bakery.execution_wape) if bakery.execution_wape is not none else "нет данных"),
+    ] %}
+    {% for label, value in kpis %}
+    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 1rem; text-align: center;">
+      <div style="font-size: 0.72rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">{{ label }}</div>
+      <div style="font-size: 1.4rem; font-weight: 700;">{{ value or "—" }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── SKU table ── #}
+  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">SKU ({{ skus | length }})</h2>
+  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">
+    Отсортировано по объёму спроса. WAPE и смещение — по пригодным дням прогноза.
+  </p>
+  {% if skus %}
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.4rem 0.75rem;">SKU</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Дни</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос, шт</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещение</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE исполн.</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещ. исполн.</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: center;">DQ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in skus %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.4rem 0.75rem;">
+            <a href="/pilot/bakery/{{ bakery.bakery_id }}/sku/{{ s.product_id }}" style="color: var(--accent, #3b82f6);">
+              {{ s.product_name or s.product_id }}
+            </a>
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; color: var(--text-secondary, #888);">
+            {{ s.eligible_days }}/{{ s.total_days }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ s.demand_qty | round(0) | int if s.demand_qty else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; color: {{ '#c00' if s.wape and s.wape > 0.35 else ('#c77700' if s.wape and s.wape > 0.20 else 'inherit') }};">
+            {{ pct(s.wape) or "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.bias) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.exec_wape) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.exec_bias) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: center;">{{ "⛔" if s.has_blocking else "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-note">Нет данных для этой пекарни.</div>
+  {% endif %}
+
+</section>
+{% endblock %}

@@ -1,0 +1,224 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="workspace" style="padding: 1.5rem 2rem; grid-column: 1 / -1;">
+
+  {# ── Header ── #}
+  <div class="workspace-header" style="margin-bottom: 1.5rem;">
+    <div>
+      <span class="eyebrow">Управленческая аналитика</span>
+      <h1>Сводка: {{ summary.date_from }} — {{ summary.date_to }}</h1>
+      <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">
+        {{ summary.scope_version }} · {{ summary.metric_version }}
+        {% if summary.is_partial_period %} · <strong style="color: #c77700;">⚠ неполный период</strong>{% endif %}
+      </p>
+    </div>
+    <a href="/" style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Прогноз</a>
+  </div>
+
+  {# ── DQ warning ── #}
+  {% if summary.has_dq_issues %}
+  <div style="background: #fff3cd; border: 1px solid #e6ac00; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
+    ⚠ <strong>{{ dq.d1_count }} проблема(ы) уровня D1</strong> (блокирующие метрики):
+    {% for issue in dq.top_issue_types %}{{ issue.issue_type }}{% if not loop.last %}, {% endif %}{% endfor %}.
+    <a href="/pilot" style="margin-left: 0.5rem;">Детали ниже ↓</a>
+  </div>
+  {% endif %}
+
+  {# ── Company KPIs ── #}
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    {% set kpis = [
+      ("WAPE прогноза", pct(summary.wape)),
+      ("Смещение", pct(summary.bias)),
+      ("Покрытие", pct(summary.forecast_coverage)),
+      ("Признанный\nупущ. спрос", summary.recognized_lost_qty | round(0) | int if summary.recognized_lost_qty else "—"),
+      ("WAPE исполнения", pct(summary.execution_wape) if summary.execution_wape is not none else "нет данных"),
+      ("Смещение исполн.", pct(summary.execution_bias) if summary.execution_bias is not none else "нет данных"),
+    ] %}
+    {% for label, value in kpis %}
+    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 1rem; text-align: center;">
+      <div style="font-size: 0.72rem; color: var(--text-secondary, #6b7280); white-space: pre-line; margin-bottom: 0.4rem;">{{ label }}</div>
+      <div style="font-size: 1.4rem; font-weight: 700;">{{ value or "—" }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── Week trend ── #}
+  {% if week_trend %}
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Динамика по неделям</h2>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.4rem 0.75rem;">Неделя с</th>
+          <th style="padding: 0.4rem 0.75rem;">Период</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещение</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Покрытие</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос, шт</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE исполн.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in week_trend %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.4rem 0.75rem;">{{ w.week_start }}</td>
+          <td style="padding: 0.4rem 0.75rem; color: {{ '#c77700' if w.partial_period else 'inherit' }};">
+            {{ "неполная" if w.partial_period else "полная" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.wape) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.bias) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.forecast_coverage) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ w.demand_qty | round(0) | int if w.demand_qty else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.execution_wape) or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# ── Bakery table ── #}
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Пекарни ({{ bakeries | length }})</h2>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.4rem 0.75rem;">Пекарня</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещение</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Покрытие</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос, шт</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE исполн.</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещ. исполн.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in bakeries %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.4rem 0.75rem;">
+            <a href="/pilot/bakery/{{ b.bakery_id }}" style="color: var(--accent, #3b82f6);">{{ b.bakery_name }}</a>
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; font-weight: {{ '600' if b.wape and b.wape > 0.30 else 'normal' }}; color: {{ '#c00' if b.wape and b.wape > 0.35 else 'inherit' }};">
+            {{ pct(b.wape) or "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.bias) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.forecast_coverage) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ b.demand_qty | round(0) | int if b.demand_qty else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.execution_wape) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.execution_bias) or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ── MODEL queue ── #}
+  {% if model_queue %}
+  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Очередь MODEL — M1 ({{ model_queue | length }} SKU)</h2>
+  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">Устойчивые ошибки прогноза: WAPE ≥ 15%, направленность ≥ 40%, ≥ 7 дней, спрос ≥ 100 шт.</p>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.35rem 0.6rem;">SKU</th>
+          <th style="padding: 0.35rem 0.6rem;">Когорта</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Дни</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Смещение</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Направл.</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">|Ошибка|</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Вклад</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Тир</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in model_queue %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.35rem 0.6rem;">{{ r.product_name or r.product_id }}</td>
+          <td style="padding: 0.35rem 0.6rem;">{{ r.cohort }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.eligible_days }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.bias) or "—" }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ (r.directionality * 100) | round(0) | int }}%</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.abs_error_qty | round(0) | int }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.contribution_to_total_abs_error) or "—" }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right; font-weight: 600;">{{ r.priority_tier }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# ── EXECUTION queue (needs attention) ── #}
+  {% if execution_queue %}
+  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Очередь EXECUTION — требуют проверки ({{ execution_queue | length }})</h2>
+  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">Только likely_execution и needs_joint_review. Insufficient_data и likely_model — отдельно.</p>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.35rem 0.6rem;">Пекарня</th>
+          <th style="padding: 0.35rem 0.6rem;">SKU</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">WAPE прогн.</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Смещ. исполн.</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Митигация</th>
+          <th style="padding: 0.35rem 0.6rem;">Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in execution_queue %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.35rem 0.6rem;">
+            <a href="/pilot/bakery/{{ r.bakery_id }}" style="color: var(--accent, #3b82f6);">{{ r.bakery_id }}</a>
+          </td>
+          <td style="padding: 0.35rem 0.6rem;">{{ r.product_name or r.product_id }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">
+            <span style="color: {{ '#c00' if r.forecast_wape_band == 'red' else ('#c77700' if r.forecast_wape_band == 'amber' else 'inherit') }};">
+              {{ pct(r.forecast_wape) or "—" }}
+            </span>
+          </td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.execution_bias) or "—" }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.mitigation_signal }}</td>
+          <td style="padding: 0.35rem 0.6rem; font-weight: 600;">{{ r.triage }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# ── DATA/PROCESS D1 issues ── #}
+  {% if dp_queue %}
+  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Очередь DATA/PROCESS — D1 ({{ dp_queue | length }})</h2>
+  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">Постоянные проблемы данных: появляются ≥ 50% дней или блокируют метрику ≥ 30% дней.</p>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.35rem 0.6rem;">Тип проблемы</th>
+          <th style="padding: 0.35rem 0.6rem;">Пекарня</th>
+          <th style="padding: 0.35rem 0.6rem;">SKU</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Дней</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Доля</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: center;">Блокирует</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in dp_queue %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.35rem 0.6rem; font-family: monospace; font-size: 0.78rem;">{{ r.issue_type }}</td>
+          <td style="padding: 0.35rem 0.6rem;">
+            {% if r.bakery_id %}<a href="/pilot/bakery/{{ r.bakery_id | int }}" style="color: var(--accent, #3b82f6);">{{ r.bakery_id | int }}</a>{% else %}—{% endif %}
+          </td>
+          <td style="padding: 0.35rem 0.6rem;">{{ r.product_name or (r.product_id | int if r.product_id else "—") }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.affected_days }}/{{ r.total_days or "?" }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.issue_rate) or "—" }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: center;">{{ "⛔" if r.blocks_metric else "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+</section>
+{% endblock %}

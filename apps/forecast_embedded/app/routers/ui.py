@@ -378,6 +378,18 @@ def bakery_detail(
     today = datetime.now(ZoneInfo("Europe/Moscow")).date()
     is_past = selected_date is not None and selected_date < today
     production_qty = bakery_service.get_production_qty(date, bakery_id) if is_past else None
+
+    display_bakery = dict(bakery_day)
+    if valid_group:
+        day_totals = bakery_service.get_category_week_totals(
+            active_run["run_id"], date, date, bakery_id, auth, valid_group, scenario=scenario
+        )
+        day_total = day_totals.get(date[:10], {})
+        if day_total:
+            display_bakery["forecast_final"] = day_total.get("forecast_final", 0)
+            display_bakery["actual_qty"] = day_total.get("actual_qty")
+            display_bakery["actual_revenue"] = day_total.get("actual_revenue")
+
     return templates.TemplateResponse(
         request,
         "bakery.html",
@@ -386,7 +398,7 @@ def bakery_detail(
             "selected_date": date,
             "selected_date_label": _format_date(selected_date) if selected_date else date,
             "selected_weekday_label": WEEKDAYS_RU[selected_date.weekday()] if selected_date else "",
-            "bakery": bakery_day,
+            "bakery": display_bakery,
             "context": bakery_service.get_day_context(active_run["run_id"], date, bakery_day["city"]),
             "hourly_total": hourly_total,
             "hour_chart": _prepare_hour_chart(hourly_total, mark_discrepancies=True),

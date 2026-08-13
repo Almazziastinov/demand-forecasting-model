@@ -1161,14 +1161,22 @@ def get_category_breakdown(
 
 
 def get_production_qty(forecast_date: str, bakery_id: int) -> float | None:
-    """Returns total produced qty from fct_production_release for a bakery/date."""
+    """Returns total produced qty from fct_production_release for a bakery/date.
+
+    The table is an append-only changelog — each line can appear many times.
+    We deduplicate per (release_id, line_id) via argMax(_updated_at).
+    """
     client = get_client()
     query = """
-        select sum(toFloat64(quantity)) as production_qty
-        from {table}
-        where release_date = toDate(%(forecast_date)s)
-          and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
-          and is_deleted != '1'
+        select sum(q) as production_qty
+        from (
+            select argMax(toFloat64(quantity), _updated_at) as q
+            from {table}
+            where release_date = toDate(%(forecast_date)s)
+              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+              and is_deleted != '1'
+            group by release_id, line_id
+        )
         """.format(table=PRODUCTION_RELEASE_TABLE)
     df = client.query_df(
         query,

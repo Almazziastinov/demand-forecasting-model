@@ -43,10 +43,10 @@
       </label>
       <label>
         Группа
-        <select name="category_group" onchange="this.form.submit()">
-          <option value="" {% if not category_group %}selected{% endif %}>Все позиции</option>
+        <select name="category_group" onchange="this.form.submit()" style="border-color:var(--accent,#3b82f6); color:var(--accent,#3b82f6); font-weight:600; background:rgba(59,130,246,0.06);">
+          <option value="" {% if not category_group %}selected{% endif %} style="color:inherit; font-weight:400;">Все позиции</option>
           {% for g in category_groups %}
-          <option value="{{ g }}" {% if g == category_group %}selected{% endif %}>{{ g | capitalize }}</option>
+          <option value="{{ g }}" {% if g == category_group %}selected{% endif %} style="color:inherit; font-weight:400;">{{ g | capitalize }}</option>
           {% endfor %}
         </select>
       </label>
