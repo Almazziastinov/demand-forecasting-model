@@ -1217,8 +1217,11 @@ def main() -> None:
         detail, exclusions = build_detail(forecast, facts)
         forecast_source = "snapshot_fallback"
     if not prices.empty and not detail.empty:
+        prices_join = prices[["date", "bakery_id", "product_id", "price"]].copy()
+        prices_join["date"] = prices_join["date"].astype(str).str[:10]
+        detail["business_date"] = detail["business_date"].astype(str).str[:10]
         detail = detail.merge(
-            prices[["date", "bakery_id", "product_id", "price"]].rename(columns={"date": "business_date"}),
+            prices_join.rename(columns={"date": "business_date"}),
             on=["business_date", "bakery_id", "product_id"],
             how="left",
         )
