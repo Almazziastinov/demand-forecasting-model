@@ -72,6 +72,28 @@
     </div>
   </div>
 
+  {# ── Revenue block (kratnost) ── #}
+  {% if summary.actual_revenue is not none %}
+  <div style="margin-bottom: 1rem;">
+    {{ block_header("Выручка", "— факт и упущенный спрос с кратностью выпекания") }}
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+      {{ kpi_card("Выручка за период",
+          ("%.0f"|format(summary.actual_revenue / 1000) ~ " тыс. ₽") if summary.actual_revenue is not none else "—") }}
+      <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">Упущ. спрос (от плана)</div>
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_lost_qty is not none else "—" }}{% if summary.kratnost_lost_revenue is not none %} / {{ "%.0f"|format(summary.kratnost_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
+        <div style="border-top: 1px solid var(--border, #e5e7eb); margin: 0.35rem 0;"></div>
+        <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">признанное</div>
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_recognized_lost_qty is not none else "—" }}{% if summary.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(summary.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
+      </div>
+      {{ kpi_card("Выручка с признанным",
+          ("%.0f"|format((summary.actual_revenue + summary.kratnost_recognized_lost_revenue) / 1000) ~ " тыс. ₽") if (summary.actual_revenue is not none and summary.kratnost_recognized_lost_revenue is not none) else "—") }}
+      {{ kpi_card("Прирост",
+          ("+" ~ "%.0f"|format(summary.kratnost_recognized_lost_revenue / 1000) ~ " тыс. ₽ / +" ~ "%.1f"|format(summary.kratnost_recognized_lost_revenue / summary.actual_revenue * 100) ~ "%") if (summary.actual_revenue and summary.kratnost_recognized_lost_revenue is not none) else "—") }}
+    </div>
+  </div>
+  {% endif %}
+
   {# Coverage below both blocks #}
   <div style="margin-bottom: 2rem;">
     <div style="display: inline-flex; align-items: center; gap: 1rem; background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.75rem 1.25rem;">

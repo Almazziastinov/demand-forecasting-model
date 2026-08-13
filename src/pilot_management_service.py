@@ -133,8 +133,13 @@ class PilotManagementService:
         coverage_sku_eligible = 0
         coverage_sku_total = 0
 
+        actual_revenue = None
         detail = self._load("detail")
         if not detail.empty:
+            if "sold_qty" in detail.columns and "price" in detail.columns:
+                actual_revenue = float(
+                    (detail["sold_qty"].clip(lower=0) * detail["price"].fillna(0)).sum()
+                )
             # Block 1: execution = produced / forecast
             # lost = max(0, forecast - sold); recognized_lost = sum(lost_demand_recognized_qty)
             if "eligible_forecast_summary" in detail.columns:
@@ -233,6 +238,7 @@ class PilotManagementService:
             "bias_qty": bias_qty,
             "demand_qty": _maybe_float(kpi.get("demand_qty")),
             "recognized_lost_qty": _maybe_float(kpi.get("recognized_lost_qty")),
+            "actual_revenue": actual_revenue,
             "block1_lost_qty": block1_lost_qty,
             "block1_lost_revenue": block1_lost_revenue,
             "block1_recognized_lost_qty": block1_recognized_lost_qty,
