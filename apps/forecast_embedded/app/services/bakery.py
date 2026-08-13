@@ -1160,13 +1160,35 @@ def get_category_breakdown(
     return _records(df)
 
 
-def get_production_qty(forecast_date: str, bakery_id: int) -> float | None:
+def get_production_qty(
+    forecast_date: str,
+    bakery_id: int,
+    run_id: str | None = None,
+    category_group: str | None = None,
+) -> float | None:
     """Returns total produced qty from fct_production_release for a bakery/date.
 
     The table is an append-only changelog — each line can appear many times.
     We deduplicate per (release_id, line_id) via argMax(_updated_at).
+    When run_id + category_group are given, production is filtered to product_ids
+    that belong to the selected category group (via SKU day source).
     """
     client = get_client()
+    extra_params: dict = {}
+    category_filter = ""
+    if run_id and category_group and category_group in CATEGORY_GROUP_NAMES:
+        group_where = _group_where(category_group, "d.category_name")
+        sku_src = _sku_day_source("forecast_date = %(forecast_date)s")
+        category_filter = f"""
+            and toInt64OrNull(toString(product_id)) in (
+                select d.product_id
+                from {sku_src} d
+                where d.forecast_date = %(forecast_date)s
+                  and d.bakery_id = %(bakery_id)s
+                  {group_where}
+            )
+        """
+        extra_params["run_id"] = run_id
     query = """
         select sum(q) as production_qty
         from (
@@ -1175,14 +1197,16 @@ def get_production_qty(forecast_date: str, bakery_id: int) -> float | None:
             where release_date = toDate(%(forecast_date)s)
               and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
               and is_deleted != '1'
+              {category_filter}
             group by release_id, line_id
         )
-        """.format(table=PRODUCTION_RELEASE_TABLE)
+        """.format(table=PRODUCTION_RELEASE_TABLE, category_filter=category_filter)
     df = client.query_df(
         query,
         parameters={
             "forecast_date": forecast_date,
             "bakery_id": bakery_id,
+            **extra_params,
         },
     )
     if df.empty:

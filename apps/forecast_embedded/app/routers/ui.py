@@ -377,7 +377,7 @@ def bakery_detail(
     selected_date = _parse_date(date)
     today = datetime.now(ZoneInfo("Europe/Moscow")).date()
     is_past = selected_date is not None and selected_date < today
-    production_qty = bakery_service.get_production_qty(date, bakery_id) if is_past else None
+    production_qty = bakery_service.get_production_qty(date, bakery_id, run_id=active_run["run_id"], category_group=valid_group) if is_past else None
 
     display_bakery = dict(bakery_day)
     if valid_group:
