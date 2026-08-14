@@ -38,10 +38,29 @@
         День
         <input type="date" name="date" value="{{ selected_date }}" onchange="this.form.submit()">
       </label>
+      {% if category_group %}<input type="hidden" name="category_group" value="{{ category_group }}">{% endif %}
       {% if is_admin %}<input type="hidden" name="run_id" value="{{ active_run.run_id }}">{% endif %}
       {% if is_admin and scenario %}<input type="hidden" name="scenario" value="{{ scenario }}">{% endif %}
     </form>
-    <a class="button-link secondary" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}">Назад к неделе</a>
+    <a class="button-link secondary" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}{% if category_group %}&category_group={{ category_group }}{% endif %}">Назад к неделе</a>
+  </div>
+
+  <div style="padding:0.75rem 0 0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+    <form class="controls slim" method="get" action="/bakery/{{ bakery.bakery_id }}" style="margin:0;">
+      <input type="hidden" name="date" value="{{ selected_date }}">
+      <input type="hidden" name="week_start" value="{{ week_start }}">
+      {% if is_admin %}<input type="hidden" name="run_id" value="{{ active_run.run_id }}">{% endif %}
+      {% if is_admin and scenario %}<input type="hidden" name="scenario" value="{{ scenario }}">{% endif %}
+      <label>
+        Выбрать группу
+        <select name="category_group" onchange="this.form.submit()">
+          <option value="">Все позиции</option>
+          {% for g in category_groups %}
+          <option value="{{ g }}" {% if g == category_group %}selected{% endif %}>{{ g | capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
   </div>
 
   <section class="summary-strip">
@@ -54,13 +73,15 @@
       <strong>{{ "%.0f"|format(bakery.forecast_final) }} шт.</strong>
     </div>
     <div>
-      <span>Базовый прогноз</span>
-      <strong>{{ "%.0f"|format(bakery.forecast_base or 0) }} шт.</strong>
-    </div>
-    <div>
       <span>Выручка</span>
       <strong>{% if bakery.actual_revenue is not none %}{{ "%.0f"|format(bakery.actual_revenue) }} ₽{% else %}-{% endif %}</strong>
     </div>
+    {% if is_past and production_qty is not none %}
+    <div>
+      <span>Выпуск (факт)</span>
+      <strong>{{ "%.0f"|format(production_qty) }} шт.</strong>
+    </div>
+    {% endif %}
   </section>
 
   {% if context %}
@@ -82,7 +103,7 @@
     <div class="panel-head">
       <div>
         <span class="eyebrow">Почасовой профиль</span>
-        <h2>Пекарня, все SKU</h2>
+        <h2>{% if category_group %}{{ category_group | capitalize }}{% else %}Все позиции{% endif %}</h2>
       </div>
       <div class="legend-row compact">
         <span><i class="legend-dot actual"></i>факт</span>
@@ -125,32 +146,23 @@
     <div class="panel-head">
       <div>
         <span class="eyebrow">SKU</span>
-        <h2>Позиции на выбранный день</h2>
+        <h2>{% if category_group %}{{ category_group | capitalize }}{% else %}Все позиции{% endif %} — выбранный день</h2>
       </div>
-      <form class="controls slim" method="get" action="/bakery/{{ bakery.bakery_id }}">
-        <input type="hidden" name="date" value="{{ selected_date }}">
-        <input type="hidden" name="week_start" value="{{ week_start }}">
-        {% if is_admin %}<input type="hidden" name="run_id" value="{{ active_run.run_id }}">{% endif %}
-        <label>
-          Группа
-          <select name="category" onchange="this.form.submit()">
-            <option value="">Все группы</option>
-            {% for category in categories %}
-            <option value="{{ category }}" {% if category == selected_category %}selected{% endif %}>{{ category }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </form>
     </div>
     <div class="sku-list">
+      <div class="sku-row" style="pointer-events:none;opacity:0.55;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;border-bottom:2px solid var(--border,#e5e7eb);padding-bottom:0.35rem;margin-bottom:0.25rem;">
+        <span>Наименование</span>
+        <span style="text-align:right;">Факт, шт.</span>
+        <span style="text-align:right;">Прогноз, шт.</span>
+      </div>
       {% for row in top_sku %}
-      <a class="sku-row" href="/bakery/{{ bakery.bakery_id }}/sku/{{ row.product_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if selected_category %}&category={{ selected_category|urlencode }}{% endif %}{{ run_query }}">
+      <a class="sku-row" href="/bakery/{{ bakery.bakery_id }}/sku/{{ row.product_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if category_group %}&category_group={{ category_group|urlencode }}{% endif %}{{ run_query }}">
         <span>
           <strong>{{ row.product_name or "SKU без названия" }}</strong>
           <small>{{ row.category_name or "Без группы" }}</small>
         </span>
-        <span>{% if row.actual_qty is not none %}{{ "%.0f"|format(row.actual_qty) }} шт.{% else %}-{% endif %}</span>
-        <span>{{ "%.0f"|format(row.forecast_qty) }} шт.</span>
+        <span style="text-align:right;">{% if row.actual_qty is not none %}{{ "%.0f"|format(row.actual_qty) }}{% else %}-{% endif %}</span>
+        <span style="text-align:right;">{{ "%.0f"|format(row.forecast_qty) }}</span>
       </a>
       {% else %}
       <div class="empty-note">Нет SKU для выбранной группы.</div>

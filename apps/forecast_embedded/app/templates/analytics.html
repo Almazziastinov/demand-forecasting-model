@@ -1,0 +1,105 @@
+{% extends "layout.html" %}
+{% block content %}
+<aside class="sidebar">
+  <div class="sidebar-head">
+    <span class="eyebrow">Пекарни</span>
+  </div>
+  <div class="sidebar-search">
+    <label class="bakery-search-box">
+      <span class="bakery-search-icon" aria-hidden="true"></span>
+      <input type="search" class="bakery-search" data-bakery-search placeholder="Название или город" aria-label="Поиск по пекарням">
+      <button class="bakery-search-clear" type="button" data-bakery-search-clear aria-label="Очистить поиск" hidden>×</button>
+    </label>
+    <div class="bakery-search-meta" data-bakery-search-meta>{{ bakeries|length }} пекарен</div>
+  </div>
+  <nav class="bakery-menu">
+    {% for item in bakeries %}
+    <a class="bakery-link {% if item.bakery_id == bakery_id %}active{% endif %}" href="/bakery/{{ item.bakery_id }}/analytics?week_start={{ week_start }}{{ run_query }}">
+      <span>{{ item.bakery_name }}</span>
+      <small>{{ item.city or "Город не указан" }}</small>
+    </a>
+    {% endfor %}
+    <div class="bakery-search-empty" data-bakery-search-empty hidden>Пекарни не найдены</div>
+  </nav>
+</aside>
+
+<section class="workspace">
+  <div class="workspace-header">
+    <div>
+      <span class="eyebrow">Аналитика</span>
+      <h1>Недельная динамика выручки</h1>
+    </div>
+    <div style="display:flex;gap:0.5rem;align-items:center;">
+      <a class="button-link secondary" href="/?week_start={{ week_start }}&bakery_id={{ bakery_id }}{{ run_query }}">Прогноз недели</a>
+    </div>
+  </div>
+
+  {% if weekly %}
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <span class="eyebrow">Выручка</span>
+        <h2>Последние {{ weekly|length }} нед.</h2>
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:0.9rem;margin-bottom:0.5rem;">
+      <thead>
+        <tr style="text-align:left;border-bottom:2px solid var(--border,#e5e7eb);">
+          <th style="padding:0.4rem 0.75rem 0.4rem 0;">Неделя с</th>
+          <th style="padding:0.4rem 0.75rem;text-align:right;">Выручка, ₽</th>
+          <th style="padding:0.4rem 0.75rem;text-align:right;">Кол-во, шт.</th>
+          <th style="padding:0.4rem 0 0.4rem 0.75rem;text-align:right;">Δ к прошлой нед.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in weekly %}
+        <tr style="border-bottom:1px solid var(--border,#f3f4f6);">
+          <td style="padding:0.35rem 0.75rem 0.35rem 0;white-space:nowrap;">
+            {{ row.week_start[:10] if row.week_start else "—" }}
+          </td>
+          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
+            {{ "%.0f"|format(row.actual_revenue or 0) }}
+          </td>
+          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
+            {{ "%.0f"|format(row.actual_qty or 0) }}
+          </td>
+          <td style="padding:0.35rem 0 0.35rem 0.75rem;text-align:right;">
+            {% if row.revenue_wow is not none %}
+              {% set pct = row.revenue_wow * 100 %}
+              <span style="color:{% if pct >= 0 %}var(--green,#16a34a){% else %}var(--red,#dc2626){% endif %};font-weight:500;">
+                {% if pct >= 0 %}+{% endif %}{{ "%.1f"|format(pct) }}%
+              </span>
+            {% else %}
+              <span style="color:var(--muted,#9ca3af);">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="margin-top:1.25rem;overflow-x:auto;">
+      {% set max_rev = weekly | map(attribute='actual_revenue') | select | list | max %}
+      {% if max_rev and max_rev > 0 %}
+      <div style="display:flex;align-items:flex-end;gap:6px;height:120px;padding-bottom:1.5rem;min-width:360px;">
+        {% for row in weekly %}
+        {% set bar_h = (row.actual_revenue / max_rev * 100) | round | int %}
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+          <div style="flex:1;display:flex;align-items:flex-end;width:100%;">
+            <div style="width:100%;height:{{ [bar_h, 2] | max }}%;background:var(--accent,#3b82f6);border-radius:3px 3px 0 0;opacity:0.85;"></div>
+          </div>
+          <span style="font-size:0.65rem;color:var(--muted,#9ca3af);white-space:nowrap;">
+            {{ row.week_start[5:10] if row.week_start else "" }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </section>
+  {% else %}
+  <div class="empty-note" style="margin-top:2rem;">Нет данных о продажах за последние 8 недель.</div>
+  {% endif %}
+</section>
+{% endblock %}

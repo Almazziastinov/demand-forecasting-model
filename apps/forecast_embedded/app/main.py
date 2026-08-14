@@ -13,12 +13,18 @@ _APPS_DIR = Path(__file__).resolve().parents[2]
 if str(_APPS_DIR) not in sys.path:
     sys.path.insert(0, str(_APPS_DIR))
 
+# Repo root is needed so that src.pilot_management_service (PM-05) is importable.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from baking_plan.router import router as baking_plan_router
 
 from app.routers import api_bakeries
 from app.routers import api_exports
 from app.routers import api_runs
 from app.routers import health
+from app.routers import pilot_management
 from app.routers import ui
 from app.settings import get_settings
 
@@ -34,4 +40,5 @@ app.include_router(api_runs.router)
 app.include_router(api_bakeries.router)
 app.include_router(api_exports.router)
 app.include_router(baking_plan_router)
+app.include_router(pilot_management.router)
 app.include_router(ui.router)

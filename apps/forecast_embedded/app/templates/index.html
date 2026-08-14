@@ -15,7 +15,7 @@
   </div>
   <nav class="bakery-menu">
     {% for bakery in bakeries %}
-    <a class="bakery-link {% if bakery.bakery_id == selected_bakery_id %}active{% endif %}" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}">
+    <a class="bakery-link {% if bakery.bakery_id == selected_bakery_id %}active{% endif %}" href="/?week_start={{ week_start }}&bakery_id={{ bakery.bakery_id }}{{ run_query }}{% if category_group %}&category_group={{ category_group }}{% endif %}">
       <span>{{ bakery.bakery_name }}</span>
       <small>{{ bakery.city or "Город не указан" }}</small>
     </a>
@@ -40,6 +40,15 @@
       <label>
         Начало недели
         <input type="date" name="week_start" value="{{ week_start }}" onchange="this.form.submit()">
+      </label>
+      <label>
+        Группа
+        <select name="category_group" onchange="this.form.submit()" style="border-color:var(--accent,#3b82f6); color:var(--accent,#3b82f6); font-weight:600; background:rgba(59,130,246,0.06);">
+          <option value="" {% if not category_group %}selected{% endif %} style="color:inherit; font-weight:400;">Все позиции</option>
+          {% for g in category_groups %}
+          <option value="{{ g }}" {% if g == category_group %}selected{% endif %} style="color:inherit; font-weight:400;">{{ g | capitalize }}</option>
+          {% endfor %}
+        </select>
       </label>
       {% if is_admin %}
       <label>
@@ -71,10 +80,11 @@
   <div class="legend-row">
     <span><i class="legend-dot actual"></i>Фактические продажи, шт.</span>
     <span><i class="legend-dot forecast"></i>Прогноз, шт.</span>
+    {% if category_group %}<span style="font-size:0.8rem;color:var(--muted,#9ca3af);">Группа: <strong style="color:var(--fg,#111);">{{ category_group | capitalize }}</strong></span>{% endif %}
   </div>
   <div class="week-grid">
     {% for day in week_rows %}
-    <a class="day-card {% if day.is_weekend %}weekend{% endif %} {% if not day.has_forecast %}disabled{% endif %}" {% if day.has_forecast %}href="/bakery/{{ selected_bakery_id }}?date={{ day.forecast_date }}&week_start={{ week_start }}{{ run_query }}"{% endif %}>
+    <a class="day-card {% if day.is_weekend %}weekend{% endif %} {% if not day.has_forecast %}disabled{% endif %}" {% if day.has_forecast %}href="/bakery/{{ selected_bakery_id }}?date={{ day.forecast_date }}&week_start={{ week_start }}{{ run_query }}{% if category_group %}&category_group={{ category_group }}{% endif %}"{% endif %}>
       <div class="day-card-head">
         <div>
           <strong>{{ day.weekday_label }}</strong>
@@ -128,6 +138,73 @@
     </a>
     {% endfor %}
   </div>
+
+  {% if weekly %}
+  <section class="panel" style="margin-top:1.5rem;">
+    <div class="panel-head">
+      <div>
+        <span class="eyebrow">Аналитика</span>
+        <h2>Недельная динамика выручки</h2>
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;font-size:0.9rem;margin-bottom:0.5rem;">
+      <thead>
+        <tr style="text-align:left;border-bottom:2px solid var(--border,#e5e7eb);">
+          <th style="padding:0.4rem 0.75rem 0.4rem 0;">Неделя с</th>
+          <th style="padding:0.4rem 0.75rem;text-align:right;">Выручка, ₽</th>
+          <th style="padding:0.4rem 0.75rem;text-align:right;">Кол-во, шт.</th>
+          <th style="padding:0.4rem 0 0.4rem 0.75rem;text-align:right;">Δ к прошлой нед.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in weekly %}
+        <tr style="border-bottom:1px solid var(--border,#f3f4f6);">
+          <td style="padding:0.35rem 0.75rem 0.35rem 0;white-space:nowrap;">
+            {{ row.week_start[:10] if row.week_start else "—" }}
+          </td>
+          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
+            {{ "%.0f"|format(row.actual_revenue or 0) }}
+          </td>
+          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
+            {{ "%.0f"|format(row.actual_qty or 0) }}
+          </td>
+          <td style="padding:0.35rem 0 0.35rem 0.75rem;text-align:right;">
+            {% if row.revenue_wow is not none %}
+              {% set pct = row.revenue_wow * 100 %}
+              <span style="color:{% if pct >= 0 %}var(--green,#16a34a){% else %}var(--red,#dc2626){% endif %};font-weight:500;">
+                {% if pct >= 0 %}+{% endif %}{{ "%.1f"|format(pct) }}%
+              </span>
+            {% else %}
+              <span style="color:var(--muted,#9ca3af);">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="margin-top:1.25rem;overflow-x:auto;">
+      {% set max_rev = weekly | map(attribute='actual_revenue') | select | list | max %}
+      {% if max_rev and max_rev > 0 %}
+      <div style="display:flex;align-items:flex-end;gap:6px;height:100px;padding-bottom:1.25rem;min-width:300px;">
+        {% for row in weekly %}
+        {% set bar_h = (row.actual_revenue / max_rev * 100) | round | int %}
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+          <div style="flex:1;display:flex;align-items:flex-end;width:100%;">
+            <div style="width:100%;height:{{ [bar_h, 2] | max }}%;background:var(--accent,#3b82f6);border-radius:3px 3px 0 0;opacity:0.8;"></div>
+          </div>
+          <span style="font-size:0.62rem;color:var(--muted,#9ca3af);white-space:nowrap;">
+            {{ row.week_start[5:10] if row.week_start else "" }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
   {% endif %}
 </section>
 {% endblock %}
