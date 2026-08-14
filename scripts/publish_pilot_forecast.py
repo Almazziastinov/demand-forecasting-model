@@ -136,29 +136,20 @@ def _build_report(
         return []
 
     previous_date = str(date_type.fromisoformat(forecast_date) - timedelta(days=1))
-    # stock_balance in mart_zero_sales_60d is a daily flow (produced+received-sent-sold),
-    # not an absolute inventory snapshot. On days when a bakery sells carry-over stock
-    # without new production (qty_produced=0), stock_balance is negative. To reconstruct
-    # the actual physical closing inventory, sum over a 2-day window: the day before
-    # yesterday (production day) and yesterday (sell-down day). This matches the 2-day
-    # shelf life policy: items are fresh on day 1, sold as leftovers on day 2, written off
-    # on day 3.
-    two_days_ago = str(date_type.fromisoformat(forecast_date) - timedelta(days=2))
     stock_df = client.query_df(
         """
         select
             toInt64OrZero(toString(m.bakery_id)) as bakery_id,
             toInt64OrZero(toString(m.product_id)) as product_id,
-            greatest(sum(m.stock_balance), 0) as stock_balance
+            sum(m.stock_balance) as stock_balance
         from Svezhar.mart_zero_sales_60d as m
-        where m.dt between toDate(%(two_days_ago)s) and toDate(%(previous_date)s)
+        where m.dt = toDate(%(previous_date)s)
           and toInt64OrZero(toString(m.bakery_id)) in %(bids)s
         group by bakery_id, product_id
         having stock_balance > 0
         """,
         parameters={
             "previous_date": previous_date,
-            "two_days_ago": two_days_ago,
             "bids": PILOT_BAKERY_IDS,
         },
     )
@@ -169,35 +160,6 @@ def _build_report(
             yesterday_stock[key] = max(float(row.get("stock_balance") or 0), 0.0)
         except (TypeError, ValueError):
             continue
-
-    # DQ check: detect ETL gaps in stg_production_release -> mart_zero_sales_60d.
-    # If qty_produced = 0 for most pilot bakeries on the previous day, the mart
-    # is likely missing production records (as seen 2026-08-13 when 9/10 bakeries
-    # were absent from stg_production_release despite fct_production_release having data).
-    _prod_check = client.query_df(
-        """
-        select countIf(qty_produced > 0) as bakeries_with_production
-        from (
-            select toInt64OrZero(toString(bakery_id)) as bakery_id,
-                   sum(qty_produced) as qty_produced
-            from Svezhar.mart_zero_sales_60d
-            where dt = toDate(%(previous_date)s)
-              and toInt64OrZero(toString(bakery_id)) in %(bids)s
-            group by bakery_id
-        )
-        """,
-        parameters={"previous_date": previous_date, "bids": PILOT_BAKERY_IDS},
-    )
-    if not _prod_check.empty and len(_prod_check.columns) > 0:
-        _n_with_prod = int(_prod_check.iloc[0].get("bakeries_with_production") or 0)
-        _threshold = len(PILOT_BAKERY_IDS) // 2
-        if _n_with_prod < _threshold:
-            print(
-                f"  WARNING: mart_zero_sales_60d shows qty_produced>0 for only "
-                f"{_n_with_prod}/{len(PILOT_BAKERY_IDS)} pilot bakeries on {previous_date}. "
-                f"Possible ETL gap in stg_production_release — "
-                f"yesterday_stock values may be understated."
-            )
 
     # SKU meta (kratnost) — base + bakery overrides
     # baking_sku_meta.product_id is zero-padded string ("000001234")
