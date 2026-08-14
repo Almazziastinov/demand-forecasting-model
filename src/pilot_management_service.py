@@ -84,11 +84,65 @@ class PilotManagementService:
             .iterrows()
         }
 
+    def _cat_col(self, df: pd.DataFrame) -> str | None:
+        for col in ("category_name", "fact_category_name"):
+            if col in df.columns:
+                return col
+        return None
+
+    def _filter_cat(self, df: pd.DataFrame, category: str | None) -> pd.DataFrame:
+        if not category or df.empty:
+            return df
+        col = self._cat_col(df)
+        return df[df[col] == category] if col else df
+
+    def _kratnost_metrics(self, df: pd.DataFrame) -> dict:
+        """Compute block-2 (kratnost) metrics from a detail slice."""
+        out: dict = {
+            "kratnost_recognized_lost_qty": None,
+            "kratnost_recognized_lost_revenue": None,
+            "kratnost_execution_rate": None,
+        }
+        if df.empty or "issued_total_for_sale" not in df.columns:
+            return out
+        krat = df[
+            df["issued_total_for_sale"].notna()
+            & df["eligible_forecast_summary"].astype(bool)
+            & df["produced_qty"].notna()
+        ]
+        if not krat.empty:
+            issued = float(krat["issued_total_for_sale"].sum())
+            produced = float(krat["produced_qty"].sum())
+            out["kratnost_execution_rate"] = produced / issued if issued > 0 else None
+            ld = krat[
+                krat["eligible_lost_demand"].astype(bool)
+                & (krat["issued_total_for_sale"] > krat["sold_qty"])
+            ]
+            if not ld.empty:
+                capped = (ld["issued_total_for_sale"] - ld["sold_qty"]).clip(
+                    upper=ld["lost_demand_recognized_qty"]
+                )
+                out["kratnost_recognized_lost_qty"] = float(capped.sum())
+                if "price" in ld.columns:
+                    out["kratnost_recognized_lost_revenue"] = float(
+                        (capped * ld["price"].fillna(0)).sum()
+                    )
+        return out
+
+    def get_available_categories(self) -> list[str]:
+        detail = self._load("detail")
+        if detail.empty:
+            return []
+        col = self._cat_col(detail)
+        if col is None:
+            return []
+        return sorted(detail[col].dropna().unique().tolist())
+
     # ------------------------------------------------------------------
     # Public query methods
     # ------------------------------------------------------------------
 
-    def get_pilot_summary(self) -> dict | None:
+    def get_pilot_summary(self, category: str | None = None) -> dict | None:
         """Pilot-level KPIs with DQ status and period metadata."""
         summary_json = self._load_json("summary")
         if not summary_json:
@@ -135,6 +189,7 @@ class PilotManagementService:
 
         actual_revenue = None
         detail = self._load("detail")
+        detail = self._filter_cat(detail, category)
         if not detail.empty:
             if "sold_qty" in detail.columns and "price" in detail.columns:
                 actual_revenue = float(
@@ -218,7 +273,7 @@ class PilotManagementService:
                                 (ld2_capped * ld2["price"].fillna(0)).sum()
                             )
 
-            # unique SKU coverage
+            # unique SKU coverage (computed from filtered detail, not from precomputed KPI)
             if "product_id" in detail.columns and "eligible_forecast_summary" in detail.columns:
                 coverage_sku_total = int(detail["product_id"].nunique())
                 coverage_sku_eligible = int(
@@ -243,7 +298,7 @@ class PilotManagementService:
             "block1_lost_revenue": block1_lost_revenue,
             "block1_recognized_lost_qty": block1_recognized_lost_qty,
             "block1_recognized_lost_revenue": block1_recognized_lost_revenue,
-            "forecast_coverage": _maybe_float(kpi.get("forecast_coverage")),
+            "forecast_coverage": coverage_sku_eligible / coverage_sku_total if coverage_sku_total > 0 else _maybe_float(kpi.get("forecast_coverage")),
             "coverage_eligible": n_eligible,
             "coverage_total": int(kpi.get("rows_total") or 0),
             "execution_wape": _maybe_float(kpi.get("execution_wape")) if has_exec else None,
@@ -266,32 +321,34 @@ class PilotManagementService:
             "has_dq_issues": d1_count > 0,
         }
 
-    def get_bakery_list(self) -> list[dict]:
-        """Bakery-level KPIs sorted by WAPE descending (worst first)."""
-        bakery_kpi = self._load("bakery_kpi")
-        if bakery_kpi.empty:
+    def get_bakery_list(self, category: str | None = None) -> list[dict]:
+        """Bakery-level KPIs sorted by execution rate ascending (worst first)."""
+        detail = self._load("detail")
+        detail = self._filter_cat(detail, category)
+        if detail.empty:
             return []
-        names = self._bakery_names()
         rows = []
-        for _, row in bakery_kpi.iterrows():
-            bid = int(row["bakery_id"])
-            has_exec = bool(row.get("execution_kpi_included", False))
+        for bakery_id, grp in detail.groupby("bakery_id"):
+            elig = grp[grp["eligible_forecast_summary"].astype(bool)]
+            demand_sum = float(elig["demand_qty"].sum()) if "demand_qty" in elig.columns else 0.0
+            wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
+            actual_rev = float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum()) if "price" in grp.columns else None
+            km = self._kratnost_metrics(grp)
+            name = (
+                grp["bakery_name"].dropna().iloc[0]
+                if "bakery_name" in grp.columns and grp["bakery_name"].notna().any()
+                else f"Пекарня {int(bakery_id)}"
+            )
             rows.append({
-                "bakery_id": bid,
-                "bakery_name": names.get(bid, f"Пекарня {bid}"),
-                "wape": _maybe_float(row.get("wape")),
-                "bias": _maybe_float(row.get("bias")),
-                "forecast_coverage": _maybe_float(row.get("forecast_coverage")),
-                "demand_qty": _maybe_float(row.get("demand_qty")),
-                "recognized_lost_qty": _maybe_float(row.get("recognized_lost_qty")),
-                "execution_wape": (
-                    _maybe_float(row.get("execution_wape")) if has_exec else None
-                ),
-                "execution_bias": (
-                    _maybe_float(row.get("execution_bias")) if has_exec else None
-                ),
+                "bakery_id": int(bakery_id),
+                "bakery_name": str(name),
+                "wape": wape,
+                "execution_rate": km["kratnost_execution_rate"],
+                "actual_revenue": actual_rev,
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
             })
-        return sorted(rows, key=lambda r: r["wape"] or 0, reverse=True)
+        return sorted(rows, key=lambda r: r["execution_rate"] or 0)
 
     def get_bakery_detail(self, bakery_id: int) -> dict | None:
         """Single bakery KPI row, or None if not found."""
@@ -300,12 +357,137 @@ class PilotManagementService:
             None,
         )
 
-    def get_sku_list(self, bakery_id: int) -> list[dict]:
+    def get_bakery_kpi(self, bakery_id: int, category: str | None = None) -> dict | None:
+        """Full KPI set for one bakery (mirrors get_pilot_summary structure)."""
+        detail = self._load("detail")
+        if detail.empty:
+            return None
+        detail = detail[detail["bakery_id"] == bakery_id].copy()
+        if detail.empty:
+            return None
+        name = (
+            detail["bakery_name"].dropna().iloc[0]
+            if "bakery_name" in detail.columns and detail["bakery_name"].notna().any()
+            else f"Пекарня {bakery_id}"
+        )
+        # store full list of categories before filtering
+        cat_col = self._cat_col(detail)
+        bakery_categories = sorted(detail[cat_col].dropna().unique().tolist()) if cat_col else []
+        detail = self._filter_cat(detail, category)
+
+        actual_revenue = None
+        if "price" in detail.columns:
+            actual_revenue = float((detail["sold_qty"].clip(lower=0) * detail["price"].fillna(0)).sum())
+
+        wape = bias = execution_rate = None
+        block1_lost_qty = block1_lost_revenue = None
+        block1_recognized_lost_qty = block1_recognized_lost_revenue = None
+        if "eligible_forecast_summary" in detail.columns:
+            b1 = detail[detail["eligible_forecast_summary"].astype(bool)]
+            if not b1.empty and "forecast_qty" in b1.columns and "demand_qty" in b1.columns:
+                demand_sum = float(b1["demand_qty"].sum())
+                if demand_sum > 0:
+                    wape = float((b1["forecast_qty"] - b1["demand_qty"]).abs().sum() / demand_sum)
+                    bias = float((b1["forecast_qty"] - b1["demand_qty"]).sum() / demand_sum)
+                if "sold_qty" in b1.columns:
+                    b1_lost = (b1["forecast_qty"] - b1["sold_qty"]).clip(lower=0)
+                    block1_lost_qty = float(b1_lost.sum())
+                    if "price" in b1.columns:
+                        block1_lost_revenue = float((b1_lost * b1["price"].fillna(0)).sum())
+                if "produced_qty" in b1.columns:
+                    b1e = b1[b1["produced_qty"].notna()]
+                    if not b1e.empty:
+                        fc = float(b1e["forecast_qty"].sum())
+                        execution_rate = float(b1e["produced_qty"].sum()) / fc if fc > 0 else None
+        if (
+            "eligible_lost_demand" in detail.columns
+            and "lost_demand_recognized_qty" in detail.columns
+            and "forecast_qty" in detail.columns
+            and "sold_qty" in detail.columns
+        ):
+            ld = detail[
+                detail["eligible_lost_demand"].astype(bool)
+                & (detail["forecast_qty"] > detail["sold_qty"])
+            ]
+            if not ld.empty:
+                capped = (ld["forecast_qty"] - ld["sold_qty"]).clip(upper=ld["lost_demand_recognized_qty"])
+                block1_recognized_lost_qty = float(capped.sum())
+                if "price" in ld.columns:
+                    block1_recognized_lost_revenue = float((capped * ld["price"].fillna(0)).sum())
+
+        km = self._kratnost_metrics(detail)
+        coverage_sku_total = coverage_sku_eligible = 0
+        if "product_id" in detail.columns and "eligible_forecast_summary" in detail.columns:
+            coverage_sku_total = int(detail["product_id"].nunique())
+            coverage_sku_eligible = int(
+                detail.loc[detail["eligible_forecast_summary"].astype(bool), "product_id"].nunique()
+            )
+        return {
+            "bakery_id": bakery_id,
+            "bakery_name": str(name),
+            "bakery_categories": bakery_categories,
+            "wape": wape,
+            "bias": bias,
+            "execution_rate": execution_rate,
+            "actual_revenue": actual_revenue,
+            "block1_lost_qty": block1_lost_qty,
+            "block1_lost_revenue": block1_lost_revenue,
+            "block1_recognized_lost_qty": block1_recognized_lost_qty,
+            "block1_recognized_lost_revenue": block1_recognized_lost_revenue,
+            "kratnost_execution_rate": km["kratnost_execution_rate"],
+            "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+            "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
+            "coverage_sku_eligible": coverage_sku_eligible,
+            "coverage_sku_total": coverage_sku_total,
+            "forecast_coverage": coverage_sku_eligible / coverage_sku_total if coverage_sku_total > 0 else None,
+        }
+
+    def get_bakery_week_trend(self, bakery_id: int, category: str | None = None) -> list[dict]:
+        """Weekly KPI rows for one bakery, oldest first, with trend vs first week."""
+        detail = self._load("detail")
+        if detail.empty:
+            return []
+        detail = detail[detail["bakery_id"] == bakery_id].copy()
+        detail = self._filter_cat(detail, category)
+        if detail.empty:
+            return []
+        detail["business_date"] = pd.to_datetime(detail["business_date"], errors="coerce")
+        detail["week_start"] = detail["business_date"].dt.to_period("W-MON").apply(
+            lambda p: str(p.start_time.date())
+        )
+        rows = []
+        for week_start, grp in detail.groupby("week_start"):
+            elig = grp[grp["eligible_forecast_summary"].astype(bool)]
+            demand_sum = float(elig["demand_qty"].sum()) if "demand_qty" in elig.columns else 0.0
+            wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
+            actual_rev = float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum()) if "price" in grp.columns else None
+            km = self._kratnost_metrics(grp)
+            rows.append({
+                "week_start": str(week_start),
+                "wape": wape,
+                "execution_rate": km["kratnost_execution_rate"],
+                "actual_revenue": actual_rev,
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
+                "wape_delta": None,
+                "exec_delta": None,
+            })
+        rows.sort(key=lambda r: r["week_start"])
+        if rows:
+            base_wape = rows[0]["wape"]
+            base_exec = rows[0]["execution_rate"]
+            for r in rows:
+                r["wape_delta"] = (r["wape"] - base_wape) if (r["wape"] is not None and base_wape is not None) else None
+                r["exec_delta"] = (r["execution_rate"] - base_exec) if (r["execution_rate"] is not None and base_exec is not None) else None
+        return rows
+
+    def get_sku_list(self, bakery_id: int, category: str | None = None) -> list[dict]:
         """Per-SKU KPIs for one bakery, aggregated from detail rows."""
         detail = self._load("detail")
         if detail.empty:
             return []
         group = detail[detail["bakery_id"] == bakery_id]
+        group = self._filter_cat(group, category)
         if group.empty:
             return []
         rows = []
@@ -371,26 +553,191 @@ class PilotManagementService:
             })
         return rows
 
-    def get_week_trend(self) -> list[dict]:
-        """Weekly KPI rows for trend view, oldest first."""
-        week_kpi = self._load("week_kpi")
-        if week_kpi.empty:
+    def get_bakery_week_days(
+        self, bakery_id: int, week_start: str, category: str | None = None
+    ) -> list[dict]:
+        """Per-day aggregated rows for one bakery in one ISO week."""
+        _RU_DOW = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        detail = self._load("detail")
+        if detail.empty:
+            return []
+        detail = detail[detail["bakery_id"] == bakery_id].copy()
+        detail = self._filter_cat(detail, category)
+        if detail.empty:
+            return []
+        detail["business_date"] = pd.to_datetime(detail["business_date"], errors="coerce")
+        ws = pd.Timestamp(week_start)
+        we = ws + pd.Timedelta(days=6)
+        week = detail[(detail["business_date"] >= ws) & (detail["business_date"] <= we)]
+        if week.empty:
             return []
         rows = []
-        for _, row in week_kpi.iterrows():
-            has_exec = bool(row.get("execution_kpi_included", False))
+        for date, grp in week.groupby("business_date"):
+            elig = grp[grp["eligible_forecast_summary"].astype(bool)]
+            demand_sum = float(elig["demand_qty"].sum()) if "demand_qty" in elig.columns else 0.0
+            wape = (
+                float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum)
+                if demand_sum > 0 else None
+            )
+            revenue = (
+                float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum())
+                if "price" in grp.columns else None
+            )
+            km = self._kratnost_metrics(grp)
             rows.append({
-                "week_start": str(row.get("week_start", "")),
-                "partial_period": bool(row.get("partial_period", False)),
-                "wape": _maybe_float(row.get("wape")),
-                "bias": _maybe_float(row.get("bias")),
-                "demand_qty": _maybe_float(row.get("demand_qty")),
-                "forecast_coverage": _maybe_float(row.get("forecast_coverage")),
-                "execution_wape": (
-                    _maybe_float(row.get("execution_wape")) if has_exec else None
-                ),
+                "date": str(date.date()),
+                "weekday": _RU_DOW[date.weekday()],
+                "n_skus": int(grp["product_id"].nunique()),
+                "forecast_qty": float(grp["forecast_qty"].fillna(0).sum()) if "forecast_qty" in grp.columns else None,
+                "plan_qty": float(grp["issued_total_for_sale"].fillna(0).sum()) if "issued_total_for_sale" in grp.columns else None,
+                "produced_qty": float(grp["produced_qty"].fillna(0).sum()) if "produced_qty" in grp.columns else None,
+                "sold_qty": float(grp["sold_qty"].fillna(0).sum()) if "sold_qty" in grp.columns else None,
+                "demand_qty": demand_sum,
+                "revenue": revenue,
+                "wape": wape,
+                "execution_rate": km["kratnost_execution_rate"],
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
             })
+        rows.sort(key=lambda r: r["date"])
         return rows
+
+    def get_bakery_week_sku_summary(
+        self, bakery_id: int, week_start: str, category: str | None = None
+    ) -> list[dict]:
+        """Per-SKU summary for one bakery in one ISO week, sorted by execution rate asc."""
+        detail = self._load("detail")
+        if detail.empty:
+            return []
+        detail = detail[detail["bakery_id"] == bakery_id].copy()
+        detail = self._filter_cat(detail, category)
+        if detail.empty:
+            return []
+        detail["business_date"] = pd.to_datetime(detail["business_date"], errors="coerce")
+        ws = pd.Timestamp(week_start)
+        we = ws + pd.Timedelta(days=6)
+        week = detail[(detail["business_date"] >= ws) & (detail["business_date"] <= we)]
+        if week.empty:
+            return []
+        rows = []
+        for product_id, grp in week.groupby("product_id"):
+            elig = grp[grp["eligible_forecast_summary"].astype(bool)]
+            demand_sum = float(elig["demand_qty"].sum()) if "demand_qty" in elig.columns else 0.0
+            wape = (
+                float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum)
+                if demand_sum > 0 else None
+            )
+            revenue = (
+                float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum())
+                if "price" in grp.columns else None
+            )
+            km = self._kratnost_metrics(grp)
+            name = (
+                grp["product_name"].dropna().iloc[0]
+                if "product_name" in grp.columns and grp["product_name"].notna().any()
+                else None
+            )
+            rows.append({
+                "product_id": int(product_id),
+                "product_name": str(name) if name else f"SKU {product_id}",
+                "days": int(grp["business_date"].nunique()),
+                "demand_qty": demand_sum,
+                "sold_qty": float(grp["sold_qty"].fillna(0).sum()),
+                "revenue": revenue,
+                "wape": wape,
+                "execution_rate": km["kratnost_execution_rate"],
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
+            })
+        return sorted(rows, key=lambda r: r["execution_rate"] or 0)
+
+    def get_bakery_day_detail(
+        self, bakery_id: int, date: str, category: str | None = None
+    ) -> list[dict]:
+        """Raw per-SKU rows for one bakery on one date — used for Excel export."""
+        detail = self._load("detail")
+        if detail.empty:
+            return []
+        detail = detail[detail["bakery_id"] == bakery_id].copy()
+        detail = self._filter_cat(detail, category)
+        detail["business_date"] = pd.to_datetime(detail["business_date"], errors="coerce").dt.date.astype(str)
+        day = detail[detail["business_date"] == date]
+        if day.empty:
+            return []
+        cols = [
+            "bakery_name", "product_name", "fact_category_name",
+            "forecast_qty", "issued_total_for_sale", "produced_qty",
+            "sold_qty", "demand_qty", "price", "revenue",
+            "lost_demand_recognized_qty", "eligible_forecast_summary",
+            "eligible_lost_demand", "execution_status",
+        ]
+        present = [c for c in cols if c in day.columns]
+        return day[present].to_dict("records")
+
+    def get_week_trend(self, category: str | None = None) -> list[dict]:
+        """Weekly KPI rows computed from detail, oldest first, with trend vs first week."""
+        detail = self._load("detail")
+        detail = self._filter_cat(detail, category)
+        if detail.empty:
+            return []
+        detail = detail.copy()
+        detail["business_date"] = pd.to_datetime(detail["business_date"], errors="coerce")
+        detail["week_start"] = detail["business_date"].dt.to_period("W-MON").apply(
+            lambda p: str(p.start_time.date())
+        )
+        rows = []
+        for week_start, grp in detail.groupby("week_start"):
+            elig = grp[grp["eligible_forecast_summary"].astype(bool)]
+            demand_sum = float(elig["demand_qty"].sum()) if "demand_qty" in elig.columns else 0.0
+            wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
+            actual_rev = float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum()) if "price" in grp.columns else None
+            km = self._kratnost_metrics(grp)
+            rows.append({
+                "week_start": str(week_start),
+                "wape": wape,
+                "execution_rate": km["kratnost_execution_rate"],
+                "actual_revenue": actual_rev,
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
+                "wape_delta": None,
+                "exec_delta": None,
+            })
+        rows.sort(key=lambda r: r["week_start"])
+        if rows:
+            base_wape = rows[0]["wape"]
+            base_exec = rows[0]["execution_rate"]
+            for r in rows:
+                r["wape_delta"] = (r["wape"] - base_wape) if (r["wape"] is not None and base_wape is not None) else None
+                r["exec_delta"] = (r["execution_rate"] - base_exec) if (r["execution_rate"] is not None and base_exec is not None) else None
+        return rows
+
+    def get_sku_summary(self, category: str | None = None) -> list[dict]:
+        """Per-SKU KPIs across all pilot bakeries, sorted by execution rate ascending."""
+        detail = self._load("detail")
+        detail = self._filter_cat(detail, category)
+        if detail.empty:
+            return []
+        rows = []
+        for product_id, grp in detail.groupby("product_id"):
+            elig = grp[grp["eligible_forecast_summary"].astype(bool)]
+            demand_sum = float(elig["demand_qty"].sum()) if "demand_qty" in elig.columns else 0.0
+            wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
+            km = self._kratnost_metrics(grp)
+            name = (
+                grp["product_name"].dropna().iloc[0]
+                if "product_name" in grp.columns and grp["product_name"].notna().any()
+                else None
+            )
+            rows.append({
+                "product_id": int(product_id),
+                "product_name": str(name) if name else f"SKU {product_id}",
+                "wape": wape,
+                "execution_rate": km["kratnost_execution_rate"],
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
+                "demand_qty": demand_sum,
+            })
+        return sorted(rows, key=lambda r: r["execution_rate"] or 0)
 
     def get_model_queue(
         self, tiers: tuple[str, ...] = ("M1",)

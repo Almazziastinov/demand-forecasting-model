@@ -3,7 +3,7 @@
 <section class="workspace" style="padding: 1.5rem 2rem; grid-column: 1 / -1;">
 
   {# ── Header ── #}
-  <div class="workspace-header" style="margin-bottom: 1.5rem;">
+  <div class="workspace-header" style="margin-bottom: 1rem;">
     <div>
       <span class="eyebrow">Управленческая аналитика</span>
       <h1>Сводка: {{ summary.date_from }} — {{ summary.date_to }}</h1>
@@ -15,7 +15,24 @@
     <a href="/" style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Прогноз</a>
   </div>
 
-{# ── Company KPIs: two parallel blocks ── #}
+  {# ── Category selector ── #}
+  {% if categories %}
+  <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.6rem;">
+    <label for="cat-select" style="font-size: 0.75rem; color: var(--text-secondary, #888); white-space: nowrap;">Группа:</label>
+    <select id="cat-select"
+            onchange="location.href = this.value"
+            style="font-size: 0.82rem; padding: 0.3rem 0.6rem; border: 1px solid var(--border, #e5e7eb);
+                   border-radius: 6px; background: var(--surface, #f9fafb); color: var(--text, #111);
+                   cursor: pointer; min-width: 200px;">
+      <option value="/pilot" {{ 'selected' if not selected_category else '' }}>Все категории</option>
+      {% for cat in categories %}
+      <option value="/pilot?category={{ cat | urlencode }}" {{ 'selected' if selected_category == cat else '' }}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+
+  {# ── Macros ── #}
   {% macro kpi_card(label, primary, secondary=none) %}
   <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
     <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">{{ label }}</div>
@@ -30,7 +47,7 @@
   </div>
   {% endmacro %}
 
-  {# Block 1: без кратности #}
+  {# ── Block 1: без кратности ── #}
   <div style="margin-bottom: 1rem;">
     {{ block_header("Прогноз", "— сравнение с спросом без учёта кратности") }}
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
@@ -51,7 +68,7 @@
     </div>
   </div>
 
-  {# Block 2: с кратностью #}
+  {# ── Block 2: с кратностью ── #}
   <div style="margin-bottom: 1.5rem;">
     {{ block_header("С кратностью выпекания", "— итого на продажу (остаток + выпуск) vs спрос") }}
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
@@ -72,7 +89,7 @@
     </div>
   </div>
 
-  {# ── Revenue block (kratnost) ── #}
+  {# ── Revenue block ── #}
   {% if summary.actual_revenue is not none %}
   <div style="margin-bottom: 1rem;">
     {{ block_header("Выручка", "— факт и упущенный спрос с кратностью выпекания") }}
@@ -94,7 +111,7 @@
   </div>
   {% endif %}
 
-  {# Coverage below both blocks #}
+  {# Coverage #}
   <div style="margin-bottom: 2rem;">
     <div style="display: inline-flex; align-items: center; gap: 1rem; background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.75rem 1.25rem;">
       <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280);">Покрытие ассортимента</div>
@@ -111,26 +128,43 @@
       <thead>
         <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
           <th style="padding: 0.4rem 0.75rem;">Неделя с</th>
-          <th style="padding: 0.4rem 0.75rem;">Период</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещение</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Покрытие</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос, шт</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE исполн.</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Точность</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выполнение</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выручка</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: center;">Тренд</th>
         </tr>
       </thead>
       <tbody>
         {% for w in week_trend %}
-        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.4rem 0.75rem;">{{ w.week_start }}</td>
-          <td style="padding: 0.4rem 0.75rem; color: {{ '#c77700' if w.partial_period else 'inherit' }};">
-            {{ "неполная" if w.partial_period else "полная" }}
+        {% set is_first = loop.first %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb); {{ 'font-weight: 600;' if is_first else '' }}">
+          <td style="padding: 0.4rem 0.75rem; white-space: nowrap;">{{ w.week_start }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.wape) if w.wape is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;
+              color: {{ '#c00' if (w.execution_rate is not none and w.execution_rate < 0.85) else ('#c77700' if (w.execution_rate is not none and w.execution_rate < 0.95) else 'inherit') }};">
+            {{ pct(w.execution_rate) if w.execution_rate is not none else "—" }}
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.wape) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.bias) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.forecast_coverage) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ w.demand_qty | round(0) | int if w.demand_qty else "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.execution_wape) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {{ ("%.0f"|format(w.actual_revenue / 1000) ~ " тыс. ₽") if w.actual_revenue is not none else "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {% if w.kratnost_recognized_lost_qty is not none %}
+              {{ w.kratnost_recognized_lost_qty | round(0) | int }} шт
+              {% if w.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(w.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: center; white-space: nowrap; font-size: 0.78rem; color: var(--text-secondary, #6b7280);">
+            {% if is_first %}
+              база
+            {% else %}
+              {% if w.exec_delta is not none %}
+                <span style="color: {{ '#28a745' if w.exec_delta > 0.005 else ('#c00' if w.exec_delta < -0.005 else 'inherit') }};">
+                  {{ '↑' if w.exec_delta > 0.005 else ('↓' if w.exec_delta < -0.005 else '→') }} {{ ('+' if w.exec_delta > 0 else '') }}{{ "%.1f"|format(w.exec_delta * 100) }}%
+                </span>
+              {% else %}—{% endif %}
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -138,19 +172,17 @@
   </div>
   {% endif %}
 
-  {# ── Bakery table ── #}
-  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Пекарни ({{ bakeries | length }})</h2>
+  {# ── Bakeries ── #}
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Пекарни ({{ bakeries | length }}) — от худшего выполнения</h2>
   <div style="overflow-x: auto; margin-bottom: 2rem;">
     <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
       <thead>
         <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
           <th style="padding: 0.4rem 0.75rem;">Пекарня</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещение</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Покрытие</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос, шт</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE исполн.</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещ. исполн.</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Точность</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выполнение</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выручка</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
         </tr>
       </thead>
       <tbody>
@@ -159,121 +191,61 @@
           <td style="padding: 0.4rem 0.75rem;">
             <a href="/pilot/bakery/{{ b.bakery_id }}" style="color: var(--accent, #3b82f6);">{{ b.bakery_name }}</a>
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; font-weight: {{ '600' if b.wape and b.wape > 0.30 else 'normal' }}; color: {{ '#c00' if b.wape and b.wape > 0.35 else 'inherit' }};">
-            {{ pct(b.wape) or "—" }}
+          <td style="padding: 0.4rem 0.75rem; text-align: right;
+              font-weight: {{ '600' if b.wape is not none and b.wape > 0.30 else 'normal' }};
+              color: {{ '#c00' if b.wape is not none and b.wape > 0.35 else 'inherit' }};">
+            {{ pct(b.wape) if b.wape is not none else "—" }}
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.bias) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.forecast_coverage) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ b.demand_qty | round(0) | int if b.demand_qty else "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.execution_wape) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(b.execution_bias) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;
+              color: {{ '#c00' if (b.execution_rate is not none and b.execution_rate < 0.85) else ('#c77700' if (b.execution_rate is not none and b.execution_rate < 0.95) else 'inherit') }};">
+            {{ pct(b.execution_rate) if b.execution_rate is not none else "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {{ ("%.0f"|format(b.actual_revenue / 1000) ~ " тыс. ₽") if b.actual_revenue is not none else "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {% if b.kratnost_recognized_lost_qty is not none %}
+              {{ b.kratnost_recognized_lost_qty | round(0) | int }} шт
+              {% if b.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(b.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
+            {% else %}—{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  {# ── MODEL queue ── #}
-  {% if model_queue %}
-  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Очередь MODEL — M1 ({{ model_queue | length }} SKU)</h2>
-  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">Устойчивые ошибки прогноза: WAPE ≥ 15%, направленность ≥ 40%, ≥ 7 дней, спрос ≥ 100 шт.</p>
+  {# ── SKU summary ── #}
+  {% if sku_summary %}
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">SKU ({{ sku_summary | length }}) — от худшего выполнения</h2>
   <div style="overflow-x: auto; margin-bottom: 2rem;">
     <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
       <thead>
         <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
           <th style="padding: 0.35rem 0.6rem;">SKU</th>
-          <th style="padding: 0.35rem 0.6rem;">Когорта</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Дни</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Смещение</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Направл.</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">|Ошибка|</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Вклад</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Тир</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Точность</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Выполнение</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
         </tr>
       </thead>
       <tbody>
-        {% for r in model_queue %}
+        {% for s in sku_summary %}
         <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.35rem 0.6rem;">{{ r.product_name or r.product_id }}</td>
-          <td style="padding: 0.35rem 0.6rem;">{{ r.cohort }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.eligible_days }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.bias) or "—" }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ (r.directionality * 100) | round(0) | int }}%</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.abs_error_qty | round(0) | int }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.contribution_to_total_abs_error) or "—" }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right; font-weight: 600;">{{ r.priority_tier }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {# ── EXECUTION queue (needs attention) ── #}
-  {% if execution_queue %}
-  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Очередь EXECUTION — требуют проверки ({{ execution_queue | length }})</h2>
-  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">Только likely_execution и needs_joint_review. Insufficient_data и likely_model — отдельно.</p>
-  <div style="overflow-x: auto; margin-bottom: 2rem;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
-          <th style="padding: 0.35rem 0.6rem;">Пекарня</th>
-          <th style="padding: 0.35rem 0.6rem;">SKU</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">WAPE прогн.</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Смещ. исполн.</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Митигация</th>
-          <th style="padding: 0.35rem 0.6rem;">Статус</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in execution_queue %}
-        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.35rem 0.6rem;">
-            <a href="/pilot/bakery/{{ r.bakery_id }}" style="color: var(--accent, #3b82f6);">{{ r.bakery_id }}</a>
+          <td style="padding: 0.35rem 0.6rem;">{{ s.product_name }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;
+              color: {{ '#c00' if s.wape is not none and s.wape > 0.35 else 'inherit' }};">
+            {{ pct(s.wape) if s.wape is not none else "—" }}
           </td>
-          <td style="padding: 0.35rem 0.6rem;">{{ r.product_name or r.product_id }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">
-            <span style="color: {{ '#c00' if r.forecast_wape_band == 'red' else ('#c77700' if r.forecast_wape_band == 'amber' else 'inherit') }};">
-              {{ pct(r.forecast_wape) or "—" }}
-            </span>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;
+              color: {{ '#c00' if (s.execution_rate is not none and s.execution_rate < 0.85) else ('#c77700' if (s.execution_rate is not none and s.execution_rate < 0.95) else 'inherit') }};">
+            {{ pct(s.execution_rate) if s.execution_rate is not none else "—" }}
           </td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.execution_bias) or "—" }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.mitigation_signal }}</td>
-          <td style="padding: 0.35rem 0.6rem; font-weight: 600;">{{ r.triage }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-
-  {# ── DATA/PROCESS D1 issues ── #}
-  {% if dp_queue %}
-  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Очередь DATA/PROCESS — D1 ({{ dp_queue | length }})</h2>
-  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">Постоянные проблемы данных: появляются ≥ 50% дней или блокируют метрику ≥ 30% дней.</p>
-  <div style="overflow-x: auto; margin-bottom: 2rem;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
-          <th style="padding: 0.35rem 0.6rem;">Тип проблемы</th>
-          <th style="padding: 0.35rem 0.6rem;">Пекарня</th>
-          <th style="padding: 0.35rem 0.6rem;">SKU</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Дней</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Доля</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: center;">Блокирует</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in dp_queue %}
-        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.35rem 0.6rem; font-family: monospace; font-size: 0.78rem;">{{ r.issue_type }}</td>
-          <td style="padding: 0.35rem 0.6rem;">
-            {% if r.bakery_id %}<a href="/pilot/bakery/{{ r.bakery_id | int }}" style="color: var(--accent, #3b82f6);">{{ r.bakery_id | int }}</a>{% else %}—{% endif %}
+          <td style="padding: 0.35rem 0.6rem; text-align: right; white-space: nowrap;">
+            {% if s.kratnost_recognized_lost_qty is not none %}
+              {{ s.kratnost_recognized_lost_qty | round(0) | int }} шт
+              {% if s.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(s.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
+            {% else %}—{% endif %}
           </td>
-          <td style="padding: 0.35rem 0.6rem;">{{ r.product_name or (r.product_id | int if r.product_id else "—") }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ r.affected_days }}/{{ r.total_days or "?" }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ pct(r.issue_rate) or "—" }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: center;">{{ "⛔" if r.blocks_metric else "" }}</td>
         </tr>
         {% endfor %}
       </tbody>

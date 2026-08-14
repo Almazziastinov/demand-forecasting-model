@@ -1,9 +1,9 @@
 {% extends "layout.html" %}
 {% block content %}
-<section class="workspace" style="padding: 1.5rem 2rem; max-width: 1200px; margin: 0 auto;">
+<section class="workspace" style="padding: 1.5rem 2rem; grid-column: 1 / -1;">
 
   {# ── Header ── #}
-  <div class="workspace-header" style="margin-bottom: 1.5rem;">
+  <div class="workspace-header" style="margin-bottom: 1rem;">
     <div>
       <span class="eyebrow">Аналитика пилота — пекарня</span>
       <h1>{{ bakery.bakery_name }}</h1>
@@ -13,32 +13,152 @@
       </p>
       {% endif %}
     </div>
-    <a href="/pilot" style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Сводка пилота</a>
+    <a href="/pilot{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+       style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Сводка пилота</a>
   </div>
 
-  {# ── Bakery KPIs ── #}
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-    {% set kpis = [
-      ("WAPE прогноза", pct(bakery.wape)),
-      ("Смещение", pct(bakery.bias)),
-      ("Покрытие", pct(bakery.forecast_coverage)),
-      ("Спрос, шт", bakery.demand_qty | round(0) | int if bakery.demand_qty else "—"),
-      ("Упущ. спрос", bakery.recognized_lost_qty | round(0) | int if bakery.recognized_lost_qty else "—"),
-      ("WAPE исполнения", pct(bakery.execution_wape) if bakery.execution_wape is not none else "нет данных"),
-    ] %}
-    {% for label, value in kpis %}
-    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 1rem; text-align: center;">
-      <div style="font-size: 0.72rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">{{ label }}</div>
-      <div style="font-size: 1.4rem; font-weight: 700;">{{ value or "—" }}</div>
-    </div>
-    {% endfor %}
+  {# ── Category selector ── #}
+  {% if bakery.bakery_categories %}
+  <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.6rem;">
+    <label for="cat-select" style="font-size: 0.75rem; color: var(--text-secondary, #888); white-space: nowrap;">Группа:</label>
+    <select id="cat-select"
+            onchange="location.href = this.value"
+            style="font-size: 0.82rem; padding: 0.3rem 0.6rem; border: 1px solid var(--border, #e5e7eb);
+                   border-radius: 6px; background: var(--surface, #f9fafb); color: var(--text, #111);
+                   cursor: pointer; min-width: 200px;">
+      <option value="/pilot/bakery/{{ bakery.bakery_id }}" {{ 'selected' if not selected_category else '' }}>Все категории</option>
+      {% for cat in bakery.bakery_categories %}
+      <option value="/pilot/bakery/{{ bakery.bakery_id }}?category={{ cat | urlencode }}"
+              {{ 'selected' if selected_category == cat else '' }}>{{ cat }}</option>
+      {% endfor %}
+    </select>
   </div>
+  {% endif %}
+
+  {# ── Macros ── #}
+  {% macro kpi_card(label, primary, secondary=none) %}
+  <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+    <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">{{ label }}</div>
+    <div style="font-size: 1.25rem; font-weight: 700; line-height: 1.2;">{{ primary or "—" }}</div>
+    {% if secondary %}<div style="font-size: 0.74rem; color: var(--text-secondary, #6b7280); margin-top: 0.2rem;">{{ secondary }}</div>{% endif %}
+  </div>
+  {% endmacro %}
+
+  {% macro block_header(title, subtitle) %}
+  <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary, #6b7280); margin-bottom: 0.6rem;">
+    {{ title }}<span style="font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 0.4rem;">{{ subtitle }}</span>
+  </div>
+  {% endmacro %}
+
+  {# ── Block 1: Прогноз ── #}
+  <div style="margin-bottom: 1rem;">
+    {{ block_header("Прогноз", "— сравнение с спросом без учёта кратности") }}
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+      {{ kpi_card("Точность (WAPE)", pct(bakery.wape) if bakery.wape is not none else "нет данных") }}
+      {{ kpi_card("Смещение прогноза",
+          (('+' if bakery.bias > 0 else '') ~ pct(bakery.bias)) if bakery.bias is not none else "—") }}
+      <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">Упущ. спрос</div>
+        <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">от прогноза</div>
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (bakery.block1_lost_qty | round(0) | int | string ~ " шт") if bakery.block1_lost_qty is not none else "—" }}{% if bakery.block1_lost_revenue is not none %} / {{ "%.0f"|format(bakery.block1_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
+        <div style="border-top: 1px solid var(--border, #e5e7eb); margin: 0.35rem 0;"></div>
+        <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">признанное</div>
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (bakery.block1_recognized_lost_qty | round(0) | int | string ~ " шт") if bakery.block1_recognized_lost_qty is not none else "—" }}{% if bakery.block1_recognized_lost_revenue is not none %} / {{ "%.0f"|format(bakery.block1_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
+      </div>
+      {{ kpi_card("Выполнение плана",
+          pct(bakery.execution_rate) if bakery.execution_rate is not none else "нет данных") }}
+    </div>
+  </div>
+
+  {# ── Block 2: С кратностью ── #}
+  <div style="margin-bottom: 1.5rem;">
+    {{ block_header("С кратностью выпекания", "— итого на продажу (остаток + выпуск) vs спрос") }}
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
+      <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">Упущ. спрос</div>
+        <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">от плана</div>
+        <div style="font-size: 1.1rem; font-weight: 700;">{{ (bakery.kratnost_recognized_lost_qty | round(0) | int | string ~ " шт") if bakery.kratnost_recognized_lost_qty is not none else "—" }}{% if bakery.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(bakery.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
+      </div>
+      {{ kpi_card("Выполнение плана",
+          pct(bakery.kratnost_execution_rate) if bakery.kratnost_execution_rate is not none else "нет данных") }}
+      {{ kpi_card("Покрытие ассортимента",
+          (bakery.coverage_sku_eligible | string ~ " из " ~ bakery.coverage_sku_total | string ~ " SKU"),
+          pct(bakery.forecast_coverage)) }}
+    </div>
+  </div>
+
+  {# ── Revenue block ── #}
+  {% if bakery.actual_revenue is not none %}
+  <div style="margin-bottom: 1.5rem;">
+    {{ block_header("Выручка", "— факт и упущенный спрос с кратностью выпекания") }}
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
+      {{ kpi_card("Выручка за период",
+          "%.0f"|format(bakery.actual_revenue / 1000) ~ " тыс. ₽") }}
+      {{ kpi_card("Выручка с признанным",
+          ("%.0f"|format((bakery.actual_revenue + bakery.kratnost_recognized_lost_revenue) / 1000) ~ " тыс. ₽") if bakery.kratnost_recognized_lost_revenue is not none else "—") }}
+      {{ kpi_card("Потенциальный прирост",
+          ("+" ~ "%.0f"|format(bakery.kratnost_recognized_lost_revenue / 1000) ~ " тыс. ₽ / +" ~ "%.1f"|format(bakery.kratnost_recognized_lost_revenue / bakery.actual_revenue * 100) ~ "%") if (bakery.actual_revenue and bakery.kratnost_recognized_lost_revenue is not none) else "—") }}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Week trend ── #}
+  {% if week_trend %}
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Динамика по неделям</h2>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.4rem 0.75rem;">Неделя с</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Точность</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выполнение</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выручка</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: center;">Тренд</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in week_trend %}
+        {% set is_first = loop.first %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb); {{ 'font-weight: 600;' if is_first else '' }}">
+          <td style="padding: 0.4rem 0.75rem; white-space: nowrap;">
+            <a href="/pilot/bakery/{{ bakery.bakery_id }}/week/{{ w.week_start }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+               style="color: var(--accent, #3b82f6);">{{ w.week_start }}</a>
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.wape) if w.wape is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;
+              color: {{ '#c00' if (w.execution_rate is not none and w.execution_rate < 0.85) else ('#c77700' if (w.execution_rate is not none and w.execution_rate < 0.95) else 'inherit') }};">
+            {{ pct(w.execution_rate) if w.execution_rate is not none else "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {{ ("%.0f"|format(w.actual_revenue / 1000) ~ " тыс. ₽") if w.actual_revenue is not none else "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {% if w.kratnost_recognized_lost_qty is not none %}
+              {{ w.kratnost_recognized_lost_qty | round(0) | int }} шт
+              {% if w.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(w.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: center; white-space: nowrap; font-size: 0.78rem; color: var(--text-secondary, #6b7280);">
+            {% if is_first %}
+              база
+            {% else %}
+              {% if w.exec_delta is not none %}
+                <span style="color: {{ '#28a745' if w.exec_delta > 0.005 else ('#c00' if w.exec_delta < -0.005 else 'inherit') }};">
+                  {{ '↑' if w.exec_delta > 0.005 else ('↓' if w.exec_delta < -0.005 else '→') }} {{ ('+' if w.exec_delta > 0 else '') }}{{ "%.1f"|format(w.exec_delta * 100) }}%
+                </span>
+              {% else %}—{% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
   {# ── SKU table ── #}
-  <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">SKU ({{ skus | length }})</h2>
-  <p style="font-size: 0.8rem; color: var(--text-secondary, #888); margin-bottom: 0.75rem;">
-    Отсортировано по объёму спроса. WAPE и смещение — по пригодным дням прогноза.
-  </p>
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">SKU ({{ skus | length }}) — по объёму спроса</h2>
   {% if skus %}
   <div style="overflow-x: auto; margin-bottom: 2rem;">
     <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
@@ -47,10 +167,9 @@
           <th style="padding: 0.4rem 0.75rem;">SKU</th>
           <th style="padding: 0.4rem 0.75rem; text-align: right;">Дни</th>
           <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос, шт</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Точность</th>
           <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещение</th>
           <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE исполн.</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещ. исполн.</th>
           <th style="padding: 0.4rem 0.75rem; text-align: center;">DQ</th>
         </tr>
       </thead>
@@ -66,12 +185,12 @@
             {{ s.eligible_days }}/{{ s.total_days }}
           </td>
           <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ s.demand_qty | round(0) | int if s.demand_qty else "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; color: {{ '#c00' if s.wape and s.wape > 0.35 else ('#c77700' if s.wape and s.wape > 0.20 else 'inherit') }};">
-            {{ pct(s.wape) or "—" }}
+          <td style="padding: 0.4rem 0.75rem; text-align: right;
+              color: {{ '#c00' if s.wape is not none and s.wape > 0.35 else ('#c77700' if s.wape is not none and s.wape > 0.20 else 'inherit') }};">
+            {{ pct(s.wape) if s.wape is not none else "—" }}
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.bias) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.exec_wape) or "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.exec_bias) or "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.bias) if s.bias is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.exec_wape) if s.exec_wape is not none else "—" }}</td>
           <td style="padding: 0.4rem 0.75rem; text-align: center;">{{ "⛔" if s.has_blocking else "" }}</td>
         </tr>
         {% endfor %}
@@ -79,7 +198,7 @@
     </table>
   </div>
   {% else %}
-  <div class="empty-note">Нет данных для этой пекарни.</div>
+  <div style="color: var(--text-secondary, #888); font-size: 0.85rem;">Нет данных для этой пекарни.</div>
   {% endif %}
 
 </section>

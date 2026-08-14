@@ -1,0 +1,169 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="workspace" style="padding: 1.5rem 2rem; grid-column: 1 / -1;">
+
+  {# ── Header ── #}
+  <div class="workspace-header" style="margin-bottom: 1rem;">
+    <div>
+      <span class="eyebrow">Аналитика пилота — неделя</span>
+      <h1>{{ bakery.bakery_name }}</h1>
+      <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">
+        Неделя с {{ week_start }}
+      </p>
+    </div>
+    <a href="/pilot/bakery/{{ bakery.bakery_id }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+       style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Назад к пекарне</a>
+  </div>
+
+  {# ── Category selector ── #}
+  {% if bakery.bakery_categories %}
+  <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.6rem;">
+    <label for="cat-select" style="font-size: 0.75rem; color: var(--text-secondary, #888); white-space: nowrap;">Группа:</label>
+    <select id="cat-select"
+            onchange="location.href = this.value"
+            style="font-size: 0.82rem; padding: 0.3rem 0.6rem; border: 1px solid var(--border, #e5e7eb);
+                   border-radius: 6px; background: var(--surface, #f9fafb); color: var(--text, #111);
+                   cursor: pointer; min-width: 200px;">
+      <option value="/pilot/bakery/{{ bakery.bakery_id }}/week/{{ week_start }}" {{ 'selected' if not selected_category else '' }}>Все категории</option>
+      {% for cat in bakery.bakery_categories %}
+      <option value="/pilot/bakery/{{ bakery.bakery_id }}/week/{{ week_start }}?category={{ cat | urlencode }}"
+              {{ 'selected' if selected_category == cat else '' }}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+
+  {# ── Week KPI summary row ── #}
+  {% set total_revenue = days | sum(attribute='revenue') if days else 0 %}
+  {% set total_sold = days | sum(attribute='sold_qty') if days else 0 %}
+  {% set total_produced = days | sum(attribute='produced_qty') if days else 0 %}
+  {% set total_lost = namespace(v=0) %}
+  {% for d in days %}{% if d.kratnost_recognized_lost_qty is not none %}{% set total_lost.v = total_lost.v + d.kratnost_recognized_lost_qty %}{% endif %}{% endfor %}
+
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 2rem;">
+    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+      <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">Выручка за неделю</div>
+      <div style="font-size: 1.25rem; font-weight: 700;">{{ "%.0f"|format(total_revenue / 1000) }} тыс. ₽</div>
+    </div>
+    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+      <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">Продано / произведено</div>
+      <div style="font-size: 1.25rem; font-weight: 700;">{{ total_sold | round(0) | int }} / {{ total_produced | round(0) | int }} шт</div>
+    </div>
+    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+      <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">Упущ. признанное</div>
+      <div style="font-size: 1.25rem; font-weight: 700;">{{ total_lost.v | round(0) | int }} шт</div>
+    </div>
+    <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
+      <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">SKU в неделе</div>
+      <div style="font-size: 1.25rem; font-weight: 700;">{{ skus | length }}</div>
+    </div>
+  </div>
+
+  {# ── Day-by-day table ── #}
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">По дням — кликните на дату для выгрузки Excel</h2>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.4rem 0.75rem;">День</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">SKU</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Прогноз</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">План (на продажу)</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Произведено</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Продано</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выполнение</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выручка</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Упущ. призн.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in days %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.4rem 0.75rem; white-space: nowrap;">
+            <a href="/pilot/bakery/{{ bakery.bakery_id }}/week/{{ week_start }}/day/{{ d.date }}/export{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+               title="Скачать Excel за {{ d.date }}"
+               style="color: var(--accent, #3b82f6); font-weight: 600;">
+              {{ d.weekday }}, {{ d.date }}
+            </a>
+            <span style="font-size: 0.72rem; color: var(--text-secondary, #888); margin-left: 0.3rem;">↓ xlsx</span>
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; color: var(--text-secondary, #888);">{{ d.n_skus }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ d.forecast_qty | round(0) | int if d.forecast_qty is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ d.plan_qty | round(0) | int if d.plan_qty is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ d.produced_qty | round(0) | int if d.produced_qty is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ d.sold_qty | round(0) | int if d.sold_qty is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ d.demand_qty | round(0) | int if d.demand_qty else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;
+              color: {{ '#c00' if (d.execution_rate is not none and d.execution_rate < 0.85) else ('#c77700' if (d.execution_rate is not none and d.execution_rate < 0.95) else 'inherit') }};">
+            {{ pct(d.execution_rate) if d.execution_rate is not none else "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {{ ("%.0f"|format(d.revenue / 1000) ~ " тыс. ₽") if d.revenue is not none else "—" }}
+          </td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
+            {% if d.kratnost_recognized_lost_qty is not none and d.kratnost_recognized_lost_qty > 0 %}
+              <span style="color: #c00;">{{ d.kratnost_recognized_lost_qty | round(0) | int }} шт</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ── SKU summary for the week ── #}
+  {% if skus %}
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">SKU за неделю ({{ skus | length }}) — от худшего выполнения</h2>
+  <div style="overflow-x: auto; margin-bottom: 2rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
+          <th style="padding: 0.35rem 0.6rem;">SKU</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Дней</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Спрос</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Продано</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Точность</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Выполнение</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Выручка</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Упущ. признанное</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in skus %}
+        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
+          <td style="padding: 0.35rem 0.6rem;">
+            <a href="/pilot/bakery/{{ bakery.bakery_id }}/sku/{{ s.product_id }}" style="color: var(--accent, #3b82f6);">
+              {{ s.product_name }}
+            </a>
+          </td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right; color: var(--text-secondary, #888);">{{ s.days }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ s.demand_qty | round(0) | int if s.demand_qty else "—" }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;">{{ s.sold_qty | round(0) | int }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;
+              color: {{ '#c00' if s.wape is not none and s.wape > 0.35 else 'inherit' }};">
+            {{ pct(s.wape) if s.wape is not none else "—" }}
+          </td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right;
+              color: {{ '#c00' if (s.execution_rate is not none and s.execution_rate < 0.85) else ('#c77700' if (s.execution_rate is not none and s.execution_rate < 0.95) else 'inherit') }};">
+            {{ pct(s.execution_rate) if s.execution_rate is not none else "—" }}
+          </td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right; white-space: nowrap;">
+            {{ ("%.0f"|format(s.revenue / 1000) ~ " тыс. ₽") if s.revenue is not none else "—" }}
+          </td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right; white-space: nowrap;">
+            {% if s.kratnost_recognized_lost_qty is not none and s.kratnost_recognized_lost_qty > 0 %}
+              <span style="color: #c00;">{{ s.kratnost_recognized_lost_qty | round(0) | int }} шт
+              {% if s.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(s.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+</section>
+{% endblock %}
