@@ -136,23 +136,59 @@ def _build_report(
         return []
 
     previous_date = str(date_type.fromisoformat(forecast_date) - timedelta(days=1))
-    stock_df = client.query_df(
+    # Stock: qty_produced - qty_sold for previous day, computed from fct tables.
+    # fct_check_lines dedup matches the nightly forecast pipeline (DISTINCT on business keys).
+    # fct_production_release dedup uses argMax(_updated_at) per (release_id, line_id).
+    _fct_sold_yesterday = client.query_df(
         """
         select
-            toInt64OrZero(toString(m.bakery_id)) as bakery_id,
-            toInt64OrZero(toString(m.product_id)) as product_id,
-            sum(m.stock_balance) as stock_balance
-        from Svezhar.mart_zero_sales_60d as m
-        where m.dt = toDate(%(previous_date)s)
-          and toInt64OrZero(toString(m.bakery_id)) in %(bids)s
+            toInt64OrZero(toString(bakery_id)) as bakery_id,
+            toInt64OrZero(toString(product_id)) as product_id,
+            sum(toFloat64(quantity)) as qty_sold
+        from (
+            select distinct
+                check_datetime, check_date, bakery_id, product_id,
+                quantity, price, line_amount, cash_event_type
+            from Svezhar.fct_check_lines
+            where hex(cash_event_type) = 'D09FD180D0BED0B4D0B0D0B6D0B0'
+              and check_date = toDate(%(previous_date)s)
+              and toInt64OrZero(toString(bakery_id)) in %(bids)s
+        )
         group by bakery_id, product_id
-        having stock_balance > 0
         """,
-        parameters={
-            "previous_date": previous_date,
-            "bids": PILOT_BAKERY_IDS,
-        },
+        parameters={"previous_date": previous_date, "bids": PILOT_BAKERY_IDS},
     )
+    _fct_produced_yesterday = client.query_df(
+        """
+        select
+            toInt64OrZero(toString(bakery_id)) as bakery_id,
+            toInt64OrZero(toString(product_id)) as product_id,
+            sum(toFloat64(qty)) as qty_produced
+        from (
+            select
+                bakery_id,
+                product_id,
+                toFloat64(argMax(quantity, _updated_at)) as qty
+            from Svezhar.fct_production_release
+            where toDate(release_date) = toDate(%(previous_date)s)
+              and toInt64OrZero(toString(bakery_id)) in %(bids)s
+            group by release_id, line_id, bakery_id, product_id
+            having argMax(is_deleted, _updated_at) not in ('1', 'true', 'Да')
+        )
+        group by bakery_id, product_id
+        """,
+        parameters={"previous_date": previous_date, "bids": PILOT_BAKERY_IDS},
+    )
+    _stock_cols = ["bakery_id", "product_id"]
+    if _fct_sold_yesterday.empty or "bakery_id" not in _fct_sold_yesterday.columns:
+        _fct_sold_yesterday = pd.DataFrame(columns=_stock_cols + ["qty_sold"])
+    if _fct_produced_yesterday.empty or "bakery_id" not in _fct_produced_yesterday.columns:
+        _fct_produced_yesterday = pd.DataFrame(columns=_stock_cols + ["qty_produced"])
+    _stock_merged = _fct_produced_yesterday.merge(_fct_sold_yesterday, on=_stock_cols, how="outer")
+    _stock_merged["qty_produced"] = pd.to_numeric(_stock_merged.get("qty_produced", 0), errors="coerce").fillna(0.0)
+    _stock_merged["qty_sold"] = pd.to_numeric(_stock_merged.get("qty_sold", 0), errors="coerce").fillna(0.0)
+    _stock_merged["stock_balance"] = (_stock_merged["qty_produced"] - _stock_merged["qty_sold"]).clip(lower=0.0)
+    stock_df = _stock_merged[_stock_merged["stock_balance"] > 0][_stock_cols + ["stock_balance"]]
     yesterday_stock: dict[tuple[int, int], float] = {}
     for row in stock_df.to_dict("records"):
         try:
@@ -231,15 +267,21 @@ def _build_report(
         sales_history = client.query_df(
             """
             select
-                dt as date,
-                toInt64(bakery_id) as bakery_id,
-                toInt64(product_id) as product_id,
-                sum(qty_sold) as sold_qty
-            from Svezhar.mart_zero_sales_60d
-            where dt >= toDate(%(history_from)s)
-              and dt < toDate(%(forecast_date)s)
-              and toInt64(bakery_id) in %(bids)s
-              and toInt64(product_id) in %(product_ids)s
+                check_date as date,
+                toInt64OrZero(toString(bakery_id)) as bakery_id,
+                toInt64OrZero(toString(product_id)) as product_id,
+                sum(toFloat64(quantity)) as sold_qty
+            from (
+                select distinct
+                    check_datetime, check_date, bakery_id, product_id,
+                    quantity, price, line_amount, cash_event_type
+                from Svezhar.fct_check_lines
+                where hex(cash_event_type) = 'D09FD180D0BED0B4D0B0D0B6D0B0'
+                  and check_date >= toDate(%(history_from)s)
+                  and check_date < toDate(%(forecast_date)s)
+                  and toInt64OrZero(toString(bakery_id)) in %(bids)s
+                  and toInt64OrZero(toString(product_id)) in %(product_ids)s
+            )
             group by date, bakery_id, product_id
             """,
             parameters={
@@ -306,21 +348,24 @@ def _build_report(
             date_type.fromisoformat(forecast_date)
             - timedelta(days=CorrectionConfig().history_days)
         )
-        mature_fact = client.query_df(
+        _mature_sold = client.query_df(
             """
             select
-                dt as date,
-                toInt64(bakery_id) as bakery_id,
-                toInt64(product_id) as product_id,
-                any(product_name) as product_name,
-                any(category_name) as category_name,
-                sum(qty_sold) as sold_qty,
-                sum(qty_produced) as produced_qty,
-                max(last_sale_time) as last_sale_time
-            from Svezhar.mart_zero_sales_60d
-            where dt >= toDate(%(history_from)s)
-              and dt < toDate(%(forecast_date)s)
-              and toInt64(bakery_id) in %(bids)s
+                check_date as date,
+                toInt64OrZero(toString(bakery_id)) as bakery_id,
+                toInt64OrZero(toString(product_id)) as product_id,
+                sum(toFloat64(quantity)) as sold_qty,
+                max(check_datetime) as last_sale_time
+            from (
+                select distinct
+                    check_datetime, check_date, bakery_id, product_id,
+                    quantity, price, line_amount, cash_event_type
+                from Svezhar.fct_check_lines
+                where hex(cash_event_type) = 'D09FD180D0BED0B4D0B0D0B6D0B0'
+                  and check_date >= toDate(%(history_from)s)
+                  and check_date < toDate(%(forecast_date)s)
+                  and toInt64OrZero(toString(bakery_id)) in %(bids)s
+            )
             group by date, bakery_id, product_id
             """,
             parameters={
@@ -329,6 +374,53 @@ def _build_report(
                 "bids": PILOT_BAKERY_IDS,
             },
         )
+        _mature_produced = client.query_df(
+            """
+            select
+                date,
+                toInt64OrZero(toString(bakery_id)) as bakery_id,
+                toInt64OrZero(toString(product_id)) as product_id,
+                sum(qty) as produced_qty
+            from (
+                select
+                    toDate(argMax(release_date, _updated_at)) as date,
+                    bakery_id,
+                    product_id,
+                    toFloat64(argMax(quantity, _updated_at)) as qty
+                from Svezhar.fct_production_release
+                where toDate(release_date) >= toDate(%(history_from)s)
+                  and toDate(release_date) < toDate(%(forecast_date)s)
+                  and toInt64OrZero(toString(bakery_id)) in %(bids)s
+                group by release_id, line_id, bakery_id, product_id
+                having argMax(is_deleted, _updated_at) not in ('1', 'true', 'Да')
+            )
+            group by date, bakery_id, product_id
+            """,
+            parameters={
+                "history_from": mature_history_from,
+                "forecast_date": forecast_date,
+                "bids": PILOT_BAKERY_IDS,
+            },
+        )
+        if _mature_sold.empty or "bakery_id" not in _mature_sold.columns:
+            _mature_sold = pd.DataFrame(columns=["date", "bakery_id", "product_id", "sold_qty", "last_sale_time"])
+        if _mature_produced.empty or "bakery_id" not in _mature_produced.columns:
+            _mature_produced = pd.DataFrame(columns=["date", "bakery_id", "product_id", "produced_qty"])
+        mature_fact = _mature_sold.merge(
+            _mature_produced, on=["date", "bakery_id", "product_id"], how="outer"
+        )
+        mature_fact["sold_qty"] = pd.to_numeric(mature_fact.get("sold_qty", 0), errors="coerce").fillna(0.0)
+        mature_fact["produced_qty"] = pd.to_numeric(mature_fact.get("produced_qty", 0), errors="coerce").fillna(0.0)
+        # Join product_name and category_name from forecast_df
+        _product_meta = (
+            forecast_df[["product_id", "product_name", "category_name"]]
+            .drop_duplicates("product_id")
+            .assign(product_id=lambda d: pd.to_numeric(d["product_id"], errors="coerce").astype("Int64"))
+        )
+        mature_fact["product_id"] = pd.to_numeric(mature_fact["product_id"], errors="coerce").astype("Int64")
+        mature_fact = mature_fact.merge(_product_meta, on="product_id", how="left")
+        mature_fact["product_name"] = mature_fact.get("product_name", "").fillna("")
+        mature_fact["category_name"] = mature_fact.get("category_name", "").fillna("")
         mature_forecast = client.query_df(
             """
             select
