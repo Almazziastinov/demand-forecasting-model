@@ -1,6 +1,43 @@
 # Current Project State
 
-Last updated: 2026-07-29
+Last updated: 2026-08-14
+
+## ETL Incident: stg_production_release Gap 2026-08-13 (resolved)
+
+**Symptom**: support ticket reported "остатки со вчерашнего дня" column showing
+all zeros in the pilot Excel file published on 2026-08-14.
+
+**Root cause**: `stg_production_release` (the staging table that feeds
+`mart_zero_sales_60d`) had no data for 2026-08-13 for 9 of 10 pilot bakeries.
+`fct_production_release` (the raw source) **did** have data for all 10 bakeries
+on that date — the ETL pipeline simply did not propagate it. As a result,
+`mart_zero_sales_60d.qty_produced = 0` for those bakeries, making
+`stock_balance = 0 - qty_sold < 0`, which the publisher's old single-day query
+turned into all zeros via `greatest(..., 0)`.
+
+This was a one-off ETL failure with no prior precedent.
+
+**Fix applied** (commit in this branch):
+
+1. **Publisher query widened to a 2-day window** (`forecast_date − 2` through
+   `forecast_date − 1`). `stock_balance` in the mart is a daily flow; summing
+   over 2 days correctly reconstructs the physical closing inventory given the
+   2-day shelf-life policy (fresh on day 1, sold as yesterday's stock on day 2,
+   written off on day 3). On normal days this gives the right answer; on days
+   where yesterday's production data is missing in the mart, the 2-day sum still
+   recovers the carry-over stock from the day before, gracefully degrading rather
+   than returning all zeros.
+
+2. **DQ warning added** to `_build_report()`: if `qty_produced > 0` for fewer
+   than half the pilot bakeries on the previous day in the mart, a
+   `WARNING: mart_zero_sales_60d … Possible ETL gap` line is printed to stdout.
+   This will surface future ETL gaps at run time without aborting the publish.
+
+**What to watch for**: if `stg_production_release` consistently lags or
+has gaps for multiple days, the 2-day window still degrades (stock from 2 days
+ago minus 2 days of sales can go negative). In that case the root fix must be
+in the ETL pipeline itself; there is no publisher-side workaround for gaps
+spanning more than 1 day.
 
 ## Pilot SKU Corrections Deployed To Daily Publisher (2026-07-29)
 

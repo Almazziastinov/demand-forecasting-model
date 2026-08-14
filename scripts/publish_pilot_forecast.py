@@ -170,6 +170,35 @@ def _build_report(
         except (TypeError, ValueError):
             continue
 
+    # DQ check: detect ETL gaps in stg_production_release -> mart_zero_sales_60d.
+    # If qty_produced = 0 for most pilot bakeries on the previous day, the mart
+    # is likely missing production records (as seen 2026-08-13 when 9/10 bakeries
+    # were absent from stg_production_release despite fct_production_release having data).
+    _prod_check = client.query_df(
+        """
+        select countIf(qty_produced > 0) as bakeries_with_production
+        from (
+            select toInt64OrZero(toString(bakery_id)) as bakery_id,
+                   sum(qty_produced) as qty_produced
+            from Svezhar.mart_zero_sales_60d
+            where dt = toDate(%(previous_date)s)
+              and toInt64OrZero(toString(bakery_id)) in %(bids)s
+            group by bakery_id
+        )
+        """,
+        parameters={"previous_date": previous_date, "bids": PILOT_BAKERY_IDS},
+    )
+    if not _prod_check.empty and len(_prod_check.columns) > 0:
+        _n_with_prod = int(_prod_check.iloc[0].get("bakeries_with_production") or 0)
+        _threshold = len(PILOT_BAKERY_IDS) // 2
+        if _n_with_prod < _threshold:
+            print(
+                f"  WARNING: mart_zero_sales_60d shows qty_produced>0 for only "
+                f"{_n_with_prod}/{len(PILOT_BAKERY_IDS)} pilot bakeries on {previous_date}. "
+                f"Possible ETL gap in stg_production_release — "
+                f"yesterday_stock values may be understated."
+            )
+
     # SKU meta (kratnost) — base + bakery overrides
     # baking_sku_meta.product_id is zero-padded string ("000001234")
     # sku_forecast_day_embedded.product_id is int64
