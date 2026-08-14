@@ -2,42 +2,47 @@
 
 Last updated: 2026-08-14
 
-## ETL Incident: stg_production_release Gap 2026-08-13 (resolved)
+## Publisher Migrated From mart To fct Tables (2026-08-14)
 
-**Symptom**: support ticket reported "остатки со вчерашнего дня" column showing
-all zeros in the pilot Excel file published on 2026-08-14.
+**Context**: Around 2026-08-10 the Svezhar ETL pipeline stopped propagating
+data from `fct_*` raw tables into `stg_*` and `mart_zero_sales_60d`. Both
+`stg_production_release` and `mart_zero_sales_60d` have been empty for all
+pilot bakeries since then. The ETL root cause is unresolved (Yandex Cloud MDB
+maintenance restarts appear to have disrupted the pipeline's recovery logic;
+Svezhar team is owner).
 
-**Root cause**: `stg_production_release` (the staging table that feeds
-`mart_zero_sales_60d`) had no data for 2026-08-13 for 9 of 10 pilot bakeries.
-`fct_production_release` (the raw source) **did** have data for all 10 bakeries
-on that date — the ETL pipeline simply did not propagate it. As a result,
-`mart_zero_sales_60d.qty_produced = 0` for those bakeries, making
-`stock_balance = 0 - qty_sold < 0`, which the publisher's old single-day query
-turned into all zeros via `greatest(..., 0)`.
+**Fix applied** (commit `a1d1dbf`, branch `claude/jovial-chaplygin-ec1d44`,
+deployed to Blackhole 2026-08-14):
 
-This was a one-off ETL failure with no prior precedent.
+`scripts/publish_pilot_forecast.py` no longer reads `mart_zero_sales_60d`
+anywhere. All three mart dependencies were replaced with direct `fct_*` queries:
 
-**Fix applied** (commit in this branch):
+1. **Stock balance** (`остатки со вчерашнего дня`): now computed as
+   `fct_production_release` (argMax dedup by `release_id, line_id`) minus
+   `fct_check_lines` (DISTINCT dedup on business fields = STRICT_DUP_KEYS),
+   clipped to `≥ 0`. Both tables are refreshed continuously by Svezhar ETL and
+   are unaffected by the stg/mart outage.
 
-1. **Publisher query widened to a 2-day window** (`forecast_date − 2` through
-   `forecast_date − 1`). `stock_balance` in the mart is a daily flow; summing
-   over 2 days correctly reconstructs the physical closing inventory given the
-   2-day shelf-life policy (fresh on day 1, sold as yesterday's stock on day 2,
-   written off on day 3). On normal days this gives the right answer; on days
-   where yesterday's production data is missing in the mart, the 2-day sum still
-   recovers the carry-over stock from the day before, gracefully degrading rather
-   than returning all zeros.
+2. **Cold-start sales history**: now queries `fct_check_lines` with the same
+   DISTINCT dedup, matching what the forecast training pipeline uses
+   (`clickhouse_export_template.sql` + `raw_sales_dedup.py`).
 
-2. **DQ warning added** to `_build_report()`: if `qty_produced > 0` for fewer
-   than half the pilot bakeries on the previous day in the mart, a
-   `WARNING: mart_zero_sales_60d … Possible ETL gap` line is printed to stdout.
-   This will surface future ETL gaps at run time without aborting the publish.
+3. **Mature-SKU correction history** (`sold_qty`, `produced_qty`,
+   `last_sale_time`): same fct sources as above. `product_name` /
+   `category_name` come from the already-loaded `forecast_df` (from
+   `sku_forecast_day_snapshots`) instead of mart.
 
-**What to watch for**: if `stg_production_release` consistently lags or
-has gaps for multiple days, the 2-day window still degrades (stock from 2 days
-ago minus 2 days of sales can go negative). In that case the root fix must be
-in the ETL pipeline itself; there is no publisher-side workaround for gaps
-spanning more than 1 day.
+**Why this is consistent**: the bakery-day model and SKU forecasts are trained
+on `fct_check_lines` data. The mart was an additional transformation layer that
+was already introducing ~13% overcount vs the properly deduped fct stream. Using
+fct directly eliminates that inconsistency.
+
+**Rollback**: `/opt/scripts/publish_pilot_forecast.py.backup_20260814_fct`
+on Blackhole. No ClickHouse schema changes — pure publisher logic change.
+
+**Previous ETL incident note** (2026-08-13): the day before this migration,
+a narrower fix had been applied (2-day mart window + DQ warning). That fix was
+immediately superseded by this full mart→fct migration and is no longer active.
 
 ## Pilot SKU Corrections Deployed To Daily Publisher (2026-07-29)
 
@@ -291,7 +296,7 @@ automatic sync. New operations directors require a separate access update.
 - Horizon days: `14`
 - Recent correction mode: `runner_city_prior_soft_weekpart`
 - Recent correction days: `30`
-- Recent sales table: `mart_sales_60d`
+- Recent sales table: `mart_sales_60d` (VM production writer) / `fct_check_lines` (pilot publisher since 2026-08-14 — mart outage)
 - Dataset refresh: enabled on the VM (`FORECAST_REFRESH_DATASETS=1`)
 - Weather refresh: enabled on the VM (`FORECAST_REFRESH_WEATHER=1`)
 - Bakery-day bias correction: **rolling** (trailing 7-day window,
