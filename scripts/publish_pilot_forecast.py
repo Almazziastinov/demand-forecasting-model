@@ -136,19 +136,29 @@ def _build_report(
         return []
 
     previous_date = str(date_type.fromisoformat(forecast_date) - timedelta(days=1))
+    # stock_balance in mart_zero_sales_60d is a daily flow (produced+received-sent-sold),
+    # not an absolute inventory snapshot. On days when a bakery sells carry-over stock
+    # without new production (qty_produced=0), stock_balance is negative. To reconstruct
+    # the actual physical closing inventory, sum over a 2-day window: the day before
+    # yesterday (production day) and yesterday (sell-down day). This matches the 2-day
+    # shelf life policy: items are fresh on day 1, sold as leftovers on day 2, written off
+    # on day 3.
+    two_days_ago = str(date_type.fromisoformat(forecast_date) - timedelta(days=2))
     stock_df = client.query_df(
         """
         select
             toInt64OrZero(toString(m.bakery_id)) as bakery_id,
             toInt64OrZero(toString(m.product_id)) as product_id,
-            sum(m.stock_balance) as stock_balance
+            greatest(sum(m.stock_balance), 0) as stock_balance
         from Svezhar.mart_zero_sales_60d as m
-        where m.dt = toDate(%(previous_date)s)
+        where m.dt between toDate(%(two_days_ago)s) and toDate(%(previous_date)s)
           and toInt64OrZero(toString(m.bakery_id)) in %(bids)s
         group by bakery_id, product_id
+        having stock_balance > 0
         """,
         parameters={
             "previous_date": previous_date,
+            "two_days_ago": two_days_ago,
             "bids": PILOT_BAKERY_IDS,
         },
     )
