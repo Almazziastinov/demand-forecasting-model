@@ -137,8 +137,11 @@ def _build_report(
 
     previous_date = str(date_type.fromisoformat(forecast_date) - timedelta(days=1))
     # Stock: qty_produced - qty_sold for previous day, computed from fct tables.
-    # fct_check_lines dedup matches the nightly forecast pipeline (DISTINCT on business keys).
-    # fct_production_release dedup uses argMax(_updated_at) per (release_id, line_id).
+    # fct_check_lines dedup: DISTINCT on business keys (matches nightly pipeline).
+    # fct_production_release dedup: GROUP BY (release_id, line_id) only, argMax all
+    # mutable fields — prevents double-counting when ETL rewrites product_id between
+    # versions (observed 2026-08-14: ~689 lines had product_id null→correct, causing
+    # old GROUP BY on (release_id,line_id,bakery_id,product_id) to count each line twice).
     _fct_sold_yesterday = client.query_df(
         """
         select
@@ -161,18 +164,18 @@ def _build_report(
     _fct_produced_yesterday = client.query_df(
         """
         select
-            toInt64OrZero(toString(bakery_id)) as bakery_id,
-            toInt64OrZero(toString(product_id)) as product_id,
-            sum(toFloat64(qty)) as qty_produced
+            toInt64OrZero(toString(bid)) as bakery_id,
+            toInt64OrZero(toString(pid)) as product_id,
+            sum(qty) as qty_produced
         from (
             select
-                bakery_id,
-                product_id,
+                argMax(bakery_id, _updated_at) as bid,
+                argMax(product_id, _updated_at) as pid,
                 toFloat64(argMax(quantity, _updated_at)) as qty
             from Svezhar.fct_production_release
             where toDate(release_date) = toDate(%(previous_date)s)
               and toInt64OrZero(toString(bakery_id)) in %(bids)s
-            group by release_id, line_id, bakery_id, product_id
+            group by release_id, line_id
             having argMax(is_deleted, _updated_at) not in ('1', 'true', 'Да')
         )
         group by bakery_id, product_id
@@ -378,20 +381,20 @@ def _build_report(
             """
             select
                 date,
-                toInt64OrZero(toString(bakery_id)) as bakery_id,
-                toInt64OrZero(toString(product_id)) as product_id,
+                toInt64OrZero(toString(bid)) as bakery_id,
+                toInt64OrZero(toString(pid)) as product_id,
                 sum(qty) as produced_qty
             from (
                 select
                     toDate(argMax(release_date, _updated_at)) as date,
-                    bakery_id,
-                    product_id,
+                    argMax(bakery_id, _updated_at) as bid,
+                    argMax(product_id, _updated_at) as pid,
                     toFloat64(argMax(quantity, _updated_at)) as qty
                 from Svezhar.fct_production_release
                 where toDate(release_date) >= toDate(%(history_from)s)
                   and toDate(release_date) < toDate(%(forecast_date)s)
                   and toInt64OrZero(toString(bakery_id)) in %(bids)s
-                group by release_id, line_id, bakery_id, product_id
+                group by release_id, line_id
                 having argMax(is_deleted, _updated_at) not in ('1', 'true', 'Да')
             )
             group by date, bakery_id, product_id
