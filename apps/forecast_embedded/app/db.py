@@ -35,7 +35,11 @@ _local = _threading.local()
 def get_client() -> clickhouse_connect.driver.Client:
     client = getattr(_local, "client", None)
     if client is not None:
-        return client
+        try:
+            client.ping()
+            return client
+        except Exception:
+            _local.client = None
     _local.client = _create_client()
     return _local.client
 

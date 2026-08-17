@@ -38,17 +38,17 @@ def _get_service() -> PilotManagementService:
     return PilotManagementService(report_dir)
 
 
-def _require_admin(request: Request) -> None:
+def _require_pilot_user(request: Request) -> None:
     auth = get_auth_context(request)
-    if not auth.is_admin:
-        raise HTTPException(status_code=403, detail="Управленческая аналитика доступна только администраторам")
+    if not auth.is_pilot_user:
+        raise HTTPException(status_code=403, detail="Управленческая аналитика доступна только директорам, аналитикам и администраторам")
 
 
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
 def pilot_summary(request: Request) -> HTMLResponse:
     """Pilot summary: company-level KPIs, bakery table, queues overview."""
-    _require_admin(request)
+    _require_pilot_user(request)
     auth = get_auth_context(request)
     svc = _get_service()
     summary = svc.get_pilot_summary()
@@ -77,7 +77,7 @@ def pilot_summary(request: Request) -> HTMLResponse:
 @router.get("/bakery/{bakery_id}", response_class=HTMLResponse)
 def pilot_bakery(request: Request, bakery_id: int) -> HTMLResponse:
     """Bakery drill-down: bakery KPIs + per-SKU table."""
-    _require_admin(request)
+    _require_pilot_user(request)
     auth = get_auth_context(request)
     svc = _get_service()
     bakery = svc.get_bakery_detail(bakery_id)
@@ -101,7 +101,7 @@ def pilot_bakery(request: Request, bakery_id: int) -> HTMLResponse:
 @router.get("/bakery/{bakery_id}/sku/{product_id}", response_class=HTMLResponse)
 def pilot_sku(request: Request, bakery_id: int, product_id: int) -> HTMLResponse:
     """SKU timeline: day-by-day forecast vs plan vs actual."""
-    _require_admin(request)
+    _require_pilot_user(request)
     auth = get_auth_context(request)
     svc = _get_service()
     bakery = svc.get_bakery_detail(bakery_id)

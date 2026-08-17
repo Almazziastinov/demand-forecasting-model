@@ -33,16 +33,16 @@ def _get_service() -> PilotConfigService:
     return PilotConfigService(get_client())
 
 
-def _require_admin(request: Request) -> None:
+def _require_pilot_user(request: Request) -> None:
     auth = get_auth_context(request)
-    if not auth.is_admin:
-        raise HTTPException(status_code=403, detail="Управление пилотом доступно только администраторам")
+    if not auth.is_pilot_user:
+        raise HTTPException(status_code=403, detail="Управление пилотом доступно только директорам, аналитикам и администраторам")
 
 
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
 def pilot_config(request: Request, scope: str = DEFAULT_SCOPE) -> HTMLResponse:
-    _require_admin(request)
+    _require_pilot_user(request)
     auth = get_auth_context(request)
     svc = _get_service()
     bakeries = svc.get_all_bakeries(scope)
@@ -69,7 +69,7 @@ def add_bakery(
     reason: str = Form(default=""),
     scope: str = Form(default=DEFAULT_SCOPE),
 ) -> RedirectResponse:
-    _require_admin(request)
+    _require_pilot_user(request)
     auth = get_auth_context(request)
     svc = _get_service()
     svc.add_bakery(
@@ -88,7 +88,7 @@ def exclude_bakery(
     reason: str = Form(default=""),
     scope: str = Form(default=DEFAULT_SCOPE),
 ) -> RedirectResponse:
-    _require_admin(request)
+    _require_pilot_user(request)
     auth = get_auth_context(request)
     svc = _get_service()
     svc.exclude_bakery(

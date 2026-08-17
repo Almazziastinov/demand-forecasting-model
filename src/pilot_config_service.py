@@ -72,7 +72,7 @@ class PilotConfigService:
                    any(s.partner)          AS partner,
                    any(s.regional_director) AS regional_director
             FROM {_DIM_STORES_TABLE} s
-            LEFT JOIN dim_bakeries b ON toInt64(b.bakery_id) = toInt64(s.bakery_id)
+            LEFT JOIN Svezhar.dim_bakeries b ON toInt64(b.bakery_id) = toInt64(s.bakery_id)
             GROUP BY s.bakery_id
             ORDER BY s.bakery_id
             """
@@ -149,7 +149,7 @@ class PilotConfigService:
                        any(b.bakery_name)   AS bakery_name,
                        any(s.city)          AS city
                 FROM {_DIM_STORES_TABLE} s
-                LEFT JOIN dim_bakeries b ON toInt64(b.bakery_id) = toInt64(s.bakery_id)
+                LEFT JOIN Svezhar.dim_bakeries b ON toInt64(b.bakery_id) = toInt64(s.bakery_id)
                 GROUP BY s.bakery_id
             ) s ON s.bakery_id = e.bakery_id
             WHERE e.scope_name = %(scope_name)s

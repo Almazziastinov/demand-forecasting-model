@@ -51,6 +51,7 @@ class Settings:
     clickhouse_verify: bool
     access_control_enabled: bool
     admin_user_ids: frozenset[str]
+    pilot_user_ids: frozenset[str]
 
 
 @lru_cache(maxsize=1)
@@ -83,6 +84,11 @@ def get_settings() -> Settings:
         admin_user_ids=frozenset(
             user_id.strip()
             for user_id in (_setting(env_values, "ADMIN_USER_IDS", "27979") or "").split(",")
+            if user_id.strip()
+        ),
+        pilot_user_ids=frozenset(
+            user_id.strip()
+            for user_id in (_setting(env_values, "PILOT_USER_IDS", "") or "").split(",")
             if user_id.strip()
         ),
     )
