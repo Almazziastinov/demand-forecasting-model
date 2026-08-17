@@ -1,0 +1,315 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="workspace" style="padding: 1.5rem 2rem; grid-column: 1 / -1;">
+
+<style>
+.pc-badge {
+  display: inline-block;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.pc-badge-active   { background: #d1fae5; color: #065f46; }
+.pc-badge-inactive { background: #fee2e2; color: #991b1b; }
+.pc-badge-seed     { background: #fef3c7; color: #92400e; }
+
+.pc-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.pc-table th {
+  text-align: left; padding: 0.45rem 0.75rem;
+  border-bottom: 2px solid var(--border, #e5e7eb);
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+}
+.pc-table td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  vertical-align: middle;
+}
+.pc-table tr:last-child td { border-bottom: none; }
+.pc-table tr:hover td { background: var(--surface, #f9fafb); }
+
+.pc-btn {
+  padding: 0.25rem 0.7rem;
+  border-radius: 6px;
+  border: 1.5px solid;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  white-space: nowrap;
+}
+.pc-btn-add     { border-color: #059669; color: #059669; }
+.pc-btn-add:hover { background: #d1fae5; }
+.pc-btn-excl    { border-color: #dc2626; color: #dc2626; }
+.pc-btn-excl:hover { background: #fee2e2; }
+
+.pc-search {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  font-size: 0.84rem;
+  width: 280px;
+  background: var(--surface, #f9fafb);
+  color: var(--text, #111);
+}
+.pc-search:focus { outline: 2px solid var(--accent, #3b82f6); }
+
+.pc-stat {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.pc-stat-total    { background: var(--surface, #f3f4f6); color: var(--text, #111); }
+.pc-stat-active   { background: #d1fae5; color: #065f46; }
+.pc-stat-inactive { background: #fee2e2; color: #991b1b; }
+
+/* Modal */
+.pc-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: none; align-items: center; justify-content: center; z-index: 9999;
+}
+.pc-modal-backdrop.open { display: flex; }
+.pc-modal {
+  background: var(--bg, #fff);
+  border-radius: 12px; padding: 1.5rem;
+  width: 420px; max-width: 95vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,.18);
+}
+.pc-modal h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+.pc-modal textarea {
+  width: 100%; box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px; font-size: 0.84rem;
+  resize: vertical; min-height: 72px;
+  background: var(--surface, #f9fafb);
+  color: var(--text, #111);
+}
+.pc-modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+
+/* History */
+.pc-history-toggle {
+  background: none; border: none; cursor: pointer;
+  color: var(--accent, #3b82f6); font-size: 0.84rem; font-weight: 600; padding: 0;
+}
+.pc-action-add  { color: #059669; font-weight: 600; }
+.pc-action-excl { color: #dc2626; font-weight: 600; }
+</style>
+
+{# ── Header ── #}
+<div class="workspace-header" style="margin-bottom: 1.25rem;">
+  <div>
+    <span class="eyebrow">Управление пилотом</span>
+    <h1>Состав пилота</h1>
+    <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">{{ scope }}</p>
+  </div>
+  <a href="/pilot" style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Статистика</a>
+</div>
+
+{# ── Stats ── #}
+<div style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+  <span class="pc-stat pc-stat-total">Всего пекарен: {{ summary.total }}</span>
+  <span class="pc-stat pc-stat-active">В пилоте: {{ summary.active }}</span>
+  <span class="pc-stat pc-stat-inactive">Не в пилоте: {{ summary.inactive }}</span>
+</div>
+
+{# ── Search ── #}
+<div style="margin-bottom: 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+  <input class="pc-search" type="search" id="pc-search"
+         placeholder="Поиск по названию, городу, партнёру…"
+         oninput="filterTable(this.value)">
+  <label style="font-size: 0.82rem; color: var(--text-secondary,#888); display:flex; align-items:center; gap:0.3rem; cursor:pointer;">
+    <input type="checkbox" id="pc-only-active" onchange="filterTable(document.getElementById('pc-search').value)">
+    Только в пилоте
+  </label>
+  <label style="font-size: 0.82rem; color: var(--text-secondary,#888); display:flex; align-items:center; gap:0.3rem; cursor:pointer;">
+    <input type="checkbox" id="pc-only-inactive" onchange="filterTable(document.getElementById('pc-search').value)">
+    Только не в пилоте
+  </label>
+</div>
+
+{# ── Table ── #}
+<div style="overflow-x: auto; border: 1px solid var(--border, #e5e7eb); border-radius: 10px;">
+<table class="pc-table" id="pc-table">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Пекарня</th>
+      <th>Город</th>
+      <th>Партнёр</th>
+      <th>Директор</th>
+      <th>Статус</th>
+      <th>Последнее изменение</th>
+      <th>Действие</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for b in bakeries %}
+  <tr data-active="{{ 'yes' if b.is_active else 'no' }}"
+      data-search="{{ [b.bakery_name, b.city, b.partner, b.regional_director, b.bakery_id]|join(' ')|lower }}">
+    <td style="color: var(--text-secondary,#888); font-size: 0.78rem;">{{ b.bakery_id }}</td>
+    <td style="font-weight: 500;">{{ b.bakery_name or '—' }}</td>
+    <td>{{ b.city or '—' }}</td>
+    <td style="font-size: 0.8rem;">{{ b.partner or '—' }}</td>
+    <td style="font-size: 0.8rem;">{{ b.regional_director or '—' }}</td>
+    <td>
+      {% if b.is_active %}
+        <span class="pc-badge pc-badge-active">В пилоте</span>
+        {% if b.status_source == 'seed' %}<span style="font-size:0.7rem; color:var(--text-secondary,#888); margin-left:0.3rem;" title="Из исходного списка">исх.</span>{% endif %}
+      {% else %}
+        <span class="pc-badge pc-badge-inactive">Не в пилоте</span>
+      {% endif %}
+    </td>
+    <td style="font-size: 0.78rem; color: var(--text-secondary,#888);">
+      {% if b.last_changed_at %}
+        {{ b.last_changed_at[:10] }}<br>
+        <span title="{{ b.last_reason or '' }}">{{ b.last_changed_by or '' }}</span>
+        {% if b.last_reason %}<br><em>{{ b.last_reason[:60] }}{% if b.last_reason|length > 60 %}…{% endif %}</em>{% endif %}
+      {% else %}—{% endif %}
+    </td>
+    <td>
+      {% if b.is_active %}
+        <button class="pc-btn pc-btn-excl"
+                onclick="openModal('exclude', {{ b.bakery_id }}, '{{ b.bakery_name|replace("'","\\'")|e }}')">
+          Исключить
+        </button>
+      {% else %}
+        <button class="pc-btn pc-btn-add"
+                onclick="openModal('add', {{ b.bakery_id }}, '{{ b.bakery_name|replace("'","\\'")|e }}')">
+          Добавить
+        </button>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" style="text-align:center; color:var(--text-secondary,#888); padding: 2rem;">
+    Пекарни не найдены
+  </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{# ── History ── #}
+{% if history %}
+<div style="margin-top: 2rem;">
+  <button class="pc-history-toggle" onclick="toggleHistory(this)">
+    ▶ История изменений ({{ history|length }})
+  </button>
+  <div id="pc-history" style="display:none; margin-top: 0.75rem; overflow-x: auto;
+       border: 1px solid var(--border, #e5e7eb); border-radius: 10px;">
+    <table class="pc-table">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Действие</th>
+          <th>Пекарня</th>
+          <th>Город</th>
+          <th>Кто</th>
+          <th>Причина</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for h in history %}
+      <tr>
+        <td style="white-space:nowrap; font-size:0.78rem;">{{ (h.changed_at or '')[:16] }}</td>
+        <td>
+          {% if h.action == 'add' %}
+            <span class="pc-action-add">+ Добавлена</span>
+          {% else %}
+            <span class="pc-action-excl">− Исключена</span>
+          {% endif %}
+        </td>
+        <td>{{ h.bakery_name or h.bakery_id }}</td>
+        <td style="font-size:0.8rem;">{{ h.city or '—' }}</td>
+        <td style="font-size:0.8rem;">{{ h.changed_by or '—' }}</td>
+        <td style="font-size:0.8rem; color:var(--text-secondary,#888);">{{ h.reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Modal ── #}
+<div class="pc-modal-backdrop" id="pc-modal" onclick="closeModalOnBackdrop(event)">
+  <div class="pc-modal">
+    <h3 id="pc-modal-title">Подтвердите действие</h3>
+    <p id="pc-modal-desc" style="font-size:0.85rem; color:var(--text-secondary,#888); margin:0 0 0.75rem;"></p>
+    <label style="font-size:0.82rem; color:var(--text-secondary,#888);">Причина (необязательно)</label>
+    <form id="pc-modal-form" method="post" style="margin-top:0.35rem;">
+      <input type="hidden" name="scope" value="{{ scope }}">
+      <textarea name="reason" id="pc-modal-reason" placeholder="Укажите причину изменения…"></textarea>
+      <div class="pc-modal-actions">
+        <button type="button" class="pc-btn" style="border-color:var(--border,#e5e7eb); color:var(--text-secondary,#888);"
+                onclick="closeModal()">Отмена</button>
+        <button type="submit" id="pc-modal-submit" class="pc-btn">Подтвердить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function filterTable(q) {
+  const onlyActive   = document.getElementById('pc-only-active').checked;
+  const onlyInactive = document.getElementById('pc-only-inactive').checked;
+  const lq = q.toLowerCase();
+  document.querySelectorAll('#pc-table tbody tr[data-search]').forEach(row => {
+    const matchText   = !lq || row.dataset.search.includes(lq);
+    const isActive    = row.dataset.active === 'yes';
+    const matchActive = !onlyActive   || isActive;
+    const matchInact  = !onlyInactive || !isActive;
+    row.style.display = (matchText && matchActive && matchInact) ? '' : 'none';
+  });
+}
+
+function openModal(action, bakeryId, bakeryName) {
+  const form  = document.getElementById('pc-modal-form');
+  const title = document.getElementById('pc-modal-title');
+  const desc  = document.getElementById('pc-modal-desc');
+  const btn   = document.getElementById('pc-modal-submit');
+
+  if (action === 'add') {
+    form.action = `/pilot/config/bakery/${bakeryId}/add`;
+    title.textContent = 'Добавить пекарню в пилот';
+    btn.className = 'pc-btn pc-btn-add';
+    btn.textContent = 'Добавить';
+  } else {
+    form.action = `/pilot/config/bakery/${bakeryId}/exclude`;
+    title.textContent = 'Исключить пекарню из пилота';
+    btn.className = 'pc-btn pc-btn-excl';
+    btn.textContent = 'Исключить';
+  }
+  desc.textContent = `${bakeryName} (ID ${bakeryId})`;
+  document.getElementById('pc-modal-reason').value = '';
+  document.getElementById('pc-modal').classList.add('open');
+  document.getElementById('pc-modal-reason').focus();
+}
+
+function closeModal() {
+  document.getElementById('pc-modal').classList.remove('open');
+}
+
+function closeModalOnBackdrop(e) {
+  if (e.target === document.getElementById('pc-modal')) closeModal();
+}
+
+function toggleHistory(btn) {
+  const el = document.getElementById('pc-history');
+  const hidden = el.style.display === 'none';
+  el.style.display = hidden ? '' : 'none';
+  btn.textContent = (hidden ? '▼' : '▶') + btn.textContent.slice(1);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+
+</section>
+{% endblock %}

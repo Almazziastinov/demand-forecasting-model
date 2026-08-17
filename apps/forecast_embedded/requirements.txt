@@ -5,3 +5,4 @@ pandas==3.0.1
 clickhouse-connect
 openpyxl==3.1.5
 scipy==1.17.1
+python-multipart

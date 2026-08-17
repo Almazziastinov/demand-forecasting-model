@@ -27,15 +27,17 @@ def load_env_file(path: str | Path = DEFAULT_ENV_PATH) -> dict[str, str]:
     return env
 
 
-_client: clickhouse_connect.driver.Client | None = None
+import threading as _threading
+
+_local = _threading.local()
 
 
 def get_client() -> clickhouse_connect.driver.Client:
-    global _client
-    if _client is not None:
-        return _client
-    _client = _create_client()
-    return _client
+    client = getattr(_local, "client", None)
+    if client is not None:
+        return client
+    _local.client = _create_client()
+    return _local.client
 
 
 def _create_client() -> clickhouse_connect.driver.Client:
