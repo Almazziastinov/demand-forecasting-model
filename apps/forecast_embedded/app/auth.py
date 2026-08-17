@@ -36,6 +36,14 @@ class AuthContext:
         )
 
     @property
+    def is_pilot_user(self) -> bool:
+        """True for admins and users explicitly granted pilot access via PILOT_USER_IDS."""
+        settings = get_settings()
+        return self.is_admin or (
+            self.user_id is not None and self.user_id in settings.pilot_user_ids
+        )
+
+    @property
     def display_name(self) -> str | None:
         return (
             _normalize_header_text(self.user_name_encoded)

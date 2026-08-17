@@ -42,7 +42,12 @@ from src.experiments_v2.sku_cold_start import (  # noqa: E402
     build_cold_start_registry,
 )
 
-PILOT_BAKERY_IDS = [
+# Управляемый scope в ClickHouse.  Если таблица пуста — используется fallback.
+_PILOT_SCOPE_NAME = "expanded_pilot_38"
+
+# Seed-список: отражает состав пилота на момент запуска (38 пекарен).
+# Используется только как fallback, если в pilot_scope_events нет ни одной записи.
+_SEED_PILOT_IDS: list[int] = [
     1, 3, 12, 13, 14, 20, 21, 22, 26, 27, 28, 39, 41, 56, 57, 66, 67, 69,
     80, 89, 99, 107, 113, 125, 149, 153, 155, 160, 191, 221, 222, 229, 230,
     246, 257, 260, 268, 270,
@@ -76,6 +81,48 @@ def _round_up_kratnost(value: float, kratnost: int) -> int:
     return int(math.ceil(value / kratnost - 1e-9) * kratnost)
 
 
+def _load_pilot_bakery_ids(client) -> list[int]:
+    """Загружает актуальный список пилотных пекарен из pilot_scope_events.
+
+    Последнее событие на пекарню определяет её статус (add/exclude).
+    Пекарни без событий берутся из seed-списка (действовали до введения лога).
+    При любой ошибке (таблица не создана, ClickHouse недоступен) — seed.
+    """
+    try:
+        df = client.query_df(
+            """
+            SELECT bakery_id, argMax(action, changed_at) AS last_action
+            FROM Svezhar.pilot_scope_events
+            WHERE scope_name = %(scope_name)s
+            GROUP BY bakery_id
+            """,
+            parameters={"scope_name": _PILOT_SCOPE_NAME},
+        )
+    except Exception as exc:
+        print(f"  WARNING: не удалось загрузить pilot_scope_events, используем seed: {exc}")
+        return list(_SEED_PILOT_IDS)
+
+    if df.empty:
+        print("  INFO: pilot_scope_events пуст, используем seed-список пекарен")
+        return list(_SEED_PILOT_IDS)
+
+    event_active: set[int] = set()
+    event_all: set[int] = set()
+    for row in df.to_dict("records"):
+        try:
+            bid = int(row["bakery_id"])
+        except (TypeError, ValueError):
+            continue
+        event_all.add(bid)
+        if row["last_action"] == "add":
+            event_active.add(bid)
+
+    seed_active = {bid for bid in _SEED_PILOT_IDS if bid not in event_all}
+    result = sorted(event_active | seed_active)
+    print(f"  INFO: пилот — {len(result)} пекарен ({len(event_active)} из ClickHouse, {len(seed_active)} из seed)")
+    return result
+
+
 def _build_report(
     forecast_date: str,
     *,
@@ -87,6 +134,7 @@ def _build_report(
     from app.table_names import table_name
 
     client = get_client()
+    pilot_bakery_ids = _load_pilot_bakery_ids(client)
 
     run_df = client.query_df(
         f"select run_id from {table_name('forecast_runs_embedded')} where status = 'active' limit 1"
@@ -97,7 +145,7 @@ def _build_report(
 
     # Bakery names for pilot bakeries
     # dim_bakeries uses zero-padded string bakery_id ("000000016"), same as baking_sku_meta
-    pilot_bids_str = [f"{b:09d}" for b in PILOT_BAKERY_IDS]
+    pilot_bids_str = [f"{b:09d}" for b in pilot_bakery_ids]
     bakery_df = client.query_df(
         "select bakery_id as bid, any(bakery_name) as name, any(city) as city "
         "from dim_bakeries "
@@ -131,7 +179,7 @@ def _build_report(
         parameters={
             "run_id": run_id,
             "forecast_date": forecast_date,
-            "bids": PILOT_BAKERY_IDS,
+            "bids": pilot_bakery_ids,
         },
     )
 
@@ -163,7 +211,7 @@ def _build_report(
         )
         group by bakery_id, product_id
         """,
-        parameters={"previous_date": previous_date, "bids": PILOT_BAKERY_IDS},
+        parameters={"previous_date": previous_date, "bids": pilot_bakery_ids},
     )
     _fct_produced_yesterday = client.query_df(
         """
@@ -184,7 +232,7 @@ def _build_report(
         )
         group by bakery_id, product_id
         """,
-        parameters={"previous_date": previous_date, "bids": PILOT_BAKERY_IDS},
+        parameters={"previous_date": previous_date, "bids": pilot_bakery_ids},
     )
     _stock_cols = ["bakery_id", "product_id"]
     if _fct_sold_yesterday.empty or "bakery_id" not in _fct_sold_yesterday.columns:
@@ -252,7 +300,7 @@ def _build_report(
             errors="coerce",
         )
         eligible = eligible[
-            eligible["bakery_id"].isin(PILOT_BAKERY_IDS)
+            eligible["bakery_id"].isin(pilot_bakery_ids)
             & eligible["category_name"].isin(BAKEABLE_CATEGORIES)
             & ~eligible["product_id"].isin(frozen_pids)
         ].copy()
@@ -294,7 +342,7 @@ def _build_report(
             parameters={
                 "history_from": history_from,
                 "forecast_date": forecast_date,
-                "bids": PILOT_BAKERY_IDS,
+                "bids": pilot_bakery_ids,
                 "product_ids": list(ColdStartConfig().product_ids),
             },
         )
@@ -316,7 +364,7 @@ def _build_report(
             parameters={
                 "history_from": history_from,
                 "forecast_date": forecast_date,
-                "bids": PILOT_BAKERY_IDS,
+                "bids": pilot_bakery_ids,
                 "product_ids": list(ColdStartConfig().product_ids),
             },
         )
@@ -378,7 +426,7 @@ def _build_report(
             parameters={
                 "history_from": mature_history_from,
                 "forecast_date": forecast_date,
-                "bids": PILOT_BAKERY_IDS,
+                "bids": pilot_bakery_ids,
             },
         )
         _mature_produced = client.query_df(
@@ -406,7 +454,7 @@ def _build_report(
             parameters={
                 "history_from": mature_history_from,
                 "forecast_date": forecast_date,
-                "bids": PILOT_BAKERY_IDS,
+                "bids": pilot_bakery_ids,
             },
         )
         if _mature_sold.empty or "bakery_id" not in _mature_sold.columns:
@@ -445,7 +493,7 @@ def _build_report(
             parameters={
                 "history_from": mature_history_from,
                 "forecast_date": forecast_date,
-                "bids": PILOT_BAKERY_IDS,
+                "bids": pilot_bakery_ids,
             },
         )
         mature_history = mature_fact.merge(
@@ -537,7 +585,7 @@ def _build_report(
             pid_int = int(rec["product_id"])
         except (TypeError, ValueError):
             continue
-        if bid not in PILOT_BAKERY_IDS:
+        if bid not in pilot_bakery_ids:
             continue
         category = str(rec.get("category_name") or "")
         if category not in BAKEABLE_CATEGORIES:

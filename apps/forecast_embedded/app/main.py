@@ -24,6 +24,7 @@ from app.routers import api_bakeries
 from app.routers import api_exports
 from app.routers import api_runs
 from app.routers import health
+from app.routers import pilot_config
 from app.routers import pilot_management
 from app.routers import ui
 from app.settings import get_settings
@@ -40,5 +41,6 @@ app.include_router(api_runs.router)
 app.include_router(api_bakeries.router)
 app.include_router(api_exports.router)
 app.include_router(baking_plan_router)
+app.include_router(pilot_config.router)
 app.include_router(pilot_management.router)
 app.include_router(ui.router)
