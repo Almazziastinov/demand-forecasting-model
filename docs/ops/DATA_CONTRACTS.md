@@ -31,7 +31,8 @@ scenario.
 - Active horizon observed on 2026-07-14: `2026-07-14` through `2026-07-27`
 - Recent correction mode: `runner_city_prior_soft_weekpart`
 - Recent correction days: `30`
-- Recent sales table: `mart_sales_60d`
+- Recent sales table: `mart_sales_60d` (VM production writer); pilot publisher
+  uses `fct_check_lines` directly since 2026-08-14 (mart ETL outage)
 - SKU-hour uplift multiplier: `sku_hour_uplift_multiplier_embedded`,
   `profile_version=weekly_20260714` (not renormalized — SKU-hour sums can
   exceed the bakery-hour total, see `CURRENT_STATE.md`)
