@@ -286,7 +286,7 @@ def build_detail(
     for run_id, run_group in merged.groupby("source_run_id"):
         inputs = []
         for row in run_group.itertuples(index=False):
-            available = float(row.qty_produced + row.qty_received - row.qty_sent)
+            available = float(row.qty_produced)
             inputs.append(
                 PerformanceInput(
                     business_date=row.date,
@@ -312,11 +312,11 @@ def build_detail(
                     if pd.notna(row.last_sale_time)
                     else None,
                     opening_stock_qty=0.0,
-                    received_qty=float(row.qty_received),
-                    sent_qty=float(row.qty_sent),
+                    received_qty=0.0,
+                    sent_qty=0.0,
                     transfers_complete=True,
                     available_to_sell_qty=available,
-                    available_to_sell_basis="mart_zero_fresh_inventory_v1",
+                    available_to_sell_basis="fct_tables_v1",
                 )
             )
         contract = PerformanceContract(
@@ -1167,7 +1167,7 @@ def build_weekly_analytics_all(client, date_from: date, date_to: date) -> pd.Dat
         check_lines_dedup as (
             select
                 check_date,
-                toInt64(bakery_id)                                          as bakery_id,
+                toInt64OrZero(toString(bakery_id))                          as bakery_id,
                 argMax(toFloat64(quantity),         _updated_at)            as quantity,
                 argMax(ifNull(toFloat64(line_amount), 0), _updated_at)     as line_amount
             from Svezhar.fct_check_lines
@@ -1184,14 +1184,22 @@ def build_weekly_analytics_all(client, date_from: date, date_to: date) -> pd.Dat
             from check_lines_dedup
             group by week_start, bakery_id
         ),
-        mart as (
+        produced_dedup as (
             select
-                toMonday(dt)        as week_start,
-                toInt64(bakery_id)  as bakery_id,
-                sum(qty_produced)   as total_produced,
-                sum(qty_sold)       as total_sold_mart
-            from Svezhar.mart_zero_sales_60d
-            where dt between %(date_from)s and %(date_to)s
+                argMax(bakery_id,   _updated_at) as bid,
+                argMax(release_date,_updated_at) as rd,
+                toFloat64(argMax(quantity, _updated_at)) as qty
+            from Svezhar.fct_production_release
+            where toDate(release_date) between %(date_from)s and %(date_to)s
+            group by release_id, line_id
+            having argMax(is_deleted, _updated_at) not in ('1', 'true', 'Да')
+        ),
+        produced as (
+            select
+                toMonday(toDate(rd))                as week_start,
+                toInt64OrZero(toString(bid))        as bakery_id,
+                sum(qty)                            as total_produced
+            from produced_dedup
             group by week_start, bakery_id
         ),
         fcst as (
@@ -1205,15 +1213,15 @@ def build_weekly_analytics_all(client, date_from: date, date_to: date) -> pd.Dat
             group by week_start, bakery_id
         )
         select
-            s.week_start  as week_start,
-            s.bakery_id   as bakery_id,
-            s.actual_qty  as actual_qty,
+            s.week_start     as week_start,
+            s.bakery_id      as bakery_id,
+            s.actual_qty     as actual_qty,
             s.actual_revenue as actual_revenue,
-            ifNull(m.total_produced, 0)   as total_produced,
-            ifNull(m.total_sold_mart, 0)  as total_sold_mart,
-            ifNull(f.total_forecast, 0)   as total_forecast
+            ifNull(p.total_produced, 0)  as total_produced,
+            s.actual_qty                 as total_sold_mart,
+            ifNull(f.total_forecast, 0)  as total_forecast
         from sales s
-        left join mart m on m.week_start = s.week_start and m.bakery_id = s.bakery_id
+        left join produced p on p.week_start = s.week_start and p.bakery_id = s.bakery_id
         left join fcst f on f.week_start = s.week_start and f.bakery_id = s.bakery_id
         order by s.bakery_id, s.week_start
         """,
@@ -1397,23 +1405,85 @@ def extract_clickhouse(
         """,
         parameters=params,
     )
-    facts = client.query_df(
+    # mart_zero_sales_60d ETL stopped updating ~2026-08-10; use fct tables instead.
+    # sold: fct_check_lines with DISTINCT dedup (matches nightly pipeline)
+    _fct_sold = client.query_df(
         f"""
-        select dt date, toInt64(bakery_id) bakery_id, any(bakery_name) bakery_name,
-               toInt64(product_id) product_id, any(product_name) product_name,
-               any(category_name) fact_category_name,
-               sum(qty_sold) qty_sold,
-               sum(qty_produced) qty_produced, sum(qty_received) qty_received,
-               sum(qty_sent) qty_sent, sum(stock_balance) stock_balance,
-               max(last_sale_time) last_sale_time
-        from Svezhar.mart_zero_sales_60d
-        where dt between %(date_from)s and %(date_to)s
-          {bakery_filter}
-          and category_name in %(categories)s
+        select
+            check_date as date,
+            toInt64OrZero(toString(bakery_id)) as bakery_id,
+            toInt64OrZero(toString(product_id)) as product_id,
+            sum(toFloat64(quantity)) as qty_sold,
+            max(check_datetime) as last_sale_time
+        from (
+            select distinct
+                check_datetime, check_date, bakery_id, product_id, quantity
+            from Svezhar.fct_check_lines
+            where hex(cash_event_type) = %(sales_event_hex)s
+              and check_date between %(date_from)s and %(date_to)s
+              {bakery_filter}
+        )
         group by date, bakery_id, product_id
         """,
         parameters=params,
     )
+    # produced: fct_production_release with argMax(_updated_at) dedup per (release_id, line_id)
+    _fct_bakery_filter = (
+        f"and toInt64OrZero(toString(bakery_id)) in %(bakery_ids)s"
+        if bakery_ids is not None
+        else ""
+    )
+    _fct_produced = client.query_df(
+        f"""
+        select
+            toDate(rd) as date,
+            toInt64OrZero(toString(bid)) as bakery_id,
+            toInt64OrZero(toString(pid)) as product_id,
+            sum(qty) as qty_produced
+        from (
+            select
+                argMax(bakery_id,   _updated_at) as bid,
+                argMax(product_id,  _updated_at) as pid,
+                argMax(release_date,_updated_at) as rd,
+                toFloat64(argMax(quantity, _updated_at)) as qty,
+                argMax(is_deleted,  _updated_at) as deleted
+            from Svezhar.fct_production_release
+            where toDate(release_date) between %(date_from)s and %(date_to)s
+              {_fct_bakery_filter}
+            group by release_id, line_id
+            having deleted not in ('1', 'true', 'Да')
+        )
+        group by date, bakery_id, product_id
+        """,
+        parameters=params,
+    )
+    # product_name / fact_category_name from forecast snapshots (mart had these denormalized)
+    _fct_names = client.query_df(
+        f"""
+        select
+            toInt64(product_id) as product_id,
+            any(product_name)   as product_name,
+            any(category_name)  as fact_category_name
+        from Svezhar.sku_forecast_day_snapshots
+        where forecast_date between %(date_from)s and %(date_to)s
+          and category_name in %(categories)s
+        group by product_id
+        """,
+        parameters=params,
+    )
+    # Merge sold + produced; compute stock_balance as closing fresh stock (produced - sold, ≥ 0)
+    _merge_keys = ["date", "bakery_id", "product_id"]
+    facts = _fct_sold.merge(_fct_produced, on=_merge_keys, how="outer")
+    facts["qty_sold"] = pd.to_numeric(facts.get("qty_sold", 0), errors="coerce").fillna(0.0)
+    facts["qty_produced"] = pd.to_numeric(facts.get("qty_produced", 0), errors="coerce").fillna(0.0)
+    facts["stock_balance"] = (facts["qty_produced"] - facts["qty_sold"]).clip(lower=0.0)
+    facts["qty_received"] = 0.0
+    facts["qty_sent"] = 0.0
+    facts = facts.merge(_fct_names, on="product_id", how="left")
+    # Filter to pilot categories (fct tables have no category column; use product_id allowlist)
+    if not _fct_names.empty:
+        pilot_product_ids = set(_fct_names["product_id"].dropna().astype(int))
+        facts = facts[facts["product_id"].isin(pilot_product_ids)]
     prices = client.query_df(
         f"""
         select check_date as date,
