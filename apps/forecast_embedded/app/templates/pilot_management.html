@@ -191,7 +191,7 @@
       </span>
     </div>
     <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;">
-      <span style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">Продажи / Выпуск</span>
+      <span style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">Продажи / План ИИ</span>
       {% set _st = summary.kpi_sellthrough_rate %}
       <span style="font-size: 1.3rem; font-weight: 700;
                    color: {{ '#c00' if (_st is not none and _st < 0.80) else ('#c77700' if (_st is not none and _st < 0.90) else 'inherit') }};">
@@ -223,7 +223,7 @@
         <th style="text-align: right;">Выпуск (шт)</th>
         <th style="text-align: right;">Продажи (шт)</th>
         <th style="text-align: right;">Выпуск / План</th>
-        <th style="text-align: right;">Продажи / Выпуск</th>
+        <th style="text-align: right;">Продажи / План ИИ</th>
         <th style="text-align: right;">Упущ. признанное</th>
         <th style="text-align: center; min-width: 60px;">Тренд</th>
       </tr>
@@ -279,7 +279,7 @@
         <th>Директор</th>
         <th style="text-align: right;">Пекарен</th>
         <th style="text-align: right;"><span class="tip" data-tip="Выпуск / План ИИ">Выполнение</span></th>
-        <th style="text-align: right;"><span class="tip" data-tip="Продажи / Выпуск">Покрытие</span></th>
+        <th style="text-align: right;"><span class="tip" data-tip="Продажи / План ИИ">Покрытие</span></th>
         <th style="text-align: right;">Упущ. признанное (шт)</th>
       </tr>
     </thead>
@@ -316,7 +316,7 @@
       <tr>
         <th>Пекарня</th>
         <th style="text-align: right;"><span class="tip" data-tip="Выпуск / План ИИ">Выполнение</span></th>
-        <th style="text-align: right;"><span class="tip" data-tip="Продажи / Выпуск">Покрытие</span></th>
+        <th style="text-align: right;"><span class="tip" data-tip="Продажи / План ИИ">Покрытие</span></th>
         <th style="text-align: right;">Упущ. признанное (шт)</th>
       </tr>
     </thead>
@@ -354,7 +354,7 @@
       <tr>
         <th>SKU</th>
         <th style="text-align: right;"><span class="tip" data-tip="Выпуск / План ИИ">Выполнение</span></th>
-        <th style="text-align: right;"><span class="tip" data-tip="Продажи / Выпуск">Покрытие</span></th>
+        <th style="text-align: right;"><span class="tip" data-tip="Продажи / План ИИ">Покрытие</span></th>
         <th style="text-align: right;">Упущ. признанное (шт)</th>
       </tr>
     </thead>

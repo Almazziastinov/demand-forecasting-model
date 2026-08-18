@@ -246,7 +246,7 @@ class PilotManagementService:
             out["produced_qty"] = produced
             out["sold_qty"] = sold
             out["execution_rate"] = produced / plan if plan > 0 else None
-            out["sellthrough_rate"] = sold / produced if produced > 0 else None
+            out["sellthrough_rate"] = sold / plan if plan > 0 else None
 
         krat_elig = df[
             df["issued_total_for_sale"].notna()
