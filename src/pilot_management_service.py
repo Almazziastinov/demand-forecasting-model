@@ -406,6 +406,16 @@ class PilotManagementService:
                                 (ld2_capped * ld2["price"].fillna(0)).sum()
                             )
 
+            # Fallback to block1 metrics when no Bitrix plan data
+            if kratnost_execution_rate is None:
+                kratnost_execution_rate = execution_rate
+            if kratnost_recognized_lost_qty is None and block1_recognized_lost_qty is not None:
+                kratnost_recognized_lost_qty = block1_recognized_lost_qty
+                kratnost_recognized_lost_revenue = block1_recognized_lost_revenue
+            if kratnost_lost_qty is None and block1_lost_qty is not None:
+                kratnost_lost_qty = block1_lost_qty
+                kratnost_lost_revenue = block1_lost_revenue
+
             # unique SKU coverage (computed from filtered detail, not from precomputed KPI)
             if "product_id" in detail.columns and "eligible_forecast_summary" in detail.columns:
                 coverage_sku_total = int(detail["product_id"].nunique())
