@@ -324,7 +324,11 @@
       {% for b in bakeries %}
       <tr>
         <td>
-          <a href="/pilot/bakery/{{ b.bakery_id }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+          {%- set _bq = [] -%}
+          {%- if selected_category -%}{%- set _ = _bq.append('category=' ~ (selected_category | urlencode)) -%}{%- endif -%}
+          {%- if selected_date_from -%}{%- set _ = _bq.append('date_from=' ~ selected_date_from) -%}{%- endif -%}
+          {%- if selected_date_to -%}{%- set _ = _bq.append('date_to=' ~ selected_date_to) -%}{%- endif -%}
+          <a href="/pilot/bakery/{{ b.bakery_id }}{% if _bq %}?{{ _bq | join('&') }}{% endif %}"
              style="color: var(--accent, #3b82f6);">{{ b.bakery_name }}</a>
         </td>
         <td class="num {% if b.execution_rate is not none and b.execution_rate < 0.85 %}exec-red{% elif b.execution_rate is not none and b.execution_rate < 0.95 %}exec-amber{% endif %}">

@@ -601,7 +601,13 @@ class PilotManagementService:
             None,
         )
 
-    def get_bakery_kpi(self, bakery_id: int, category: str | None = None) -> dict | None:
+    def get_bakery_kpi(
+        self,
+        bakery_id: int,
+        category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict | None:
         """Full KPI set for one bakery (mirrors get_pilot_summary structure)."""
         detail = self._load("detail")
         if detail.empty:
@@ -614,10 +620,11 @@ class PilotManagementService:
             if "bakery_name" in detail.columns and detail["bakery_name"].notna().any()
             else f"Пекарня {bakery_id}"
         )
-        # store full list of categories before filtering
+        # store full list of categories before date/category filtering
         cat_col = self._cat_col(detail)
         bakery_categories = sorted(detail[cat_col].dropna().unique().tolist()) if cat_col else []
         detail = self._filter_cat(detail, category)
+        detail = self._apply_filters(detail, date_from=date_from, date_to=date_to)
 
         actual_revenue = None
         if "price" in detail.columns:
@@ -674,13 +681,20 @@ class PilotManagementService:
             "recognized_lost_revenue": kpi3["recognized_lost_revenue"],
         }
 
-    def get_bakery_week_trend(self, bakery_id: int, category: str | None = None) -> list[dict]:
+    def get_bakery_week_trend(
+        self,
+        bakery_id: int,
+        category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
         """Weekly KPI rows for one bakery, oldest first, with trend vs first week."""
         detail = self._load("detail")
         if detail.empty:
             return []
         detail = detail[detail["bakery_id"] == bakery_id].copy()
         detail = self._filter_cat(detail, category)
+        detail = self._apply_filters(detail, date_from=date_from, date_to=date_to)
         if detail.empty:
             return []
         detail["business_date"] = pd.to_datetime(detail["business_date"], errors="coerce")
@@ -707,13 +721,20 @@ class PilotManagementService:
                 r["exec_delta"] = (r["execution_rate"] - base_exec) if (r["execution_rate"] is not None and base_exec is not None) else None
         return rows
 
-    def get_sku_list(self, bakery_id: int, category: str | None = None) -> list[dict]:
+    def get_sku_list(
+        self,
+        bakery_id: int,
+        category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
         """Per-SKU KPIs for one bakery, aggregated from detail rows."""
         detail = self._load("detail")
         if detail.empty:
             return []
         group = detail[detail["bakery_id"] == bakery_id]
         group = self._filter_cat(group, category)
+        group = self._apply_filters(group, date_from=date_from, date_to=date_to)
         if group.empty:
             return []
         rows = []

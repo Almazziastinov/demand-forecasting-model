@@ -198,12 +198,14 @@ def pilot_bakery(
     request: Request,
     bakery_id: int,
     category: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
 ) -> HTMLResponse:
     """Bakery drill-down: KPIs, week trend, category filter, SKU table."""
     _require_admin(request)
     auth = get_auth_context(request)
     svc = _get_service()
-    bakery = svc.get_bakery_kpi(bakery_id, category=category)
+    bakery = svc.get_bakery_kpi(bakery_id, category=category, date_from=date_from, date_to=date_to)
     if not bakery:
         raise HTTPException(status_code=404, detail=f"Пекарня {bakery_id} не найдена")
     summary = svc.get_pilot_summary()
@@ -215,9 +217,11 @@ def pilot_bakery(
             "is_admin": auth.is_admin,
             "summary": summary,
             "bakery": bakery,
-            "week_trend": svc.get_bakery_week_trend(bakery_id, category=category),
-            "skus": svc.get_sku_list(bakery_id, category=category),
+            "week_trend": svc.get_bakery_week_trend(bakery_id, category=category, date_from=date_from, date_to=date_to),
+            "skus": svc.get_sku_list(bakery_id, category=category, date_from=date_from, date_to=date_to),
             "selected_category": category,
+            "selected_date_from": date_from,
+            "selected_date_to": date_to,
             "pct": _pct,
         },
     )

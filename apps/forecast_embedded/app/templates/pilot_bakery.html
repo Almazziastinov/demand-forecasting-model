@@ -16,13 +16,22 @@
   <div>
     <span class="eyebrow">Аналитика пилота — пекарня</span>
     <h1>{{ bakery.bakery_name }}</h1>
-    {% if summary %}
+    {% if selected_date_from or selected_date_to %}
+    <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">
+      {{ selected_date_from or "…" }} — {{ selected_date_to or "…" }}
+      {% if summary %} · {{ summary.scope_version }}{% endif %}
+    </p>
+    {% elif summary %}
     <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">
       {{ summary.date_from }} — {{ summary.date_to }} · {{ summary.scope_version }}
     </p>
     {% endif %}
   </div>
-  <a href="/pilot{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+  {%- set _bq = [] -%}
+  {%- if selected_category -%}{%- set _ = _bq.append('category=' ~ (selected_category | urlencode)) -%}{%- endif -%}
+  {%- if selected_date_from -%}{%- set _ = _bq.append('date_from=' ~ selected_date_from) -%}{%- endif -%}
+  {%- if selected_date_to -%}{%- set _ = _bq.append('date_to=' ~ selected_date_to) -%}{%- endif -%}
+  <a href="/pilot{% if _bq %}?{{ _bq | join('&') }}{% endif %}"
      style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Сводка пилота</a>
 </div>
 
@@ -35,9 +44,12 @@
           style="font-size: 0.82rem; padding: 0.3rem 0.6rem; border: 1px solid var(--border, #e5e7eb);
                  border-radius: 6px; background: var(--surface, #f9fafb); color: var(--text, #111);
                  cursor: pointer; min-width: 200px;">
-    <option value="/pilot/bakery/{{ bakery.bakery_id }}" {{ 'selected' if not selected_category else '' }}>Все категории</option>
+    {%- set _dq = [] -%}
+    {%- if selected_date_from -%}{%- set _ = _dq.append('date_from=' ~ selected_date_from) -%}{%- endif -%}
+    {%- if selected_date_to -%}{%- set _ = _dq.append('date_to=' ~ selected_date_to) -%}{%- endif -%}
+    <option value="/pilot/bakery/{{ bakery.bakery_id }}{% if _dq %}?{{ _dq | join('&') }}{% endif %}" {{ 'selected' if not selected_category else '' }}>Все категории</option>
     {% for cat in bakery.bakery_categories %}
-    <option value="/pilot/bakery/{{ bakery.bakery_id }}?category={{ cat | urlencode }}"
+    <option value="/pilot/bakery/{{ bakery.bakery_id }}?category={{ cat | urlencode }}{% if _dq %}&{{ _dq | join('&') }}{% endif %}"
             {{ 'selected' if selected_category == cat else '' }}>{{ cat }}</option>
     {% endfor %}
   </select>
@@ -144,7 +156,11 @@
       {% set _is_first = loop.first %}
       <tr {% if _is_first %}style="font-weight: 600;"{% endif %}>
         <td style="white-space: nowrap;">
-          <a href="/pilot/bakery/{{ bakery.bakery_id }}/week/{{ w.week_start }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+          {%- set _wq = [] -%}
+          {%- if selected_category -%}{%- set _ = _wq.append('category=' ~ (selected_category | urlencode)) -%}{%- endif -%}
+          {%- if selected_date_from -%}{%- set _ = _wq.append('date_from=' ~ selected_date_from) -%}{%- endif -%}
+          {%- if selected_date_to -%}{%- set _ = _wq.append('date_to=' ~ selected_date_to) -%}{%- endif -%}
+          <a href="/pilot/bakery/{{ bakery.bakery_id }}/week/{{ w.week_start }}{% if _wq %}?{{ _wq | join('&') }}{% endif %}"
              style="color: var(--accent, #3b82f6);">{{ w.week_start }}</a>
         </td>
         <td class="num">{{ (w.plan_qty | round | int) if w.plan_qty is not none else "—" }}</td>
