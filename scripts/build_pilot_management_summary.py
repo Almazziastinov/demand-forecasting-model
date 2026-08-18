@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import asdict
 from datetime import date
@@ -1239,6 +1240,125 @@ def build_weekly_analytics_all(client, date_from: date, date_to: date) -> pd.Dat
     return result
 
 
+def _compute_kratnost_plan(
+    forecast: pd.DataFrame,
+    facts: pd.DataFrame,
+    client,
+) -> pd.DataFrame:
+    """Add issued_total_for_sale / issued_plan_qty plan columns to forecast rows.
+
+    Replicates the nightly publish_pilot_forecast.py logic using ClickHouse
+    data only — no Bitrix plan Excel archive required:
+      yesterday_stock  = stock_balance[D-1]  (from mart_zero_sales_60d)
+      net_need         = max(forecast - yesterday_stock, 0)
+      issued_plan_qty  = ceil(net_need / kratnost) * kratnost
+      issued_total_for_sale = issued_plan_qty + yesterday_stock
+    """
+    all_pids_int = [int(p) for p in forecast["product_id"].dropna().unique()]
+    if not all_pids_int:
+        return forecast
+    # product_id in baking_sku_meta is a zero-padded String ('000000034')
+    all_pids_str = [f"{p:09d}" for p in all_pids_int]
+
+    try:
+        # product_id is String (zero-padded) in baking_sku_meta; bakery_id is Int64 Nullable
+        meta_df = client.query_df(
+            """
+            select product_id, bakery_id, kratnost, scope, dough_group
+            from Svezhar.baking_sku_meta final
+            where is_active = 1 and product_id in %(pids)s
+            """,
+            parameters={"pids": all_pids_str},
+        )
+    except Exception as exc:
+        print(f"  WARNING: baking_sku_meta query failed, skipping kratnost plan: {exc}")
+        return forecast
+
+    if meta_df.empty:
+        print("  WARNING: baking_sku_meta returned no rows, skipping kratnost plan")
+        return forecast
+
+    # Convert String zero-padded product_id → Int64 and fill nullable bakery_id
+    meta_df["product_id"] = pd.to_numeric(meta_df["product_id"], errors="coerce").astype("Int64")
+    meta_df["bakery_id"] = pd.to_numeric(meta_df["bakery_id"], errors="coerce").astype("Int64")
+    meta_df["bakery_id_val"] = meta_df.apply(
+        lambda r: r["bakery_id"] if r["scope"] == "bakery" else pd.NA, axis=1
+    ).astype("Int64")
+
+    # Drop frozen semi-finished products — not baked, no kratnost needed
+    frozen_mask = meta_df["dough_group"].str.lower().str.contains(
+        "замороженные полуфабрикаты", na=False
+    )
+    meta_df = meta_df[~frozen_mask].copy()
+
+    meta_df["kratnost"] = pd.to_numeric(meta_df["kratnost"], errors="coerce").clip(lower=1).fillna(1).astype(int)
+
+    bakery_kr = (
+        meta_df[meta_df["scope"] == "bakery"][["product_id", "bakery_id_val", "kratnost"]]
+        .rename(columns={"bakery_id_val": "bakery_id", "kratnost": "kr_bakery"})
+    )
+    base_kr = (
+        meta_df[meta_df["scope"] != "bakery"][["product_id", "kratnost"]]
+        .drop_duplicates("product_id")
+        .rename(columns={"kratnost": "kr_base"})
+    )
+
+    # Yesterday's closing stock: shift facts.stock_balance dates by +1 day
+    facts_stock = facts[["date", "bakery_id", "product_id", "stock_balance"]].copy()
+    facts_stock["date"] = pd.to_datetime(facts_stock["date"]).dt.date
+    facts_stock["_date_key"] = facts_stock["date"].map(
+        lambda d: d + pd.Timedelta(days=1)
+    )
+    facts_stock = facts_stock.rename(columns={"stock_balance": "yesterday_stock"})
+    facts_stock = facts_stock[["_date_key", "bakery_id", "product_id", "yesterday_stock"]]
+
+    work = forecast.copy()
+    work["_date_key"] = pd.to_datetime(work["date"]).dt.date
+    work["bakery_id"] = pd.to_numeric(work["bakery_id"], errors="coerce").astype("Int64")
+    work["product_id"] = pd.to_numeric(work["product_id"], errors="coerce").astype("Int64")
+
+    work = work.merge(facts_stock, on=["_date_key", "bakery_id", "product_id"], how="left")
+    work["yesterday_stock"] = work["yesterday_stock"].fillna(0.0)
+
+    # bakery_kr / base_kr product_ids already Int64 from meta_df conversion above
+    bakery_kr = bakery_kr.copy()
+    bakery_kr["product_id"] = bakery_kr["product_id"].astype("Int64")
+    bakery_kr["bakery_id"] = bakery_kr["bakery_id"].astype("Int64")
+    base_kr = base_kr.copy()
+    base_kr["product_id"] = base_kr["product_id"].astype("Int64")
+
+    work = work.merge(bakery_kr, on=["product_id", "bakery_id"], how="left")
+    work = work.merge(base_kr, on="product_id", how="left")
+
+    work["_kratnost"] = work["kr_bakery"].combine_first(work["kr_base"])
+    has_kr = work["_kratnost"].notna()
+
+    for col in ("issued_yesterday_stock", "issued_plan_qty", "issued_total_for_sale",
+                "plan_format_version", "source_quality", "published_at"):
+        work[col] = None
+
+    if has_kr.any():
+        kr_vals = work.loc[has_kr, "_kratnost"].astype(float)
+        stock_vals = work.loc[has_kr, "yesterday_stock"].astype(float)
+        fc_vals = work.loc[has_kr, "forecast_qty"].fillna(0.0).astype(float)
+        net_need = (fc_vals - stock_vals).clip(lower=0.0)
+        plan_arr = [
+            math.ceil(n / k - 1e-9) * k if k > 0 else 0.0
+            for n, k in zip(net_need.to_numpy(), kr_vals.to_numpy())
+        ]
+        work.loc[has_kr, "issued_yesterday_stock"] = stock_vals.to_numpy()
+        work.loc[has_kr, "issued_plan_qty"] = plan_arr
+        work.loc[has_kr, "issued_total_for_sale"] = (
+            [p + s for p, s in zip(plan_arr, stock_vals.to_numpy())]
+        )
+        work.loc[has_kr, "plan_format_version"] = "stock_aware_v2"
+        work.loc[has_kr, "source_quality"] = "clickhouse_derived"
+
+    print(f"  kratnost plan: {int(has_kr.sum())}/{len(work)} forecast rows → stock_aware_v2")
+    return work.drop(columns=["_date_key", "kr_bakery", "kr_base", "_kratnost", "yesterday_stock"],
+                     errors="ignore")
+
+
 def extract_clickhouse(
     client,
     date_from: date,
@@ -1363,6 +1483,7 @@ def main() -> None:
         exclusions = pd.concat([exclusions, archive_exclusions], ignore_index=True)
         forecast_source = "effective_bitrix_attachment"
     else:
+        forecast = _compute_kratnost_plan(forecast, facts, client)
         detail, exclusions = build_detail(
             forecast, facts, scope_bakery_ids=actual_scope
         )
