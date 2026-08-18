@@ -33,12 +33,19 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("form").forEach((form) => {
     form.addEventListener("submit", () => {
       showLoading();
+      if (form.method.toLowerCase() === "get") {
+        form.querySelectorAll("input, select").forEach((el) => {
+          if (el.value === "") el.disabled = true;
+        });
+      }
     });
-    form.querySelectorAll("input, select").forEach((control) => {
-      control.addEventListener("change", () => {
-        showLoading();
+    if (!form.hasAttribute("data-no-change-loading")) {
+      form.querySelectorAll("input, select").forEach((control) => {
+        control.addEventListener("change", () => {
+          showLoading();
+        });
       });
-    });
+    }
   });
 
   document.querySelectorAll("a[href]").forEach((link) => {
