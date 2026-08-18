@@ -241,7 +241,11 @@ class PilotManagementService:
         if not krat.empty:
             plan = float(krat["issued_total_for_sale"].sum())
             produced = float(krat["produced_qty"].sum())
-            sold = float(krat["sold_qty"].clip(lower=0).sum()) if "sold_qty" in krat.columns else 0.0
+            # Total sold = fresh produced + yesterday stock - unsold closing stock
+            # (sold_qty covers only same-day fresh sales; this includes discounted carryover)
+            ys = krat["issued_yesterday_stock"].fillna(0) if "issued_yesterday_stock" in krat.columns else 0
+            cs = krat["closing_stock_qty"].fillna(0) if "closing_stock_qty" in krat.columns else 0
+            sold = float((krat["produced_qty"] + ys - cs).clip(lower=0).sum())
             out["plan_qty"] = plan
             out["produced_qty"] = produced
             out["sold_qty"] = sold
