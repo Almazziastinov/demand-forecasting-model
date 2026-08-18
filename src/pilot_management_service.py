@@ -29,6 +29,13 @@ def _parse_flag_str(value: Any) -> list[str]:
     return _FLAG_RE.findall(str(value))
 
 
+def _demand_coverage(sold: float, recognized_lost: float | None) -> float | None:
+    """sold / (sold + recognized_lost) — fraction of confirmed demand that was served."""
+    rl = recognized_lost or 0.0
+    total = sold + rl
+    return sold / total if total > 0 else None
+
+
 def _maybe_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -96,30 +103,101 @@ class PilotManagementService:
         col = self._cat_col(df)
         return df[df[col] == category] if col else df
 
+    def _apply_filters(
+        self,
+        df: pd.DataFrame,
+        *,
+        category: str | None = None,
+        regional_director: str | None = None,
+        partner: str | None = None,
+        bakery_id: int | str | None = None,
+        product_id: int | str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> pd.DataFrame:
+        if df.empty:
+            return df
+        if category:
+            col = self._cat_col(df)
+            if col:
+                df = df[df[col] == category]
+        if regional_director and "regional_director" in df.columns:
+            df = df[df["regional_director"] == regional_director]
+        if partner and "partner" in df.columns:
+            df = df[df["partner"] == partner]
+        if bakery_id is not None and "bakery_id" in df.columns:
+            df = df[df["bakery_id"] == int(bakery_id)]
+        if product_id is not None and "product_id" in df.columns:
+            df = df[df["product_id"] == int(product_id)]
+        if (date_from or date_to) and "business_date" in df.columns:
+            dates = pd.to_datetime(df["business_date"], errors="coerce")
+            if date_from:
+                df = df[dates >= pd.Timestamp(date_from)]
+            if date_to:
+                df = df[dates <= pd.Timestamp(date_to)]
+        return df
+
     def _kratnost_metrics(self, df: pd.DataFrame) -> dict:
-        """Compute block-2 (kratnost) metrics from a detail slice."""
+        """Compute block-2 (kratnost) metrics from a detail slice.
+
+        When issued_total_for_sale (Bitrix plan) is present, uses plan-based
+        execution and recognized-lost calculation.  Falls back to Block-1
+        forecast-based metrics so the UI always shows meaningful values even
+        when no plan archive is available.
+        """
         out: dict = {
             "kratnost_recognized_lost_qty": None,
             "kratnost_recognized_lost_revenue": None,
             "kratnost_execution_rate": None,
         }
-        if df.empty or "issued_total_for_sale" not in df.columns:
+        if df.empty:
             return out
-        krat = df[
-            df["issued_total_for_sale"].notna()
-            & df["eligible_forecast_summary"].astype(bool)
-            & df["produced_qty"].notna()
-        ]
-        if not krat.empty:
-            issued = float(krat["issued_total_for_sale"].sum())
-            produced = float(krat["produced_qty"].sum())
-            out["kratnost_execution_rate"] = produced / issued if issued > 0 else None
-            ld = krat[
-                krat["eligible_lost_demand"].astype(bool)
-                & (krat["issued_total_for_sale"] > krat["sold_qty"])
+
+        # --- plan-based (kratnost) path ---
+        if "issued_total_for_sale" in df.columns and df["issued_total_for_sale"].notna().any():
+            krat = df[
+                df["issued_total_for_sale"].notna()
+                & df["eligible_forecast_summary"].astype(bool)
+                & df["produced_qty"].notna()
+            ]
+            if not krat.empty:
+                issued = float(krat["issued_total_for_sale"].sum())
+                produced = float(krat["produced_qty"].sum())
+                out["kratnost_execution_rate"] = produced / issued if issued > 0 else None
+                ld = krat[
+                    krat["eligible_lost_demand"].astype(bool)
+                    & (krat["issued_total_for_sale"] > krat["sold_qty"])
+                ]
+                if not ld.empty:
+                    capped = (ld["issued_total_for_sale"] - ld["sold_qty"]).clip(
+                        upper=ld["lost_demand_recognized_qty"]
+                    )
+                    out["kratnost_recognized_lost_qty"] = float(capped.sum())
+                    if "price" in ld.columns:
+                        out["kratnost_recognized_lost_revenue"] = float(
+                            (capped * ld["price"].fillna(0)).sum()
+                        )
+            return out
+
+        # --- fallback: Block-1 forecast-based metrics ---
+        if "eligible_forecast_summary" not in df.columns or "forecast_qty" not in df.columns:
+            return out
+        b1 = df[df["eligible_forecast_summary"].astype(bool) & df["produced_qty"].notna()]
+        if not b1.empty:
+            b1_forecast = float(b1["forecast_qty"].sum())
+            b1_produced = float(b1["produced_qty"].sum())
+            out["kratnost_execution_rate"] = b1_produced / b1_forecast if b1_forecast > 0 else None
+        if (
+            "eligible_lost_demand" in df.columns
+            and "lost_demand_recognized_qty" in df.columns
+            and "sold_qty" in df.columns
+        ):
+            ld = df[
+                df["eligible_lost_demand"].astype(bool)
+                & (df["forecast_qty"] > df["sold_qty"])
             ]
             if not ld.empty:
-                capped = (ld["issued_total_for_sale"] - ld["sold_qty"]).clip(
+                capped = (ld["forecast_qty"] - ld["sold_qty"]).clip(
                     upper=ld["lost_demand_recognized_qty"]
                 )
                 out["kratnost_recognized_lost_qty"] = float(capped.sum())
@@ -138,11 +216,57 @@ class PilotManagementService:
             return []
         return sorted(detail[col].dropna().unique().tolist())
 
+    def get_available_regional_directors(self) -> list[str]:
+        detail = self._load("detail")
+        if detail.empty or "regional_director" not in detail.columns:
+            return []
+        return sorted(detail["regional_director"].dropna().unique().tolist())
+
+    def get_available_partners(self) -> list[str]:
+        detail = self._load("detail")
+        if detail.empty or "partner" not in detail.columns:
+            return []
+        return sorted(detail["partner"].dropna().unique().tolist())
+
+    def get_available_bakery_names(self) -> list[dict]:
+        detail = self._load("detail")
+        if detail.empty or "bakery_name" not in detail.columns:
+            return []
+        return (
+            detail[["bakery_id", "bakery_name"]]
+            .drop_duplicates("bakery_id")
+            .sort_values("bakery_name")
+            .rename(columns={"bakery_id": "id", "bakery_name": "name"})
+            .to_dict("records")
+        )
+
+    def get_available_products(self) -> list[dict]:
+        detail = self._load("detail")
+        if detail.empty or "product_name" not in detail.columns:
+            return []
+        return (
+            detail[["product_id", "product_name"]]
+            .drop_duplicates("product_id")
+            .dropna(subset=["product_name"])
+            .sort_values("product_name")
+            .rename(columns={"product_id": "id", "product_name": "name"})
+            .to_dict("records")
+        )
+
     # ------------------------------------------------------------------
     # Public query methods
     # ------------------------------------------------------------------
 
-    def get_pilot_summary(self, category: str | None = None) -> dict | None:
+    def get_pilot_summary(
+        self,
+        category: str | None = None,
+        regional_director: str | None = None,
+        partner: str | None = None,
+        bakery_id: int | str | None = None,
+        product_id: int | str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict | None:
         """Pilot-level KPIs with DQ status and period metadata."""
         summary_json = self._load_json("summary")
         if not summary_json:
@@ -189,7 +313,16 @@ class PilotManagementService:
 
         actual_revenue = None
         detail = self._load("detail")
-        detail = self._filter_cat(detail, category)
+        detail = self._apply_filters(
+            detail,
+            category=category,
+            regional_director=regional_director,
+            partner=partner,
+            bakery_id=bakery_id,
+            product_id=product_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
         if not detail.empty:
             if "sold_qty" in detail.columns and "price" in detail.columns:
                 actual_revenue = float(
@@ -280,6 +413,7 @@ class PilotManagementService:
                     detail.loc[detail["eligible_forecast_summary"].astype(bool), "product_id"].nunique()
                 )
 
+        sold_sum = float(detail["sold_qty"].clip(lower=0).sum()) if not detail.empty and "sold_qty" in detail.columns else 0.0
         return {
             "date_from": summary_json.get("date_from"),
             "date_to": summary_json.get("date_to"),
@@ -298,6 +432,8 @@ class PilotManagementService:
             "block1_lost_revenue": block1_lost_revenue,
             "block1_recognized_lost_qty": block1_recognized_lost_qty,
             "block1_recognized_lost_revenue": block1_recognized_lost_revenue,
+            "block1_demand_coverage": _demand_coverage(sold_sum, block1_recognized_lost_qty),
+            "demand_coverage": _demand_coverage(sold_sum, kratnost_recognized_lost_qty),
             "forecast_coverage": coverage_sku_eligible / coverage_sku_total if coverage_sku_total > 0 else _maybe_float(kpi.get("forecast_coverage")),
             "coverage_eligible": n_eligible,
             "coverage_total": int(kpi.get("rows_total") or 0),
@@ -321,10 +457,28 @@ class PilotManagementService:
             "has_dq_issues": d1_count > 0,
         }
 
-    def get_bakery_list(self, category: str | None = None) -> list[dict]:
-        """Bakery-level KPIs sorted by execution rate ascending (worst first)."""
+    def get_bakery_list(
+        self,
+        category: str | None = None,
+        regional_director: str | None = None,
+        partner: str | None = None,
+        bakery_id: int | str | None = None,
+        product_id: int | str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        """Bakery-level KPIs sorted by demand coverage ascending (worst first)."""
         detail = self._load("detail")
-        detail = self._filter_cat(detail, category)
+        detail = self._apply_filters(
+            detail,
+            category=category,
+            regional_director=regional_director,
+            partner=partner,
+            bakery_id=bakery_id,
+            product_id=product_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
         if detail.empty:
             return []
         rows = []
@@ -334,6 +488,7 @@ class PilotManagementService:
             wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
             actual_rev = float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum()) if "price" in grp.columns else None
             km = self._kratnost_metrics(grp)
+            sold_sum = float(grp["sold_qty"].clip(lower=0).sum())
             name = (
                 grp["bakery_name"].dropna().iloc[0]
                 if "bakery_name" in grp.columns and grp["bakery_name"].notna().any()
@@ -342,18 +497,18 @@ class PilotManagementService:
             rows.append({
                 "bakery_id": int(bakery_id),
                 "bakery_name": str(name),
-                "wape": wape,
                 "execution_rate": km["kratnost_execution_rate"],
+                "demand_coverage": _demand_coverage(sold_sum, km["kratnost_recognized_lost_qty"]),
                 "actual_revenue": actual_rev,
                 "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
                 "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
             })
-        return sorted(rows, key=lambda r: r["execution_rate"] or 0)
+        return sorted(rows, key=lambda r: r["demand_coverage"] or 0)
 
-    def get_bakery_detail(self, bakery_id: int) -> dict | None:
+    def get_bakery_detail(self, bakery_id: int, **filter_kwargs) -> dict | None:
         """Single bakery KPI row, or None if not found."""
         return next(
-            (r for r in self.get_bakery_list() if r["bakery_id"] == bakery_id),
+            (r for r in self.get_bakery_list(**filter_kwargs) if r["bakery_id"] == bakery_id),
             None,
         )
 
@@ -422,6 +577,7 @@ class PilotManagementService:
             coverage_sku_eligible = int(
                 detail.loc[detail["eligible_forecast_summary"].astype(bool), "product_id"].nunique()
             )
+        sold_sum = float(detail["sold_qty"].clip(lower=0).sum()) if "sold_qty" in detail.columns else 0.0
         return {
             "bakery_id": bakery_id,
             "bakery_name": str(name),
@@ -434,6 +590,8 @@ class PilotManagementService:
             "block1_lost_revenue": block1_lost_revenue,
             "block1_recognized_lost_qty": block1_recognized_lost_qty,
             "block1_recognized_lost_revenue": block1_recognized_lost_revenue,
+            "block1_demand_coverage": _demand_coverage(sold_sum, block1_recognized_lost_qty),
+            "demand_coverage": _demand_coverage(sold_sum, km["kratnost_recognized_lost_qty"]),
             "kratnost_execution_rate": km["kratnost_execution_rate"],
             "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
             "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
@@ -462,23 +620,28 @@ class PilotManagementService:
             wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
             actual_rev = float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum()) if "price" in grp.columns else None
             km = self._kratnost_metrics(grp)
+            sold_sum = float(grp["sold_qty"].clip(lower=0).sum()) if "sold_qty" in grp.columns else 0.0
             rows.append({
                 "week_start": str(week_start),
                 "wape": wape,
+                "demand_coverage": _demand_coverage(sold_sum, km["kratnost_recognized_lost_qty"]),
                 "execution_rate": km["kratnost_execution_rate"],
                 "actual_revenue": actual_rev,
                 "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
                 "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
                 "wape_delta": None,
                 "exec_delta": None,
+                "coverage_delta": None,
             })
         rows.sort(key=lambda r: r["week_start"])
         if rows:
             base_wape = rows[0]["wape"]
             base_exec = rows[0]["execution_rate"]
+            base_cov = rows[0]["demand_coverage"]
             for r in rows:
                 r["wape_delta"] = (r["wape"] - base_wape) if (r["wape"] is not None and base_wape is not None) else None
                 r["exec_delta"] = (r["execution_rate"] - base_exec) if (r["execution_rate"] is not None and base_exec is not None) else None
+                r["coverage_delta"] = (r["demand_coverage"] - base_cov) if (r["demand_coverage"] is not None and base_cov is not None) else None
         return rows
 
     def get_sku_list(self, bakery_id: int, category: str | None = None) -> list[dict]:
@@ -492,21 +655,8 @@ class PilotManagementService:
             return []
         rows = []
         for product_id, sku_group in group.groupby("product_id"):
-            eligible = sku_group[sku_group["eligible_forecast_summary"].astype(bool)]
-            error = eligible["forecast_qty"] - eligible["demand_qty"]
-            demand = float(eligible["demand_qty"].sum())
-            wape = float(error.abs().sum() / demand) if demand > 0 else None
-            bias = float(error.sum() / demand) if demand > 0 else None
-            exec_eligible = sku_group[sku_group["eligible_execution"].astype(bool)]
-            plan = float(exec_eligible["plan_qty"].sum())
-            exec_error = exec_eligible["produced_qty"] - exec_eligible["plan_qty"]
-            exec_wape = float(exec_error.abs().sum() / plan) if plan > 0 else None
-            exec_bias = float(exec_error.sum() / plan) if plan > 0 else None
-            has_blocking = (
-                sku_group["blocking_flags"].ne("()").any()
-                if "blocking_flags" in sku_group.columns
-                else False
-            )
+            km = self._kratnost_metrics(sku_group)
+            sold_sum = float(sku_group["sold_qty"].clip(lower=0).sum())
             pname = (
                 sku_group["product_name"].dropna().iloc[0]
                 if "product_name" in sku_group.columns
@@ -516,17 +666,12 @@ class PilotManagementService:
             rows.append({
                 "product_id": int(product_id),
                 "product_name": pname,
-                "eligible_days": int(eligible["business_date"].nunique()),
-                "total_days": int(sku_group["business_date"].nunique()),
-                "demand_qty": demand,
-                "sold_qty": float(sku_group["sold_qty"].clip(lower=0).sum()),
-                "wape": wape,
-                "bias": bias,
-                "exec_wape": exec_wape,
-                "exec_bias": exec_bias,
-                "has_blocking": bool(has_blocking),
+                "execution_rate": km["kratnost_execution_rate"],
+                "demand_coverage": _demand_coverage(sold_sum, km["kratnost_recognized_lost_qty"]),
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
             })
-        return sorted(rows, key=lambda r: r["demand_qty"], reverse=True)
+        return sorted(rows, key=lambda r: r["demand_coverage"] if r["demand_coverage"] is not None else 0)
 
     def get_day_list(self, bakery_id: int, product_id: int) -> list[dict]:
         """Day-level rows for a single bakery × SKU, sorted by date."""
@@ -674,10 +819,28 @@ class PilotManagementService:
         present = [c for c in cols if c in day.columns]
         return day[present].to_dict("records")
 
-    def get_week_trend(self, category: str | None = None) -> list[dict]:
+    def get_week_trend(
+        self,
+        category: str | None = None,
+        regional_director: str | None = None,
+        partner: str | None = None,
+        bakery_id: int | str | None = None,
+        product_id: int | str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
         """Weekly KPI rows computed from detail, oldest first, with trend vs first week."""
         detail = self._load("detail")
-        detail = self._filter_cat(detail, category)
+        detail = self._apply_filters(
+            detail,
+            category=category,
+            regional_director=regional_director,
+            partner=partner,
+            bakery_id=bakery_id,
+            product_id=product_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
         if detail.empty:
             return []
         detail = detail.copy()
@@ -692,52 +855,140 @@ class PilotManagementService:
             wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
             actual_rev = float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum()) if "price" in grp.columns else None
             km = self._kratnost_metrics(grp)
+            sold_sum = float(grp["sold_qty"].clip(lower=0).sum()) if "sold_qty" in grp.columns else 0.0
+            coverage_sku_total = int(grp["product_id"].nunique()) if "product_id" in grp.columns else 0
+            coverage_sku_eligible = (
+                int(grp.loc[grp["eligible_forecast_summary"].astype(bool), "product_id"].nunique())
+                if "product_id" in grp.columns and "eligible_forecast_summary" in grp.columns
+                else 0
+            )
             rows.append({
                 "week_start": str(week_start),
                 "wape": wape,
+                "demand_coverage": _demand_coverage(sold_sum, km["kratnost_recognized_lost_qty"]),
                 "execution_rate": km["kratnost_execution_rate"],
                 "actual_revenue": actual_rev,
                 "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
                 "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
+                "coverage_sku_eligible": coverage_sku_eligible,
+                "coverage_sku_total": coverage_sku_total,
+                "forecast_coverage": coverage_sku_eligible / coverage_sku_total if coverage_sku_total > 0 else None,
                 "wape_delta": None,
                 "exec_delta": None,
+                "coverage_delta": None,
             })
         rows.sort(key=lambda r: r["week_start"])
         if rows:
             base_wape = rows[0]["wape"]
             base_exec = rows[0]["execution_rate"]
+            base_cov = rows[0]["demand_coverage"]
             for r in rows:
                 r["wape_delta"] = (r["wape"] - base_wape) if (r["wape"] is not None and base_wape is not None) else None
                 r["exec_delta"] = (r["execution_rate"] - base_exec) if (r["execution_rate"] is not None and base_exec is not None) else None
+                r["coverage_delta"] = (r["demand_coverage"] - base_cov) if (r["demand_coverage"] is not None and base_cov is not None) else None
         return rows
 
-    def get_sku_summary(self, category: str | None = None) -> list[dict]:
-        """Per-SKU KPIs across all pilot bakeries, sorted by execution rate ascending."""
+    def get_sku_summary(
+        self,
+        category: str | None = None,
+        regional_director: str | None = None,
+        partner: str | None = None,
+        bakery_id: int | str | None = None,
+        product_id: int | str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        """Per-SKU KPIs across all pilot bakeries, sorted by demand coverage ascending."""
         detail = self._load("detail")
-        detail = self._filter_cat(detail, category)
+        detail = self._apply_filters(
+            detail,
+            category=category,
+            regional_director=regional_director,
+            partner=partner,
+            bakery_id=bakery_id,
+            product_id=product_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
         if detail.empty:
             return []
         rows = []
-        for product_id, grp in detail.groupby("product_id"):
-            elig = grp[grp["eligible_forecast_summary"].astype(bool)]
-            demand_sum = float(elig["demand_qty"].sum()) if "demand_qty" in elig.columns else 0.0
-            wape = float((elig["forecast_qty"] - elig["demand_qty"]).abs().sum() / demand_sum) if demand_sum > 0 else None
+        for pid, grp in detail.groupby("product_id"):
             km = self._kratnost_metrics(grp)
+            sold_sum = float(grp["sold_qty"].clip(lower=0).sum())
             name = (
                 grp["product_name"].dropna().iloc[0]
                 if "product_name" in grp.columns and grp["product_name"].notna().any()
                 else None
             )
+            actual_rev = (
+                float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum())
+                if "price" in grp.columns else None
+            )
+            if "eligible_forecast_summary" in grp.columns and "business_date" in grp.columns:
+                total_days = int(grp["business_date"].nunique())
+                eligible_days = int(grp.loc[grp["eligible_forecast_summary"].astype(bool), "business_date"].nunique())
+                forecast_coverage = eligible_days / total_days if total_days > 0 else None
+            else:
+                forecast_coverage = None
+                eligible_days = 0
+                total_days = 0
             rows.append({
-                "product_id": int(product_id),
-                "product_name": str(name) if name else f"SKU {product_id}",
-                "wape": wape,
+                "product_id": int(pid),
+                "product_name": str(name) if name else f"SKU {pid}",
                 "execution_rate": km["kratnost_execution_rate"],
+                "demand_coverage": _demand_coverage(sold_sum, km["kratnost_recognized_lost_qty"]),
+                "actual_revenue": actual_rev,
                 "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
                 "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
-                "demand_qty": demand_sum,
+                "forecast_coverage": forecast_coverage,
+                "eligible_days": eligible_days,
+                "total_days": total_days,
             })
-        return sorted(rows, key=lambda r: r["execution_rate"] or 0)
+        return sorted(rows, key=lambda r: r["demand_coverage"] or 0)
+
+    def get_regional_director_summary(
+        self,
+        category: str | None = None,
+        partner: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        """KPIs grouped by regional_director, sorted by demand_coverage ascending."""
+        detail = self._load("detail")
+        if detail.empty or "regional_director" not in detail.columns:
+            return []
+        detail = self._apply_filters(
+            detail,
+            category=category,
+            partner=partner,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        if detail.empty:
+            return []
+        rows = []
+        for director, grp in detail.groupby("regional_director", dropna=False):
+            if pd.isna(director):
+                continue
+            km = self._kratnost_metrics(grp)
+            sold_sum = float(grp["sold_qty"].clip(lower=0).sum())
+            actual_rev = (
+                float((grp["sold_qty"].clip(lower=0) * grp["price"].fillna(0)).sum())
+                if "price" in grp.columns
+                else None
+            )
+            bakery_count = int(grp["bakery_id"].nunique())
+            rows.append({
+                "regional_director": str(director),
+                "bakery_count": bakery_count,
+                "execution_rate": km["kratnost_execution_rate"],
+                "demand_coverage": _demand_coverage(sold_sum, km["kratnost_recognized_lost_qty"]),
+                "kratnost_recognized_lost_qty": km["kratnost_recognized_lost_qty"],
+                "kratnost_recognized_lost_revenue": km["kratnost_recognized_lost_revenue"],
+                "actual_revenue": actual_rev,
+            })
+        return sorted(rows, key=lambda r: r["demand_coverage"] or 0)
 
     def get_model_queue(
         self, tiers: tuple[str, ...] = ("M1",)

@@ -1,6 +1,77 @@
 # Current Project State
 
-Last updated: 2026-08-14
+Last updated: 2026-08-17
+
+## Pilot Access Control Deployed To Blackhole (2026-08-17)
+
+All pilot-management and pilot-config routes are now live on Blackhole
+(`82bb03a8-c356-4225-97a4-a1540cdc29e6`, `/opt/app`). Access was previously
+restricted to admins only; it is now granted to all directors, data analysts,
+and AI team members listed in `PILOT_USER_IDS`.
+
+**Access model:**
+
+- New `is_pilot_user` property in `app/auth.py`: `True` if `is_admin` or
+  `user_id in settings.pilot_user_ids`.
+- New `PILOT_USER_IDS` env var parsed in `app/settings.py` as
+  `frozenset[str]` from a comma-separated list.
+- All 5 pilot-management routes and 3 pilot-config routes now call
+  `_require_pilot_user(request)` instead of `_require_admin(request)`.
+
+**Users granted access (37 total):**
+25 directors (`Операционный директор`, `Директор региона`, `Директор
+города`, `Директор партнёр`, `Директор пекарни`), 10 data analysts and
+AI team members, 2 IT. `PILOT_USER_IDS` in `.env` lists their Bitrix24
+user IDs.
+
+**New files deployed (first-time):**
+
+- `/opt/app/app/routers/pilot_management.py` (8 564 bytes)
+- `/opt/app/app/routers/pilot_config.py` (3 296 bytes)
+- `/opt/app/app/templates/pilot_management.html`
+- `/opt/app/app/templates/pilot_bakery.html`
+- `/opt/app/app/templates/pilot_bakery_week.html`
+- `/opt/app/app/templates/pilot_sku.html`
+- `/opt/app/app/templates/pilot_config.html`
+- `/opt/src/pilot_management_service.py`
+- `/opt/src/pilot_config_service.py`
+
+**Updated files:** `main.py` (added pilot router imports), `auth.py`,
+`settings.py`, `db.py`, `templates/index.html`, `services/bakery.py`.
+
+**Side-effect install:** `python-multipart` (required by `Form` parameters
+in `pilot_config.py`) was not present in the venv — installed at deploy
+time; now matches `apps/forecast_embedded/requirements.txt`.
+
+**Post-deploy verification:**
+
+- `app.service`: `active`
+- `http://localhost:3000/health`: `{"ok":true,"app_env":"prod","table_suffix":""}`
+- All 10 pilot routes registered:
+  `/pilot`, `/pilot/`, `/pilot/bakery/{bakery_id}`,
+  `/pilot/bakery/{bakery_id}/week/{week_start}`,
+  `/pilot/bakery/{bakery_id}/week/{week_start}/day/{date}/export`,
+  `/pilot/bakery/{bakery_id}/sku/{product_id}`,
+  `/pilot/config`, `/pilot/config/`,
+  `/pilot/config/bakery/{bakery_id}/add`,
+  `/pilot/config/bakery/{bakery_id}/exclude`
+- `PILOT_USER_IDS` and `PILOT_REPORT_DIR=/opt/reports/pilot_management_summary`
+  confirmed in `/opt/app/.env`.
+
+**Backup:** `/opt/app/app_backup_20260817_170226`
+
+**Rollback:**
+
+```bash
+cp -r /opt/app/app_backup_20260817_170226 /opt/app/app
+systemctl restart app.service
+# also remove PILOT_USER_IDS and PILOT_REPORT_DIR from /opt/app/.env
+```
+
+**Note on pilot report dir:** `/opt/reports/pilot_management_summary/` was
+created on the server. It is currently empty — the `PilotManagementService`
+reads pre-built CSVs from this path. Reports need to be generated and placed
+there before the `/pilot` statistics page will show data.
 
 ## Publisher Migrated From mart To fct Tables (2026-08-14)
 

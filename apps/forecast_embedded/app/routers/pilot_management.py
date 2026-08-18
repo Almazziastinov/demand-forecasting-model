@@ -41,10 +41,10 @@ def _get_service() -> PilotManagementService:
     return PilotManagementService(report_dir)
 
 
-def _require_pilot_user(request: Request) -> None:
+def _require_admin(request: Request) -> None:
     auth = get_auth_context(request)
-    if not auth.is_pilot_user:
-        raise HTTPException(status_code=403, detail="Управленческая аналитика доступна только директорам, аналитикам и администраторам")
+    if not auth.is_admin:
+        raise HTTPException(status_code=403, detail="Управленческая аналитика доступна только администраторам")
 
 
 @router.get("", response_class=HTMLResponse)
@@ -52,12 +52,27 @@ def _require_pilot_user(request: Request) -> None:
 def pilot_summary(
     request: Request,
     category: str | None = Query(default=None),
+    regional_director: str | None = Query(default=None),
+    partner: str | None = Query(default=None),
+    bakery_id: int | None = Query(default=None),
+    product_id: int | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
 ) -> HTMLResponse:
     """Pilot summary: company-level KPIs, bakery table, SKU table."""
-    _require_pilot_user(request)
+    _require_admin(request)
     auth = get_auth_context(request)
     svc = _get_service()
-    summary = svc.get_pilot_summary(category=category)
+    filter_kwargs = {
+        "category": category,
+        "regional_director": regional_director,
+        "partner": partner,
+        "bakery_id": bakery_id,
+        "product_id": product_id,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+    summary = svc.get_pilot_summary(**filter_kwargs)
     if not summary:
         raise HTTPException(status_code=404, detail="Отчёт не найден. Запустите build_pilot_management_summary.py")
     return templates.TemplateResponse(
@@ -67,11 +82,24 @@ def pilot_summary(
             "auth": auth,
             "is_admin": auth.is_admin,
             "summary": summary,
-            "bakeries": svc.get_bakery_list(category=category),
-            "week_trend": svc.get_week_trend(category=category),
-            "sku_summary": svc.get_sku_summary(category=category),
+            "bakeries": svc.get_bakery_list(**filter_kwargs),
+            "week_trend": svc.get_week_trend(**filter_kwargs),
+            "sku_summary": svc.get_sku_summary(**filter_kwargs),
+            "regional_directors": svc.get_regional_director_summary(
+                category=category, partner=partner, date_from=date_from, date_to=date_to
+            ),
             "categories": svc.get_available_categories(),
+            "filter_regional_directors": svc.get_available_regional_directors(),
+            "filter_partners": svc.get_available_partners(),
+            "filter_bakery_names": svc.get_available_bakery_names(),
+            "filter_products": svc.get_available_products(),
             "selected_category": category,
+            "selected_regional_director": regional_director,
+            "selected_partner": partner,
+            "selected_bakery_id": bakery_id,
+            "selected_product_id": product_id,
+            "selected_date_from": date_from,
+            "selected_date_to": date_to,
             "dq": svc.get_dq_summary(),
             "pct": _pct,
         },
@@ -85,7 +113,7 @@ def pilot_bakery(
     category: str | None = Query(default=None),
 ) -> HTMLResponse:
     """Bakery drill-down: KPIs, week trend, category filter, SKU table."""
-    _require_pilot_user(request)
+    _require_admin(request)
     auth = get_auth_context(request)
     svc = _get_service()
     bakery = svc.get_bakery_kpi(bakery_id, category=category)
@@ -116,7 +144,7 @@ def pilot_bakery_week(
     category: str | None = Query(default=None),
 ) -> HTMLResponse:
     """Week drill-down: day-by-day table + SKU summary for the week."""
-    _require_pilot_user(request)
+    _require_admin(request)
     auth = get_auth_context(request)
     svc = _get_service()
     bakery = svc.get_bakery_kpi(bakery_id, category=category)
@@ -153,7 +181,7 @@ def pilot_day_export(
     """Export one day's SKU data as Excel."""
     import pandas as pd
 
-    _require_pilot_user(request)
+    _require_admin(request)
     svc = _get_service()
     bakery = svc.get_bakery_kpi(bakery_id)
     if not bakery:
@@ -199,7 +227,7 @@ def pilot_day_export(
 @router.get("/bakery/{bakery_id}/sku/{product_id}", response_class=HTMLResponse)
 def pilot_sku(request: Request, bakery_id: int, product_id: int) -> HTMLResponse:
     """SKU timeline: day-by-day forecast vs plan vs actual."""
-    _require_pilot_user(request)
+    _require_admin(request)
     auth = get_auth_context(request)
     svc = _get_service()
     bakery = svc.get_bakery_detail(bakery_id)

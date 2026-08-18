@@ -35,7 +35,11 @@ from src.pilot_product_scope import (  # noqa: E402
     resolve_product_name,
 )
 
-PILOT_IDS = (20, 21, 22, 28, 80, 89, 107, 221, 222, 257)
+PILOT_IDS = (
+    1, 3, 12, 13, 14, 20, 21, 22, 26, 27, 28, 39, 41, 56, 57, 66, 67, 69,
+    80, 89, 99, 107, 113, 125, 149, 153, 155, 160, 191, 221, 222, 229, 230,
+    246, 257, 260, 268, 270,
+)
 SCOPE_CATEGORIES = (
     "Пироги сытные",
     "Пироги сладкие",
@@ -43,7 +47,7 @@ SCOPE_CATEGORIES = (
     "Выпечка сладкая",
     "Фастфуд",
 )
-SCOPE_VERSION = "base_pilot_10_v1"
+SCOPE_VERSION = "pilot_38_v1"
 METRIC_VERSION = "pilot_management_v1"
 FORECAST_RELIABILITY_VERSION = "forecast_reliability_v1"
 OUTPUT_DIR = ROOT / "reports" / "pilot_management_summary"
@@ -128,7 +132,12 @@ def select_coherent_lead1(
     *,
     scope_bakery_ids: tuple[int, ...] = PILOT_IDS,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Select one pre-06:00 run covering the entire scope for each date."""
+    """Select one pre-08:00 run covering the entire scope for each date.
+
+    VM forecast-production.timer fires at 03:30 UTC (06:30 MSK) and publishes
+    to ClickHouse by ~06:40 MSK. Cutoff is 08:00 MSK so nightly runs land
+    inside the window while ad-hoc afternoon reruns are excluded.
+    """
 
     required = {
         "date",
@@ -149,7 +158,7 @@ def select_coherent_lead1(
     for business_date, group in work.groupby("date"):
         cutoff = pd.Timestamp(business_date).tz_localize(
             "Europe/Moscow"
-        ) + pd.Timedelta(hours=6)
+        ) + pd.Timedelta(hours=8)
         generated = group["generated_at"]
         generated = (
             generated.dt.tz_localize("Europe/Moscow")
@@ -320,17 +329,15 @@ def build_detail(
             )
         )
     detail = pd.DataFrame(asdict(row) for row in rows)
-    if plan_columns:
+    name_columns = [
+        column
+        for column in ("bakery_name", "product_name", "fact_category_name")
+        if column in merged.columns
+    ]
+    extra_columns = name_columns + plan_columns
+    if extra_columns:
         detail = detail.merge(
-            merged[
-                keys
-                + [
-                    column
-                    for column in ("bakery_name", "product_name", "fact_category_name")
-                    if column in merged.columns
-                ]
-                + plan_columns
-            ],
+            merged[keys + extra_columns],
             left_on=["business_date", "bakery_id", "product_id"],
             right_on=keys,
             how="left",
@@ -421,10 +428,12 @@ def _kpi(group: pd.DataFrame) -> dict[str, object]:
     return result
 
 
-def build_kpis(detail: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def build_kpis(
+    detail: pd.DataFrame, scope_version: str = SCOPE_VERSION
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if detail.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    company = pd.DataFrame([{"scope_version": SCOPE_VERSION, **_kpi(detail)}])
+    company = pd.DataFrame([{"scope_version": scope_version, **_kpi(detail)}])
     bakery_rows = []
     for bakery_id, group in detail.groupby("bakery_id"):
         bakery_rows.append({"bakery_id": int(bakery_id), **_kpi(group)})
@@ -1140,29 +1149,136 @@ def build_coverage_diagnostics(detail: pd.DataFrame) -> pd.DataFrame:
 SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
 
 
-def extract_clickhouse(
-    client, date_from: date, date_to: date
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def build_weekly_analytics_all(client, date_from: date, date_to: date) -> pd.DataFrame:
+    """Build weekly analytics for ALL bakeries and ALL categories.
+
+    Used by the embedded app's main forecast page for per-bakery weekly dynamics.
+    Written to weekly_analytics_all.csv regardless of --scope.
+    """
     params = {
         "date_from": date_from,
         "date_to": date_to,
-        "bakery_ids": PILOT_IDS,
+        "sales_event_hex": SALES_EVENT_HEX,
+    }
+    df = client.query_df(
+        """
+        with
+        check_lines_dedup as (
+            select
+                check_date,
+                toInt64(bakery_id)                                          as bakery_id,
+                argMax(toFloat64(quantity),         _updated_at)            as quantity,
+                argMax(ifNull(toFloat64(line_amount), 0), _updated_at)     as line_amount
+            from Svezhar.fct_check_lines
+            where check_date between %(date_from)s and %(date_to)s
+              and hex(cash_event_type) = %(sales_event_hex)s
+            group by check_date, check_id, line_id, bakery_id
+        ),
+        sales as (
+            select
+                toMonday(check_date)   as week_start,
+                bakery_id,
+                sum(quantity)          as actual_qty,
+                sum(line_amount)       as actual_revenue
+            from check_lines_dedup
+            group by week_start, bakery_id
+        ),
+        mart as (
+            select
+                toMonday(dt)        as week_start,
+                toInt64(bakery_id)  as bakery_id,
+                sum(qty_produced)   as total_produced,
+                sum(qty_sold)       as total_sold_mart
+            from Svezhar.mart_zero_sales_60d
+            where dt between %(date_from)s and %(date_to)s
+            group by week_start, bakery_id
+        ),
+        fcst as (
+            select
+                toMonday(forecast_date) as week_start,
+                toInt64(bakery_id)      as bakery_id,
+                sum(forecast_qty)       as total_forecast
+            from Svezhar.sku_forecast_day_snapshots
+            where lead_days = 1
+              and forecast_date between %(date_from)s and %(date_to)s
+            group by week_start, bakery_id
+        )
+        select
+            s.week_start  as week_start,
+            s.bakery_id   as bakery_id,
+            s.actual_qty  as actual_qty,
+            s.actual_revenue as actual_revenue,
+            ifNull(m.total_produced, 0)   as total_produced,
+            ifNull(m.total_sold_mart, 0)  as total_sold_mart,
+            ifNull(f.total_forecast, 0)   as total_forecast
+        from sales s
+        left join mart m on m.week_start = s.week_start and m.bakery_id = s.bakery_id
+        left join fcst f on f.week_start = s.week_start and f.bakery_id = s.bakery_id
+        order by s.bakery_id, s.week_start
+        """,
+        parameters=params,
+    )
+    if df.empty:
+        return df
+    for col in ("total_produced", "total_sold_mart", "total_forecast"):
+        if col not in df.columns:
+            df[col] = 0.0
+    produced = df["total_produced"].fillna(0).astype(float)
+    sold_mart = df["total_sold_mart"].fillna(0).astype(float)
+    forecast = df["total_forecast"].fillna(0).astype(float)
+    df["execution_rate"] = produced.where(forecast > 0) / forecast.where(forecast > 0)
+    denom = pd.concat([sold_mart, forecast], axis=1).max(axis=1)
+    df["demand_coverage"] = sold_mart.where(denom > 0) / denom.where(denom > 0)
+    actual_qty = df["actual_qty"].fillna(0).astype(float)
+    actual_revenue = df["actual_revenue"].fillna(0).astype(float)
+    avg_price = (actual_revenue / actual_qty).where(actual_qty > 0)
+    lost_qty = (forecast - sold_mart).clip(lower=0)
+    df["lost_revenue"] = (lost_qty * avg_price).where(avg_price.notna())
+    result = df[["bakery_id", "week_start", "actual_qty", "actual_revenue", "execution_rate", "demand_coverage", "lost_revenue"]].copy()
+    result["week_start"] = result["week_start"].astype(str).str[:10]
+    return result
+
+
+def extract_clickhouse(
+    client,
+    date_from: date,
+    date_to: date,
+    *,
+    bakery_ids: tuple[int, ...] | None = PILOT_IDS,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Extract forecast, facts, prices and store metadata from ClickHouse.
+
+    Pass ``bakery_ids=None`` to include all bakeries without an ID filter.
+    """
+    params: dict = {
+        "date_from": date_from,
+        "date_to": date_to,
         "categories": SCOPE_CATEGORIES,
         "sales_event_hex": SALES_EVENT_HEX,
     }
+    if bakery_ids is not None:
+        params["bakery_ids"] = bakery_ids
+        bakery_filter = "and toInt64(bakery_id) in %(bakery_ids)s"
+        stores_filter = "where toInt64(bakery_id) in %(bakery_ids)s"
+        stores_params = {"bakery_ids": bakery_ids}
+    else:
+        bakery_filter = ""
+        stores_filter = ""
+        stores_params = {}
+
     forecast = client.query_df(
-        """
+        f"""
         select forecast_date date, toInt64(bakery_id) bakery_id,
                toInt64(product_id) product_id, source_run_id, generated_at, forecast_qty
         from Svezhar.sku_forecast_day_snapshots
         where lead_days=1 and forecast_date between %(date_from)s and %(date_to)s
-          and toInt64(bakery_id) in %(bakery_ids)s
+          {bakery_filter}
           and category_name in %(categories)s
         """,
         parameters=params,
     )
     facts = client.query_df(
-        """
+        f"""
         select dt date, toInt64(bakery_id) bakery_id, any(bakery_name) bakery_name,
                toInt64(product_id) product_id, any(product_name) product_name,
                any(category_name) fact_category_name,
@@ -1172,28 +1288,37 @@ def extract_clickhouse(
                max(last_sale_time) last_sale_time
         from Svezhar.mart_zero_sales_60d
         where dt between %(date_from)s and %(date_to)s
-          and toInt64(bakery_id) in %(bakery_ids)s
+          {bakery_filter}
           and category_name in %(categories)s
         group by date, bakery_id, product_id
         """,
         parameters=params,
     )
     prices = client.query_df(
-        """
+        f"""
         select check_date as date,
                toInt64(bakery_id) as bakery_id,
                toInt64(product_id) as product_id,
                sumIf(toFloat64(line_amount), toFloat64(quantity) > 0) as revenue
         from Svezhar.fct_check_lines
         where check_date between %(date_from)s and %(date_to)s
-          and toInt64(bakery_id) in %(bakery_ids)s
+          {bakery_filter}
           and hex(cash_event_type) = %(sales_event_hex)s
         group by date, bakery_id, product_id
         having revenue > 0
         """,
         parameters=params,
     )
-    return forecast, facts, prices
+    stores = client.query_df(
+        f"""
+        select toInt64(bakery_id) bakery_id,
+               regional_director, partner, operational_director, city
+        from Svezhar.dim_stores
+        {stores_filter}
+        """,
+        parameters=stores_params,
+    )
+    return forecast, facts, prices, stores
 
 
 def main() -> None:
@@ -1202,19 +1327,49 @@ def main() -> None:
     parser.add_argument("--date-to", required=True, type=date.fromisoformat)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--plan-manifest", type=Path, default=DEFAULT_PLAN_MANIFEST)
+    parser.add_argument(
+        "--scope",
+        choices=["pilot_38", "all"],
+        default="pilot_38",
+        help="pilot_38 = 38 pilot bakeries (default); all = all active bakeries",
+    )
     args = parser.parse_args()
+
+    if args.scope == "all":
+        bakery_ids: tuple[int, ...] | None = None
+        scope_version = "all_bakeries_v1"
+    else:
+        bakery_ids = PILOT_IDS
+        scope_version = SCOPE_VERSION
+
     client = create_client(ROOT / ".env")
-    forecast, facts, prices = extract_clickhouse(client, args.date_from, args.date_to)
+    weekly_analytics = build_weekly_analytics_all(client, args.date_from, args.date_to)
+    forecast, facts, prices, stores = extract_clickhouse(
+        client, args.date_from, args.date_to, bakery_ids=bakery_ids
+    )
+    # derive actual bakery scope from facts so select_coherent_lead1 checks real coverage
+    actual_scope = (
+        tuple(int(x) for x in sorted(facts["bakery_id"].unique()))
+        if not facts.empty
+        else (bakery_ids or ())
+    )
     if args.plan_manifest.exists():
         archived, archive_exclusions = load_effective_plan_archive(
             args.plan_manifest, facts, date_to=args.date_to
         )
-        detail, exclusions = build_detail(archived, facts, plans_are_confirmed=True)
+        detail, exclusions = build_detail(
+            archived, facts, scope_bakery_ids=actual_scope, plans_are_confirmed=True
+        )
         exclusions = pd.concat([exclusions, archive_exclusions], ignore_index=True)
         forecast_source = "effective_bitrix_attachment"
     else:
-        detail, exclusions = build_detail(forecast, facts)
+        detail, exclusions = build_detail(
+            forecast, facts, scope_bakery_ids=actual_scope
+        )
         forecast_source = "snapshot_fallback"
+    if not stores.empty and not detail.empty:
+        stores_join = stores[["bakery_id", "regional_director", "partner", "operational_director", "city"]].drop_duplicates("bakery_id")
+        detail = detail.merge(stores_join, on="bakery_id", how="left")
     if not prices.empty and not detail.empty:
         prices_join = prices[["date", "bakery_id", "product_id", "revenue"]].copy()
         prices_join["date"] = prices_join["date"].astype(str).str[:10]
@@ -1227,7 +1382,7 @@ def main() -> None:
         # price = revenue / sold_qty so that sold_qty * price = actual revenue from check_lines
         sold = detail["sold_qty"].clip(lower=0)
         detail["price"] = detail["revenue"] / sold.where(sold > 0)
-    company, bakery, week = build_kpis(detail)
+    company, bakery, week = build_kpis(detail, scope_version=scope_version)
     bakery_ranking, sku_priority, bakery_sku_priority, daily_trend = (
         build_rankings(detail)
         if not detail.empty
@@ -1251,6 +1406,7 @@ def main() -> None:
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, frame in (
+        ("weekly_analytics_all", weekly_analytics),
         ("detail", detail),
         ("company_kpi", company),
         ("bakery_kpi", bakery),
@@ -1270,7 +1426,7 @@ def main() -> None:
     payload = {
         "date_from": args.date_from.isoformat(),
         "date_to": args.date_to.isoformat(),
-        "scope_version": SCOPE_VERSION,
+        "scope_version": scope_version,
         "metric_version": METRIC_VERSION,
         "forecast_source": forecast_source,
         "company": company.to_dict("records"),

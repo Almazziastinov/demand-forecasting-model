@@ -22,8 +22,8 @@
     {% if auth %}
     <nav style="display:flex; gap:0.5rem; align-items:center;">
       <a href="/" style="padding:0.3rem 0.9rem; border-radius:6px; border:1.5px solid var(--accent,#3b82f6); color:var(--accent,#3b82f6); text-decoration:none; font-size:0.82rem; font-weight:600; white-space:nowrap;">Прогноз</a>
-      {% if is_admin %}<a href="/pilot" style="padding:0.3rem 0.9rem; border-radius:6px; border:1.5px solid var(--accent,#3b82f6); color:var(--accent,#3b82f6); text-decoration:none; font-size:0.82rem; font-weight:600; white-space:nowrap;">Статистика</a>{% endif %}
-      {% if is_admin %}<a href="/pilot/config" style="padding:0.3rem 0.9rem; border-radius:6px; border:1.5px solid var(--accent,#3b82f6); color:var(--accent,#3b82f6); text-decoration:none; font-size:0.82rem; font-weight:600; white-space:nowrap;">Пилот</a>{% endif %}
+      {% if auth.is_pilot_user %}<a href="/pilot" style="padding:0.3rem 0.9rem; border-radius:6px; border:1.5px solid var(--accent,#3b82f6); color:var(--accent,#3b82f6); text-decoration:none; font-size:0.82rem; font-weight:600; white-space:nowrap;">Статистика</a>{% endif %}
+      {% if auth.is_pilot_user %}<a href="/pilot/config" style="padding:0.3rem 0.9rem; border-radius:6px; border:1.5px solid var(--accent,#3b82f6); color:var(--accent,#3b82f6); text-decoration:none; font-size:0.82rem; font-weight:600; white-space:nowrap;">Пилот</a>{% endif %}
     </nav>
     <div class="user-pill">
       <span>{{ auth.display_name or "Пользователь" }}</span>

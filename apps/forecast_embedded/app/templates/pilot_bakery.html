@@ -53,10 +53,7 @@
   {# ── Block 1: Прогноз ── #}
   <div style="margin-bottom: 1rem;">
     {{ block_header("Прогноз", "— сравнение с спросом без учёта кратности") }}
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-      {{ kpi_card("Точность (WAPE)", pct(bakery.wape) if bakery.wape is not none else "нет данных") }}
-      {{ kpi_card("Смещение прогноза",
-          (('+' if bakery.bias > 0 else '') ~ pct(bakery.bias)) if bakery.bias is not none else "—") }}
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
       <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
         <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">Упущ. спрос</div>
         <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">от прогноза</div>
@@ -67,6 +64,8 @@
       </div>
       {{ kpi_card("Выполнение плана",
           pct(bakery.execution_rate) if bakery.execution_rate is not none else "нет данных") }}
+      {{ kpi_card("Покрытие спроса",
+          pct(bakery.block1_demand_coverage) if bakery.block1_demand_coverage is not none else "нет данных") }}
     </div>
   </div>
 
@@ -81,9 +80,8 @@
       </div>
       {{ kpi_card("Выполнение плана",
           pct(bakery.kratnost_execution_rate) if bakery.kratnost_execution_rate is not none else "нет данных") }}
-      {{ kpi_card("Покрытие ассортимента",
-          (bakery.coverage_sku_eligible | string ~ " из " ~ bakery.coverage_sku_total | string ~ " SKU"),
-          pct(bakery.forecast_coverage)) }}
+      {{ kpi_card("Покрытие спроса",
+          pct(bakery.demand_coverage) if bakery.demand_coverage is not none else "нет данных") }}
     </div>
   </div>
 
@@ -110,7 +108,7 @@
       <thead>
         <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
           <th style="padding: 0.4rem 0.75rem;">Неделя с</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Точность</th>
+          <th style="padding: 0.4rem 0.75rem; text-align: right;">Покрытие спроса</th>
           <th style="padding: 0.4rem 0.75rem; text-align: right;">Выполнение</th>
           <th style="padding: 0.4rem 0.75rem; text-align: right;">Выручка</th>
           <th style="padding: 0.4rem 0.75rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
@@ -125,7 +123,10 @@
             <a href="/pilot/bakery/{{ bakery.bakery_id }}/week/{{ w.week_start }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
                style="color: var(--accent, #3b82f6);">{{ w.week_start }}</a>
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(w.wape) if w.wape is not none else "—" }}</td>
+          <td style="padding: 0.4rem 0.75rem; text-align: right;
+              color: {{ '#c00' if (w.demand_coverage is not none and w.demand_coverage < 0.85) else ('#c77700' if (w.demand_coverage is not none and w.demand_coverage < 0.95) else 'inherit') }};">
+            {{ pct(w.demand_coverage) if w.demand_coverage is not none else "—" }}
+          </td>
           <td style="padding: 0.4rem 0.75rem; text-align: right;
               color: {{ '#c00' if (w.execution_rate is not none and w.execution_rate < 0.85) else ('#c77700' if (w.execution_rate is not none and w.execution_rate < 0.95) else 'inherit') }};">
             {{ pct(w.execution_rate) if w.execution_rate is not none else "—" }}
@@ -158,40 +159,40 @@
   {% endif %}
 
   {# ── SKU table ── #}
-  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">SKU ({{ skus | length }}) — по объёму спроса</h2>
+  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">SKU ({{ skus | length }}) — от худшего выполнения</h2>
   {% if skus %}
   <div style="overflow-x: auto; margin-bottom: 2rem;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
       <thead>
         <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
-          <th style="padding: 0.4rem 0.75rem;">SKU</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Дни</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Спрос, шт</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Точность</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Смещение</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">WAPE исполн.</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: center;">DQ</th>
+          <th style="padding: 0.35rem 0.6rem;">SKU</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Выполнение плана</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Покрытие спроса</th>
+          <th style="padding: 0.35rem 0.6rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
         </tr>
       </thead>
       <tbody>
         {% for s in skus %}
         <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.4rem 0.75rem;">
+          <td style="padding: 0.35rem 0.6rem;">
             <a href="/pilot/bakery/{{ bakery.bakery_id }}/sku/{{ s.product_id }}" style="color: var(--accent, #3b82f6);">
               {{ s.product_name or s.product_id }}
             </a>
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; color: var(--text-secondary, #888);">
-            {{ s.eligible_days }}/{{ s.total_days }}
+          <td style="padding: 0.35rem 0.6rem; text-align: right;
+              color: {{ '#c00' if (s.execution_rate is not none and s.execution_rate < 0.85) else ('#c77700' if (s.execution_rate is not none and s.execution_rate < 0.95) else 'inherit') }};">
+            {{ pct(s.execution_rate) if s.execution_rate is not none else "—" }}
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ s.demand_qty | round(0) | int if s.demand_qty else "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;
-              color: {{ '#c00' if s.wape is not none and s.wape > 0.35 else ('#c77700' if s.wape is not none and s.wape > 0.20 else 'inherit') }};">
-            {{ pct(s.wape) if s.wape is not none else "—" }}
+          <td style="padding: 0.35rem 0.6rem; text-align: right;
+              color: {{ '#c00' if (s.demand_coverage is not none and s.demand_coverage < 0.85) else ('#c77700' if (s.demand_coverage is not none and s.demand_coverage < 0.95) else 'inherit') }};">
+            {{ pct(s.demand_coverage) if s.demand_coverage is not none else "—" }}
           </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.bias) if s.bias is not none else "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;">{{ pct(s.exec_wape) if s.exec_wape is not none else "—" }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: center;">{{ "⛔" if s.has_blocking else "" }}</td>
+          <td style="padding: 0.35rem 0.6rem; text-align: right; white-space: nowrap;">
+            {% if s.kratnost_recognized_lost_qty is not none %}
+              {{ s.kratnost_recognized_lost_qty | round(0) | int }} шт
+              {% if s.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(s.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
+            {% else %}—{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

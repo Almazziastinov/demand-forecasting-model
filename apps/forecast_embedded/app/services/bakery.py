@@ -1218,22 +1218,53 @@ def get_production_qty(
 
 
 def get_weekly_analytics(bakery_id: int, auth: AuthContext, weeks: int = 8) -> list[dict]:
-    """Returns week-over-week actual qty + revenue for a bakery (last N weeks)."""
+    """Returns week-over-week actual qty + revenue + forecast coverage + lost sales."""
     client = get_client()
     access_sql, access_params = _access_filter(auth, "toInt64OrNull(toString(fcl.bakery_id))")
     query = """
+        with daily_actuals as (
+            select
+                fcl.check_date as day,
+                sum(toFloat64(fcl.quantity)) as actual_qty,
+                sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
+            from {sales_source} fcl
+            where toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s
+              and fcl.check_date >= today() - %(days_back)s
+              {access_sql}
+            group by day
+        ),
+        daily_forecasts as (
+            select
+                forecast_date as day,
+                argMax(forecast_final, generated_at) as forecast_final
+            from {snapshot_table}
+            where bakery_id = %(bakery_id)s
+              and lead_days = 1
+              and forecast_date >= today() - %(days_back)s
+            group by forecast_date
+        ),
+        daily as (
+            select
+                a.day,
+                a.actual_qty,
+                a.actual_revenue,
+                f.forecast_final,
+                greatest(0.0, ifNull(f.forecast_final, 0.0) - a.actual_qty) as daily_lost
+            from daily_actuals a
+            left join daily_forecasts f on f.day = a.day
+        )
         select
-            toMonday(fcl.check_date) as week_start,
-            sum(toFloat64(fcl.quantity)) as actual_qty,
-            sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
-        from {sales_source} fcl
-        where toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s
-          and fcl.check_date >= today() - %(days_back)s
-          {access_sql}
+            toMonday(day) as week_start,
+            sum(actual_qty) as actual_qty,
+            sum(actual_revenue) as actual_revenue,
+            sum(ifNull(forecast_final, 0)) as forecast_qty,
+            sum(daily_lost) as lost_sales
+        from daily
         group by week_start
         order by week_start
         """.format(
         sales_source=_raw_sales_source("fcl.check_date >= today() - %(days_back)s"),
+        snapshot_table=BAKERY_DAY_SNAPSHOT_TABLE,
         access_sql=access_sql,
     )
     df = client.query_df(
@@ -1252,6 +1283,9 @@ def get_weekly_analytics(bakery_id: int, auth: AuthContext, weeks: int = 8) -> l
             row["revenue_wow"] = (row["actual_revenue"] - prev_revenue) / prev_revenue
         else:
             row["revenue_wow"] = None
+        aq = row.get("actual_qty") or 0
+        ls = row.get("lost_sales") or 0
+        row["coverage"] = aq / (aq + ls) if (aq + ls) > 0 else None
     return rows
 
 

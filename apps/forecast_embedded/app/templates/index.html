@@ -154,7 +154,9 @@
           <th style="padding:0.4rem 0.75rem 0.4rem 0;">Неделя с</th>
           <th style="padding:0.4rem 0.75rem;text-align:right;">Выручка, ₽</th>
           <th style="padding:0.4rem 0.75rem;text-align:right;">Кол-во, шт.</th>
-          <th style="padding:0.4rem 0 0.4rem 0.75rem;text-align:right;">Δ к прошлой нед.</th>
+          <th style="padding:0.4rem 0.75rem;text-align:right;">Покрытие</th>
+          <th style="padding:0.4rem 0.75rem;text-align:right;">Упущенное, шт.</th>
+          <th style="padding:0.4rem 0 0.4rem 0.75rem;text-align:right;">Δ выручка</th>
         </tr>
       </thead>
       <tbody>
@@ -168,6 +170,23 @@
           </td>
           <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
             {{ "%.0f"|format(row.actual_qty or 0) }}
+          </td>
+          <td style="padding:0.35rem 0.75rem;text-align:right;">
+            {% if row.coverage is not none %}
+              {% set cov = row.coverage * 100 %}
+              <span style="color:{% if cov >= 90 %}var(--green,#16a34a){% elif cov >= 70 %}var(--orange,#d97706){% else %}var(--red,#dc2626){% endif %};font-weight:500;">
+                {{ "%.0f"|format(cov) }}%
+              </span>
+            {% else %}
+              <span style="color:var(--muted,#9ca3af);">—</span>
+            {% endif %}
+          </td>
+          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
+            {% if row.lost_sales is not none and row.lost_sales > 0 %}
+              <span style="color:var(--red,#dc2626);">{{ "%.0f"|format(row.lost_sales) }}</span>
+            {% else %}
+              <span style="color:var(--muted,#9ca3af);">—</span>
+            {% endif %}
           </td>
           <td style="padding:0.35rem 0 0.35rem 0.75rem;text-align:right;">
             {% if row.revenue_wow is not none %}
@@ -183,6 +202,10 @@
         {% endfor %}
       </tbody>
     </table>
+
+    <p style="margin:0.5rem 0 0;font-size:0.78rem;color:var(--muted,#9ca3af);">
+      Покрытие = продажи / (продажи + признанное упущенное), где упущенное = сумма max(0, прогноз&minus;факт) по дням недели.
+    </p>
 
     <div style="margin-top:1.25rem;overflow-x:auto;">
       {% set max_rev = weekly | map(attribute='actual_revenue') | select | list | max %}

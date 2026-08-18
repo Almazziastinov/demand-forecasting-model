@@ -308,7 +308,7 @@ def index(
                 row["actual_qty"] = cat_totals[day_key]["actual_qty"]
                 row["actual_revenue"] = cat_totals[day_key]["actual_revenue"]
     week_rows = _prepare_week_rows(raw_week_rows, week)
-    weekly = bakery_service.get_weekly_analytics(selected_bakery_id, auth, weeks=10) if selected_bakery_id else []
+    weekly = bakery_service.get_weekly_analytics(selected_bakery_id, auth, weeks=4)[-3:] if selected_bakery_id else []
 
     logger.warning(
         "embedded index request_id=%s user_id=%s email=%s portal_id=%s role=%s is_admin=%s week_start=%s bakeries=%s selected_bakery_id=%s",
