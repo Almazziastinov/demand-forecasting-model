@@ -3,445 +3,380 @@
 <section class="workspace" style="padding: 1.5rem 2rem; grid-column: 1 / -1;">
 
 <style>
-.tip {
-  cursor: help;
-  border-bottom: 1px dashed var(--text-secondary, #6b7280);
-}
-
+.tip { cursor: help; border-bottom: 1px dashed var(--text-secondary, #6b7280); }
 .filter-select {
-  font-size: 0.82rem;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 6px;
-  background: var(--surface, #f9fafb);
-  color: var(--text, #111);
-  cursor: pointer;
+  font-size: 0.82rem; padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border, #e5e7eb); border-radius: 6px;
+  background: var(--surface, #f9fafb); color: var(--text, #111); cursor: pointer;
 }
 .filter-select:focus { outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
 .filter-label { font-size: 0.75rem; color: var(--text-secondary, #888); white-space: nowrap; }
+.pm-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.pm-table th { padding: 0.4rem 0.75rem; text-align: left; border-bottom: 2px solid var(--border, #e5e7eb); }
+.pm-table td { padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border, #e5e7eb); }
+.pm-table td.num { text-align: right; white-space: nowrap; }
+.exec-red   { color: #c00; }
+.exec-amber { color: #c77700; }
 </style>
 
-  {# ── Header ── #}
-  <div class="workspace-header" style="margin-bottom: 1rem;">
-    <div>
-      <span class="eyebrow">Управленческая аналитика</span>
+{# ── Header ── #}
+<div class="workspace-header" style="margin-bottom: 1rem;">
+  <div>
+    <span class="eyebrow">Управленческая аналитика</span>
+    {% if week_drilldown is defined and week_drilldown %}
+      <h1>Неделя: {{ week_drilldown }}</h1>
+      <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">{{ summary.scope_version }}</p>
+    {% else %}
       <h1>Сводка: {{ summary.date_from }} — {{ summary.date_to }}</h1>
       <p style="font-size: 0.8rem; color: var(--text-secondary, #888);">
         {{ summary.scope_version }} · {{ summary.metric_version }}
         {% if summary.is_partial_period %} · <strong style="color: #c77700;">⚠ неполный период</strong>{% endif %}
       </p>
-    </div>
+    {% endif %}
+  </div>
+  {% if week_drilldown is defined and week_drilldown %}
+    <a href="/pilot{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+       style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Сводка</a>
+  {% else %}
     <a href="/" style="font-size: 0.85rem; color: var(--accent, #3b82f6);">← Прогноз</a>
+  {% endif %}
+</div>
+
+{# ── Filter bar ── #}
+<form id="filter-form" method="get"
+      action="{% if week_drilldown is defined and week_drilldown %}/pilot{% else %}/pilot{% endif %}"
+      style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb);
+             border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.5rem;
+             display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem;">
+
+  <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+    <label class="filter-label">Дата с</label>
+    <input type="date" name="date_from" value="{{ selected_date_from or '' }}"
+           class="filter-select" style="min-width: 130px;">
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+    <label class="filter-label">Дата по</label>
+    <input type="date" name="date_to" value="{{ selected_date_to or '' }}"
+           class="filter-select" style="min-width: 130px;">
   </div>
 
-  {# ── Filter bar ── #}
-  <form id="filter-form" method="get" action="/pilot"
-        style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb);
-               border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.5rem;
-               display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem;">
-
-    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-      <label class="filter-label">Дата с</label>
-      <input type="date" name="date_from" value="{{ selected_date_from or '' }}"
-             class="filter-select" style="min-width: 130px;">
-    </div>
-
-    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-      <label class="filter-label">Дата по</label>
-      <input type="date" name="date_to" value="{{ selected_date_to or '' }}"
-             class="filter-select" style="min-width: 130px;">
-    </div>
-
-    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-      <label class="filter-label">Региональный директор</label>
-      <select name="regional_director" class="filter-select" style="min-width: 200px;">
-        <option value="">Все</option>
-        {% for rd in filter_regional_directors %}
-        <option value="{{ rd }}" {{ 'selected' if selected_regional_director == rd else '' }}>{{ rd }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-      <label class="filter-label">Партнёр</label>
-      <select name="partner" class="filter-select" style="min-width: 180px;">
-        <option value="">Все</option>
-        {% for p in filter_partners %}
-        <option value="{{ p }}" {{ 'selected' if selected_partner == p else '' }}>{{ p }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-      <label class="filter-label">Категория</label>
-      <select name="category" class="filter-select" style="min-width: 170px;">
-        <option value="">Все категории</option>
-        {% for cat in categories %}
-        <option value="{{ cat }}" {{ 'selected' if selected_category == cat else '' }}>{{ cat }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    {% if filter_bakery_names %}
-    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-      <label class="filter-label">Пекарня</label>
-      <select name="bakery_id" class="filter-select" style="min-width: 200px;">
-        <option value="">Все</option>
-        {% for b in filter_bakery_names %}
-        <option value="{{ b.id }}" {{ 'selected' if selected_bakery_id == b.id else '' }}>{{ b.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
-
-    {% if filter_products %}
-    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-      <label class="filter-label">Номенклатура</label>
-      <select name="product_id" class="filter-select" style="min-width: 220px;">
-        <option value="">Все</option>
-        {% for p in filter_products %}
-        <option value="{{ p.id }}" {{ 'selected' if selected_product_id == p.id else '' }}>{{ p.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
-
-    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
-      <button type="submit"
-              style="font-size: 0.82rem; padding: 0.32rem 0.9rem; border-radius: 6px;
-                     background: var(--accent, #3b82f6); color: #fff; border: none; cursor: pointer;">
-        Применить
-      </button>
-      <a href="/pilot"
-         style="font-size: 0.82rem; padding: 0.32rem 0.9rem; border-radius: 6px;
-                background: var(--surface, #f9fafb); color: var(--text-secondary, #6b7280);
-                border: 1px solid var(--border, #e5e7eb); text-decoration: none;">
-        Сбросить
-      </a>
-    </div>
-  </form>
-
-  {# ── Macros ── #}
-  {% macro kpi_card(label, primary, secondary=none, tip=none) %}
-  <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
-    <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.3rem;">
-      {% if tip %}<span class="tip" data-tip="{{ tip }}">{{ label }}</span>{% else %}{{ label }}{% endif %}
-    </div>
-    <div style="font-size: 1.25rem; font-weight: 700; line-height: 1.2;">{{ primary or "—" }}</div>
-    {% if secondary %}<div style="font-size: 0.74rem; color: var(--text-secondary, #6b7280); margin-top: 0.2rem;">{{ secondary }}</div>{% endif %}
-  </div>
-  {% endmacro %}
-
-  {% macro block_header(title, subtitle) %}
-  <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary, #6b7280); margin-bottom: 0.6rem;">
-    {{ title }}<span style="font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 0.4rem;">{{ subtitle }}</span>
-  </div>
-  {% endmacro %}
-
-  {# ── Block 1: без кратности ── #}
-  <div style="margin-bottom: 1rem;">
-    {{ block_header("Прогноз", "— сравнение с спросом без учёта кратности") }}
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
-      <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
-        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">
-          <span class="tip" data-tip="Разница прогноз − продано (только там, где прогноз выше факта). Показывает потенциально упущенный спрос относительно прогноза.">Упущ. спрос от прогноза</span>
-        </div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.block1_lost_qty | round(0) | int | string ~ " шт") if summary.block1_lost_qty is not none else "—" }}{% if summary.block1_lost_revenue is not none %} / {{ "%.0f"|format(summary.block1_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
-        <div style="border-top: 1px solid var(--border, #e5e7eb); margin: 0.35rem 0;"></div>
-        <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">
-          <span class="tip" data-tip="Подтверждённое упущ. спросом: строки с eligible_lost_demand=true, где прогноз > продано. Capped значением lost_demand_recognized_qty.">признанное</span>
-        </div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.block1_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.block1_recognized_lost_qty is not none else "—" }}{% if summary.block1_recognized_lost_revenue is not none %} / {{ "%.0f"|format(summary.block1_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
-      </div>
-      {{ kpi_card("Выполнение плана",
-          pct(summary.execution_rate) if summary.execution_rate is not none else "нет данных",
-          tip="Произведено / Прогноз на eligible строках. Насколько фактическая выпечка соответствует прогнозу.") }}
-      {{ kpi_card("Покрытие спроса",
-          pct(summary.block1_demand_coverage) if summary.block1_demand_coverage is not none else "нет данных",
-          tip="Продано / (Продано + Признанный упущ. спрос от прогноза). Доля подтверждённого спроса, которая была удовлетворена.") }}
-    </div>
+  <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+    <label class="filter-label">Региональный директор</label>
+    <select name="regional_director" class="filter-select" style="min-width: 200px;">
+      <option value="">Все</option>
+      {% for rd in filter_regional_directors %}
+      <option value="{{ rd }}" {{ 'selected' if selected_regional_director == rd else '' }}>{{ rd }}</option>
+      {% endfor %}
+    </select>
   </div>
 
-  {# ── Block 2: с кратностью ── #}
-  <div style="margin-bottom: 1.5rem;">
-    {{ block_header("С кратностью выпекания", "— итого на продажу (остаток + выпуск) vs спрос") }}
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
-      <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
-        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">
-          <span class="tip" data-tip="Подтверждённое упущ. спросом относительно плана с кратностью. issued_total_for_sale − продано, capped по lost_demand_recognized_qty.">Упущ. признанное от плана</span>
-        </div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_recognized_lost_qty is not none else "—" }}{% if summary.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(summary.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
-      </div>
-      {{ kpi_card("Выполнение плана",
-          pct(summary.kratnost_execution_rate) if summary.kratnost_execution_rate is not none else "нет данных",
-          tip="Произведено / Итого на продажу (issued_total_for_sale). Насколько пекарня выполнила план с учётом кратности и остатка.") }}
-      {{ kpi_card("Покрытие спроса",
-          pct(summary.demand_coverage) if summary.demand_coverage is not none else "нет данных",
-          tip="Продано / (Продано + Признанный упущ. спрос от плана). Доля спроса, удовлетворённая с учётом кратности выпекания.") }}
-    </div>
+  <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+    <label class="filter-label">Партнёр</label>
+    <select name="partner" class="filter-select" style="min-width: 180px;">
+      <option value="">Все</option>
+      {% for p in filter_partners %}
+      <option value="{{ p }}" {{ 'selected' if selected_partner == p else '' }}>{{ p }}</option>
+      {% endfor %}
+    </select>
   </div>
 
-  {# ── Revenue block ── #}
-  {% if summary.actual_revenue is not none %}
-  <div style="margin-bottom: 1rem;">
-    {{ block_header("Выручка", "— факт и упущенный спрос с кратностью выпекания") }}
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-      {{ kpi_card("Выручка за период",
-          ("%.0f"|format(summary.actual_revenue / 1000) ~ " тыс. ₽") if summary.actual_revenue is not none else "—") }}
-      <div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.85rem; text-align: center;">
-        <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280); margin-bottom: 0.4rem;">Упущ. спрос (от плана)</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_lost_qty is not none else "—" }}{% if summary.kratnost_lost_revenue is not none %} / {{ "%.0f"|format(summary.kratnost_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
-        <div style="border-top: 1px solid var(--border, #e5e7eb); margin: 0.35rem 0;"></div>
-        <div style="font-size: 0.7rem; color: var(--text-secondary, #6b7280);">признанное</div>
-        <div style="font-size: 1.1rem; font-weight: 700;">{{ (summary.kratnost_recognized_lost_qty | round(0) | int | string ~ " шт") if summary.kratnost_recognized_lost_qty is not none else "—" }}{% if summary.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(summary.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽{% endif %}</div>
-      </div>
-      {{ kpi_card("Выручка с признанным",
-          ("%.0f"|format((summary.actual_revenue + summary.kratnost_recognized_lost_revenue) / 1000) ~ " тыс. ₽") if (summary.actual_revenue is not none and summary.kratnost_recognized_lost_revenue is not none) else "—") }}
-      {{ kpi_card("Прирост",
-          ("+" ~ "%.0f"|format(summary.kratnost_recognized_lost_revenue / 1000) ~ " тыс. ₽ / +" ~ "%.1f"|format(summary.kratnost_recognized_lost_revenue / summary.actual_revenue * 100) ~ "%") if (summary.actual_revenue and summary.kratnost_recognized_lost_revenue is not none) else "—") }}
-    </div>
+  <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+    <label class="filter-label">Категория</label>
+    <select name="category" class="filter-select" style="min-width: 170px;">
+      <option value="">Все категории</option>
+      {% for cat in categories %}
+      <option value="{{ cat }}" {{ 'selected' if selected_category == cat else '' }}>{{ cat }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {% if filter_bakery_names %}
+  <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+    <label class="filter-label">Пекарня</label>
+    <select name="bakery_id" class="filter-select" style="min-width: 200px;">
+      <option value="">Все</option>
+      {% for b in filter_bakery_names %}
+      <option value="{{ b.id }}" {{ 'selected' if selected_bakery_id == b.id else '' }}>{{ b.name }}</option>
+      {% endfor %}
+    </select>
   </div>
   {% endif %}
 
-  {# Coverage #}
-  <div style="margin-bottom: 2rem;">
-    <div style="display: inline-flex; align-items: center; gap: 1rem; background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 0.75rem 1.25rem;">
-      <div style="font-size: 0.68rem; color: var(--text-secondary, #6b7280);">
-        <span class="tip" data-tip="Доля SKU, по которым есть хотя бы одна eligible строка для расчёта метрик прогноза.">Покрытие ассортимента</span>
+  {% if filter_products %}
+  <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+    <label class="filter-label">Номенклатура</label>
+    <select name="product_id" class="filter-select" style="min-width: 220px;">
+      <option value="">Все</option>
+      {% for p in filter_products %}
+      <option value="{{ p.id }}" {{ 'selected' if selected_product_id == p.id else '' }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+
+  <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+    <button type="submit"
+            style="font-size: 0.82rem; padding: 0.32rem 0.9rem; border-radius: 6px;
+                   background: var(--accent, #3b82f6); color: #fff; border: none; cursor: pointer;">
+      Применить
+    </button>
+    <a href="/pilot"
+       style="font-size: 0.82rem; padding: 0.32rem 0.9rem; border-radius: 6px;
+              background: var(--surface, #f9fafb); color: var(--text-secondary, #6b7280);
+              border: 1px solid var(--border, #e5e7eb); text-decoration: none;">
+      Сбросить
+    </a>
+  </div>
+</form>
+
+{# ── 3-value KPI block ── #}
+{% set _p = summary.plan_qty or 0 %}
+{% set _r = summary.kpi_produced_qty or 0 %}
+{% set _s = summary.kpi_sold_qty or 0 %}
+{% set _mx = [_p, _r, _s] | max %}
+<div style="background: var(--surface, #f9fafb); border: 1px solid var(--border, #e5e7eb);
+            border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem;
+            display: flex; gap: 2rem; align-items: stretch; flex-wrap: wrap;">
+
+  {# Bar chart #}
+  <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; min-width: 220px;">
+    <div style="display: flex; align-items: flex-end; gap: 1rem; height: 110px; width: 100%;">
+
+      {# Plan AI — blue #}
+      {% set _ph = ((_p / _mx * 100) | int) if _mx > 0 else 0 %}
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.2rem; height: 100%; justify-content: flex-end;">
+        <span style="font-size: 0.7rem; font-weight: 700; color: var(--text, #111);">
+          {{ (_p | round | int) if _p else "—" }}
+        </span>
+        <div style="width: 100%; height: {{ _ph }}%; background: #3b82f6; border-radius: 4px 4px 0 0; min-height: 2px;"></div>
       </div>
-      <div style="font-size: 1.1rem; font-weight: 700;">{{ summary.coverage_sku_eligible }} из {{ summary.coverage_sku_total }} SKU</div>
-      <div style="font-size: 1.25rem; font-weight: 700; color: var(--accent, #3b82f6);">{{ pct(summary.forecast_coverage) }}</div>
+
+      {# Produced — amber #}
+      {% set _rh = ((_r / _mx * 100) | int) if _mx > 0 else 0 %}
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.2rem; height: 100%; justify-content: flex-end;">
+        <span style="font-size: 0.7rem; font-weight: 700; color: var(--text, #111);">
+          {{ (_r | round | int) if _r else "—" }}
+        </span>
+        <div style="width: 100%; height: {{ _rh }}%; background: #f59e0b; border-radius: 4px 4px 0 0; min-height: 2px;"></div>
+      </div>
+
+      {# Sold — green #}
+      {% set _sh = ((_s / _mx * 100) | int) if _mx > 0 else 0 %}
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.2rem; height: 100%; justify-content: flex-end;">
+        <span style="font-size: 0.7rem; font-weight: 700; color: var(--text, #111);">
+          {{ (_s | round | int) if _s else "—" }}
+        </span>
+        <div style="width: 100%; height: {{ _sh }}%; background: #10b981; border-radius: 4px 4px 0 0; min-height: 2px;"></div>
+      </div>
+    </div>
+    {# Labels under chart #}
+    <div style="display: flex; gap: 1rem; width: 100%;">
+      <div style="flex: 1; text-align: center; font-size: 0.65rem; color: #3b82f6; font-weight: 600;">План ИИ</div>
+      <div style="flex: 1; text-align: center; font-size: 0.65rem; color: #f59e0b; font-weight: 600;">Выпуск</div>
+      <div style="flex: 1; text-align: center; font-size: 0.65rem; color: #10b981; font-weight: 600;">Продажи</div>
     </div>
   </div>
 
-  {# ── Regional directors block ── #}
-  {% if regional_directors %}
-  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">По региональным директорам</h2>
-  <div style="overflow-x: auto; margin-bottom: 2rem;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
-          <th style="padding: 0.4rem 0.75rem;">Директор</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Пекарен</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Произведено / Итого на продажу (с кратностью выпекания).">Выполнение</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Продано / (Продано + Признанный упущ. спрос). Доля спроса, покрытая планом с кратностью.">Покрытие спроса</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выручка</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for rd in regional_directors %}
-        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.4rem 0.75rem; font-weight: 500;">
-            <a href="/pilot?regional_director={{ rd.regional_director | urlencode }}{% if selected_category %}&category={{ selected_category | urlencode }}{% endif %}{% if selected_date_from %}&date_from={{ selected_date_from }}{% endif %}{% if selected_date_to %}&date_to={{ selected_date_to }}{% endif %}"
-               style="color: var(--accent, #3b82f6);">{{ rd.regional_director }}</a>
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; color: var(--text-secondary, #6b7280);">{{ rd.bakery_count }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;
-              color: {{ '#c00' if (rd.execution_rate is not none and rd.execution_rate < 0.85) else ('#c77700' if (rd.execution_rate is not none and rd.execution_rate < 0.95) else 'inherit') }};">
-            {{ pct(rd.execution_rate) if rd.execution_rate is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;
-              color: {{ '#c00' if (rd.demand_coverage is not none and rd.demand_coverage < 0.85) else ('#c77700' if (rd.demand_coverage is not none and rd.demand_coverage < 0.95) else 'inherit') }};">
-            {{ pct(rd.demand_coverage) if rd.demand_coverage is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
-            {{ ("%.0f"|format(rd.actual_revenue / 1000) ~ " тыс. ₽") if rd.actual_revenue is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
-            {% if rd.kratnost_recognized_lost_qty is not none %}
-              {{ rd.kratnost_recognized_lost_qty | round(0) | int }} шт
-              {% if rd.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(rd.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
-            {% else %}—{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
+  {# Divider #}
+  <div style="width: 1px; background: var(--border, #e5e7eb); flex-shrink: 0;"></div>
 
-  {# ── Week trend ── #}
-  {% if week_trend %}
-  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Динамика по неделям</h2>
-  <div style="overflow-x: auto; margin-bottom: 2rem;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
-          <th style="padding: 0.4rem 0.75rem;">Неделя с</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Произведено / Итого на продажу (issued_total_for_sale). Насколько фактическая выпечка совпала с планом.">Выполнение</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Продано / (Продано + Признанный упущ. спрос). Доля спроса, покрытая планом с кратностью.">Покрытие спроса</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Доля SKU, по которым система дала прогноз (eligible_forecast_summary = true) хотя бы в один день недели.">Покрытие ассортимента</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Упущенная выручка от признанного спроса с учётом кратности выпекания. issued_total_for_sale > sold, eligible_lost_demand = true.">Упущ. выручка</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: center;">Тренд</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for w in week_trend %}
-        {% set is_first = loop.first %}
-        <tr style="border-bottom: 1px solid var(--border, #e5e7eb); {{ 'font-weight: 600;' if is_first else '' }}">
-          <td style="padding: 0.4rem 0.75rem; white-space: nowrap;">{{ w.week_start }}</td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;
-              color: {{ '#c00' if (w.execution_rate is not none and w.execution_rate < 0.85) else ('#c77700' if (w.execution_rate is not none and w.execution_rate < 0.95) else 'inherit') }};">
-            {{ pct(w.execution_rate) if w.execution_rate is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;
-              color: {{ '#c00' if (w.demand_coverage is not none and w.demand_coverage < 0.85) else ('#c77700' if (w.demand_coverage is not none and w.demand_coverage < 0.95) else 'inherit') }};">
-            {{ pct(w.demand_coverage) if w.demand_coverage is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
-            {% if w.forecast_coverage is not none %}
-              <span style="color: {{ '#c00' if w.forecast_coverage < 0.7 else ('#c77700' if w.forecast_coverage < 0.9 else 'inherit') }};">{{ pct(w.forecast_coverage) }}</span>
-              <span style="font-size: 0.74rem; color: var(--text-secondary, #6b7280);"> ({{ w.coverage_sku_eligible }}/{{ w.coverage_sku_total }})</span>
-            {% else %}—{% endif %}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
-            {% if w.kratnost_recognized_lost_revenue is not none %}
-              <span style="color: #c00;">{{ "%.0f"|format(w.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽</span>
-              {% if w.kratnost_recognized_lost_qty is not none %}
-                <span style="font-size: 0.74rem; color: var(--text-secondary, #6b7280);"> / {{ w.kratnost_recognized_lost_qty | round(0) | int }} шт</span>
-              {% endif %}
-            {% elif w.kratnost_recognized_lost_qty is not none %}
-              {{ w.kratnost_recognized_lost_qty | round(0) | int }} шт
-            {% else %}—{% endif %}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: center; white-space: nowrap; font-size: 0.78rem; color: var(--text-secondary, #6b7280);">
-            {% if is_first %}
-              база
-            {% else %}
-              {% if w.exec_delta is not none %}
-                <span style="color: {{ '#28a745' if w.exec_delta > 0.005 else ('#c00' if w.exec_delta < -0.005 else 'inherit') }};">
-                  {{ '↑' if w.exec_delta > 0.005 else ('↓' if w.exec_delta < -0.005 else '→') }} {{ ('+' if w.exec_delta > 0 else '') }}{{ "%.1f"|format(w.exec_delta * 100) }}%
-                </span>
-              {% else %}—{% endif %}
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {# Sidebar metrics #}
+  <div style="display: flex; flex-direction: column; justify-content: center; gap: 0.75rem; flex: 1; min-width: 200px;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;">
+      <span style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">Выпуск / План ИИ</span>
+      {% set _er = summary.kpi_execution_rate %}
+      <span style="font-size: 1.3rem; font-weight: 700;
+                   color: {{ '#c00' if (_er is not none and _er < 0.85) else ('#c77700' if (_er is not none and _er < 0.95) else 'inherit') }};">
+        {{ pct(_er) if _er is not none else "—" }}
+      </span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;">
+      <span style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">Продажи / Выпуск</span>
+      {% set _st = summary.kpi_sellthrough_rate %}
+      <span style="font-size: 1.3rem; font-weight: 700;
+                   color: {{ '#c00' if (_st is not none and _st < 0.80) else ('#c77700' if (_st is not none and _st < 0.90) else 'inherit') }};">
+        {{ pct(_st) if _st is not none else "—" }}
+      </span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; border-top: 1px solid var(--border, #e5e7eb); padding-top: 0.6rem;">
+      <span style="font-size: 0.78rem; color: var(--text-secondary, #6b7280);">Признанное упущенное</span>
+      <span style="font-size: 1.1rem; font-weight: 700; color: #c00;">
+        {{ (summary.kpi_recognized_lost_qty | round | int | string ~ " шт") if summary.kpi_recognized_lost_qty is not none else "—" }}
+      </span>
+    </div>
   </div>
-  {% endif %}
+</div>
 
-  {# ── Bakeries ── #}
-  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Пекарни ({{ bakeries | length }}) — от худшего покрытия спроса</h2>
-  <div style="overflow-x: auto; margin-bottom: 2rem;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
-          <th style="padding: 0.4rem 0.75rem;">Пекарня</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Произведено / Итого на продажу (с кратностью выпекания).">Выполнение плана</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">
-            <span class="tip" data-tip="Продано / (Продано + Признанный упущ. спрос). Доля подтверждённого спроса, удовлетворённая планом.">Покрытие спроса</span>
-          </th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Выручка</th>
-          <th style="padding: 0.4rem 0.75rem; text-align: right;">Упущ. признанное (шт / тыс. ₽)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for b in bakeries %}
-        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.4rem 0.75rem;">
-            <a href="/pilot/bakery/{{ b.bakery_id }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
-               style="color: var(--accent, #3b82f6);">{{ b.bakery_name }}</a>
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;
-              color: {{ '#c00' if (b.execution_rate is not none and b.execution_rate < 0.85) else ('#c77700' if (b.execution_rate is not none and b.execution_rate < 0.95) else 'inherit') }};">
-            {{ pct(b.execution_rate) if b.execution_rate is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right;
-              color: {{ '#c00' if (b.demand_coverage is not none and b.demand_coverage < 0.85) else ('#c77700' if (b.demand_coverage is not none and b.demand_coverage < 0.95) else 'inherit') }};">
-            {{ pct(b.demand_coverage) if b.demand_coverage is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
-            {{ ("%.0f"|format(b.actual_revenue / 1000) ~ " тыс. ₽") if b.actual_revenue is not none else "—" }}
-          </td>
-          <td style="padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap;">
-            {% if b.kratnost_recognized_lost_qty is not none %}
-              {{ b.kratnost_recognized_lost_qty | round(0) | int }} шт
-              {% if b.kratnost_recognized_lost_revenue is not none %} / {{ "%.0f"|format(b.kratnost_recognized_lost_revenue / 1000) }} тыс.{% endif %}
-            {% else %}—{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+{# ── Period trend block ── #}
+{% if week_trend %}
+{% if trend_is_days is defined and trend_is_days %}
+<h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Динамика по дням</h2>
+{% else %}
+<h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Динамика по неделям</h2>
+{% endif %}
+<div style="overflow-x: auto; margin-bottom: 2rem;">
+  <table class="pm-table">
+    <thead>
+      <tr>
+        <th style="min-width: 100px;">{{ "День" if (trend_is_days is defined and trend_is_days) else "Неделя с" }}</th>
+        <th style="text-align: right;">План ИИ (шт)</th>
+        <th style="text-align: right;">Выпуск (шт)</th>
+        <th style="text-align: right;">Продажи (шт)</th>
+        <th style="text-align: right;">Выпуск / План</th>
+        <th style="text-align: right;">Продажи / Выпуск</th>
+        <th style="text-align: right;">Упущ. признанное</th>
+        <th style="text-align: center; min-width: 60px;">Тренд</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for w in week_trend %}
+      {% set _is_first = loop.first %}
+      <tr {% if _is_first %}style="font-weight: 600;"{% endif %}>
+        <td style="white-space: nowrap;">
+          {% if not (trend_is_days is defined and trend_is_days) %}
+            <a href="/pilot/week/{{ w.week_start }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}{% if selected_regional_director %}&regional_director={{ selected_regional_director | urlencode }}{% endif %}{% if selected_partner %}&partner={{ selected_partner | urlencode }}{% endif %}"
+               style="color: var(--accent, #3b82f6);">{{ w.week_start }}</a>
+          {% else %}
+            {{ w.week_start }}
+          {% endif %}
+        </td>
+        <td class="num">{{ (w.plan_qty | round | int) if w.plan_qty is not none else "—" }}</td>
+        <td class="num">{{ (w.produced_qty | round | int) if w.produced_qty is not none else "—" }}</td>
+        <td class="num">{{ (w.sold_qty | round | int) if w.sold_qty is not none else "—" }}</td>
+        <td class="num {% if w.execution_rate is not none and w.execution_rate < 0.85 %}exec-red{% elif w.execution_rate is not none and w.execution_rate < 0.95 %}exec-amber{% endif %}">
+          {{ pct(w.execution_rate) if w.execution_rate is not none else "—" }}
+        </td>
+        <td class="num {% if w.sellthrough_rate is not none and w.sellthrough_rate < 0.80 %}exec-red{% elif w.sellthrough_rate is not none and w.sellthrough_rate < 0.90 %}exec-amber{% endif %}">
+          {{ pct(w.sellthrough_rate) if w.sellthrough_rate is not none else "—" }}
+        </td>
+        <td class="num" style="color: {% if w.recognized_lost_qty is not none and w.recognized_lost_qty > 0 %}#c00{% else %}inherit{% endif %};">
+          {{ (w.recognized_lost_qty | round | int | string ~ " шт") if w.recognized_lost_qty is not none else "—" }}
+        </td>
+        <td style="text-align: center; font-size: 0.78rem; color: var(--text-secondary, #6b7280); white-space: nowrap;">
+          {% if _is_first %}
+            база
+          {% elif w.exec_delta is not none %}
+            <span style="color: {{ '#28a745' if w.exec_delta > 0.005 else ('#c00' if w.exec_delta < -0.005 else 'inherit') }};">
+              {{ '↑' if w.exec_delta > 0.005 else ('↓' if w.exec_delta < -0.005 else '→') }}
+              {{ ('%+.1f' | format(w.exec_delta * 100)) }}%
+            </span>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
-  {# ── SKU summary ── #}
-  {% if sku_summary %}
-  <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">SKU ({{ sku_summary | length }}) — от худшего покрытия спроса{% if selected_category %} · {{ selected_category }}{% endif %}</h2>
-  <div style="overflow-x: auto; margin-bottom: 2rem;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
-      <thead>
-        <tr style="border-bottom: 2px solid var(--border, #e5e7eb); text-align: left;">
-          <th style="padding: 0.35rem 0.6rem;">SKU</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">
-            <span class="tip" data-tip="Произведено / Итого на продажу (issued_total_for_sale) по всем пилотным пекарням.">Выполнение</span>
-          </th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">
-            <span class="tip" data-tip="Продано / (Продано + Признанный упущ. спрос). Доля подтверждённого спроса, которая была удовлетворена.">Покрытие спроса</span>
-          </th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">
-            <span class="tip" data-tip="Доля дней, в которые система дала прогноз по этому SKU (eligible_forecast_summary = true). Чем ниже — тем реже SKU попадает в eligible.">Покрытие прогнозом</span>
-          </th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">Выручка</th>
-          <th style="padding: 0.35rem 0.6rem; text-align: right;">
-            <span class="tip" data-tip="Упущенная выручка от признанного спроса с кратностью. issued_total_for_sale > sold и eligible_lost_demand = true.">Упущ. выручка</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in sku_summary %}
-        <tr style="border-bottom: 1px solid var(--border, #e5e7eb);">
-          <td style="padding: 0.35rem 0.6rem;">{{ s.product_name }}</td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;
-              color: {{ '#c00' if (s.execution_rate is not none and s.execution_rate < 0.85) else ('#c77700' if (s.execution_rate is not none and s.execution_rate < 0.95) else 'inherit') }};">
-            {{ pct(s.execution_rate) if s.execution_rate is not none else "—" }}
-          </td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right;
-              color: {{ '#c00' if (s.demand_coverage is not none and s.demand_coverage < 0.85) else ('#c77700' if (s.demand_coverage is not none and s.demand_coverage < 0.95) else 'inherit') }};">
-            {{ pct(s.demand_coverage) if s.demand_coverage is not none else "—" }}
-          </td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right; white-space: nowrap;">
-            {% if s.forecast_coverage is not none %}
-              <span style="color: {{ '#c00' if s.forecast_coverage < 0.5 else ('#c77700' if s.forecast_coverage < 0.8 else 'inherit') }};">{{ pct(s.forecast_coverage) }}</span>
-              <span style="font-size: 0.72rem; color: var(--text-secondary, #6b7280);"> {{ s.eligible_days }}/{{ s.total_days }}д</span>
-            {% else %}—{% endif %}
-          </td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right; white-space: nowrap;">
-            {{ ("%.0f"|format(s.actual_revenue / 1000) ~ " тыс. ₽") if s.actual_revenue is not none else "—" }}
-          </td>
-          <td style="padding: 0.35rem 0.6rem; text-align: right; white-space: nowrap;">
-            {% if s.kratnost_recognized_lost_revenue is not none %}
-              <span style="color: #c00;">{{ "%.0f"|format(s.kratnost_recognized_lost_revenue / 1000) }} тыс. ₽</span>
-              {% if s.kratnost_recognized_lost_qty is not none %}
-                <span style="font-size: 0.72rem; color: var(--text-secondary, #6b7280);"> / {{ s.kratnost_recognized_lost_qty | round(0) | int }} шт</span>
-              {% endif %}
-            {% elif s.kratnost_recognized_lost_qty is not none %}
-              {{ s.kratnost_recognized_lost_qty | round(0) | int }} шт
-            {% else %}—{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
+{# ── Regional directors ── #}
+{% if regional_directors %}
+<h2 style="font-size: 1rem; margin-bottom: 0.75rem;">По региональным директорам</h2>
+<div style="overflow-x: auto; margin-bottom: 2rem;">
+  <table class="pm-table">
+    <thead>
+      <tr>
+        <th>Директор</th>
+        <th style="text-align: right;">Пекарен</th>
+        <th style="text-align: right;"><span class="tip" data-tip="Выпуск / План ИИ">Выполнение</span></th>
+        <th style="text-align: right;"><span class="tip" data-tip="Продажи / Выпуск">Покрытие</span></th>
+        <th style="text-align: right;">Упущ. признанное (шт)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rd in regional_directors %}
+      <tr>
+        <td style="font-weight: 500;">
+          <a href="/pilot?regional_director={{ rd.regional_director | urlencode }}{% if selected_category %}&category={{ selected_category | urlencode }}{% endif %}{% if selected_date_from %}&date_from={{ selected_date_from }}{% endif %}{% if selected_date_to %}&date_to={{ selected_date_to }}{% endif %}"
+             style="color: var(--accent, #3b82f6);">{{ rd.regional_director }}</a>
+        </td>
+        <td class="num" style="color: var(--text-secondary, #6b7280);">{{ rd.bakery_count }}</td>
+        <td class="num {% if rd.execution_rate is not none and rd.execution_rate < 0.85 %}exec-red{% elif rd.execution_rate is not none and rd.execution_rate < 0.95 %}exec-amber{% endif %}">
+          {{ pct(rd.execution_rate) if rd.execution_rate is not none else "—" }}
+        </td>
+        <td class="num {% if rd.sellthrough_rate is not none and rd.sellthrough_rate < 0.80 %}exec-red{% elif rd.sellthrough_rate is not none and rd.sellthrough_rate < 0.90 %}exec-amber{% endif %}">
+          {{ pct(rd.sellthrough_rate) if rd.sellthrough_rate is not none else "—" }}
+        </td>
+        <td class="num" style="color: {% if rd.recognized_lost_qty is not none and rd.recognized_lost_qty > 0 %}#c00{% else %}inherit{% endif %};">
+          {{ (rd.recognized_lost_qty | round | int | string ~ " шт") if rd.recognized_lost_qty is not none else "—" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# ── Bakeries ── #}
+{% if bakeries %}
+<h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Пекарни ({{ bakeries | length }}) — от худшего выполнения</h2>
+<div style="overflow-x: auto; margin-bottom: 2rem;">
+  <table class="pm-table">
+    <thead>
+      <tr>
+        <th>Пекарня</th>
+        <th style="text-align: right;"><span class="tip" data-tip="Выпуск / План ИИ">Выполнение</span></th>
+        <th style="text-align: right;"><span class="tip" data-tip="Продажи / Выпуск">Покрытие</span></th>
+        <th style="text-align: right;">Упущ. признанное (шт)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in bakeries %}
+      <tr>
+        <td>
+          <a href="/pilot/bakery/{{ b.bakery_id }}{% if selected_category %}?category={{ selected_category | urlencode }}{% endif %}"
+             style="color: var(--accent, #3b82f6);">{{ b.bakery_name }}</a>
+        </td>
+        <td class="num {% if b.execution_rate is not none and b.execution_rate < 0.85 %}exec-red{% elif b.execution_rate is not none and b.execution_rate < 0.95 %}exec-amber{% endif %}">
+          {{ pct(b.execution_rate) if b.execution_rate is not none else "—" }}
+        </td>
+        <td class="num {% if b.sellthrough_rate is not none and b.sellthrough_rate < 0.80 %}exec-red{% elif b.sellthrough_rate is not none and b.sellthrough_rate < 0.90 %}exec-amber{% endif %}">
+          {{ pct(b.sellthrough_rate) if b.sellthrough_rate is not none else "—" }}
+        </td>
+        <td class="num" style="color: {% if b.recognized_lost_qty is not none and b.recognized_lost_qty > 0 %}#c00{% else %}inherit{% endif %};">
+          {{ (b.recognized_lost_qty | round | int | string ~ " шт") if b.recognized_lost_qty is not none else "—" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# ── SKU ── #}
+{% if sku_summary %}
+<h2 style="font-size: 1rem; margin-bottom: 0.75rem;">
+  SKU ({{ sku_summary | length }}) — от худшего выполнения{% if selected_category %} · {{ selected_category }}{% endif %}
+</h2>
+<div style="overflow-x: auto; margin-bottom: 2rem;">
+  <table class="pm-table" style="font-size: 0.82rem;">
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th style="text-align: right;"><span class="tip" data-tip="Выпуск / План ИИ">Выполнение</span></th>
+        <th style="text-align: right;"><span class="tip" data-tip="Продажи / Выпуск">Покрытие</span></th>
+        <th style="text-align: right;">Упущ. признанное (шт)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sku_summary %}
+      <tr>
+        <td>{{ s.product_name }}</td>
+        <td class="num {% if s.execution_rate is not none and s.execution_rate < 0.85 %}exec-red{% elif s.execution_rate is not none and s.execution_rate < 0.95 %}exec-amber{% endif %}">
+          {{ pct(s.execution_rate) if s.execution_rate is not none else "—" }}
+        </td>
+        <td class="num {% if s.sellthrough_rate is not none and s.sellthrough_rate < 0.80 %}exec-red{% elif s.sellthrough_rate is not none and s.sellthrough_rate < 0.90 %}exec-amber{% endif %}">
+          {{ pct(s.sellthrough_rate) if s.sellthrough_rate is not none else "—" }}
+        </td>
+        <td class="num" style="color: {% if s.recognized_lost_qty is not none and s.recognized_lost_qty > 0 %}#c00{% else %}inherit{% endif %};">
+          {{ (s.recognized_lost_qty | round | int | string ~ " шт") if s.recognized_lost_qty is not none else "—" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 </section>
 
@@ -449,39 +384,24 @@
 (function () {
   var box = document.createElement('div');
   box.style.cssText = [
-    'position:fixed',
-    'background:#1a1a1a',
-    'color:#fff',
-    'font-size:0.72rem',
-    'line-height:1.45',
-    'padding:0.45rem 0.65rem',
-    'border-radius:6px',
-    'max-width:280px',
-    'white-space:normal',
-    'pointer-events:none',
-    'z-index:9999',
-    'opacity:0',
-    'transition:opacity 0.12s',
+    'position:fixed','background:#1a1a1a','color:#fff','font-size:0.72rem',
+    'line-height:1.45','padding:0.45rem 0.65rem','border-radius:6px',
+    'max-width:280px','white-space:normal','pointer-events:none',
+    'z-index:9999','opacity:0','transition:opacity 0.12s',
   ].join(';');
   document.body.appendChild(box);
-
   document.addEventListener('mouseover', function (e) {
     var el = e.target.closest('.tip');
-    if (el && el.dataset.tip) {
-      box.textContent = el.dataset.tip;
-      box.style.opacity = '1';
-    }
+    if (el && el.dataset.tip) { box.textContent = el.dataset.tip; box.style.opacity = '1'; }
   });
   document.addEventListener('mouseout', function (e) {
     if (e.target.closest('.tip')) box.style.opacity = '0';
   });
   document.addEventListener('mousemove', function (e) {
-    var x = e.clientX + 14;
-    var y = e.clientY - 36;
+    var x = e.clientX + 14, y = e.clientY - 36;
     if (x + 290 > window.innerWidth) x = e.clientX - 294;
     if (y < 4) y = e.clientY + 18;
-    box.style.left = x + 'px';
-    box.style.top = y + 'px';
+    box.style.left = x + 'px'; box.style.top = y + 'px';
   });
 })();
 </script>

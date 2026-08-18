@@ -75,6 +75,17 @@ def pilot_summary(
     summary = svc.get_pilot_summary(**filter_kwargs)
     if not summary:
         raise HTTPException(status_code=404, detail="Отчёт не найден. Запустите build_pilot_management_summary.py")
+    # Auto-select day granularity when period < 7 days
+    trend_granularity = "auto"
+    trend_is_days = False
+    if date_from and date_to:
+        try:
+            from datetime import date as _date
+            d1, d2 = _date.fromisoformat(date_from), _date.fromisoformat(date_to)
+            trend_is_days = (d2 - d1).days < 7
+        except ValueError:
+            pass
+
     return templates.TemplateResponse(
         request,
         "pilot_management.html",
@@ -83,10 +94,14 @@ def pilot_summary(
             "is_admin": auth.is_admin,
             "summary": summary,
             "bakeries": svc.get_bakery_list(**filter_kwargs),
-            "week_trend": svc.get_week_trend(**filter_kwargs),
+            "week_trend": svc.get_week_trend(**filter_kwargs, granularity=trend_granularity),
             "sku_summary": svc.get_sku_summary(**filter_kwargs),
             "regional_directors": svc.get_regional_director_summary(
-                category=category, partner=partner, date_from=date_from, date_to=date_to
+                category=category,
+                regional_director=regional_director,
+                partner=partner,
+                date_from=date_from,
+                date_to=date_to,
             ),
             "categories": svc.get_available_categories(),
             "filter_regional_directors": svc.get_available_regional_directors(),
@@ -100,7 +115,79 @@ def pilot_summary(
             "selected_product_id": product_id,
             "selected_date_from": date_from,
             "selected_date_to": date_to,
+            "trend_is_days": trend_is_days,
             "dq": svc.get_dq_summary(),
+            "pct": _pct,
+        },
+    )
+
+
+@router.get("/week/{week_start}", response_class=HTMLResponse)
+def pilot_week(
+    request: Request,
+    week_start: str,
+    category: str | None = Query(default=None),
+    regional_director: str | None = Query(default=None),
+    partner: str | None = Query(default=None),
+    bakery_id: int | None = Query(default=None),
+    product_id: int | None = Query(default=None),
+) -> HTMLResponse:
+    """Week drill-down: same structure as main page but filtered to one week, day granularity."""
+    _require_admin(request)
+    auth = get_auth_context(request)
+    svc = _get_service()
+    from datetime import date as _date, timedelta
+    try:
+        d_from = _date.fromisoformat(week_start)
+        d_to = d_from + timedelta(days=6)
+        date_from_str = str(d_from)
+        date_to_str = str(d_to)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Неверный формат даты: {week_start}")
+
+    filter_kwargs = {
+        "category": category,
+        "regional_director": regional_director,
+        "partner": partner,
+        "bakery_id": bakery_id,
+        "product_id": product_id,
+        "date_from": date_from_str,
+        "date_to": date_to_str,
+    }
+    summary = svc.get_pilot_summary(**filter_kwargs)
+    if not summary:
+        raise HTTPException(status_code=404, detail="Отчёт не найден")
+    return templates.TemplateResponse(
+        request,
+        "pilot_management.html",
+        {
+            "auth": auth,
+            "is_admin": auth.is_admin,
+            "summary": summary,
+            "bakeries": svc.get_bakery_list(**filter_kwargs),
+            "week_trend": svc.get_week_trend(**filter_kwargs, granularity="day"),
+            "sku_summary": svc.get_sku_summary(**filter_kwargs),
+            "regional_directors": svc.get_regional_director_summary(
+                category=category,
+                regional_director=regional_director,
+                partner=partner,
+                date_from=date_from_str,
+                date_to=date_to_str,
+            ),
+            "categories": svc.get_available_categories(),
+            "filter_regional_directors": svc.get_available_regional_directors(),
+            "filter_partners": svc.get_available_partners(),
+            "filter_bakery_names": svc.get_available_bakery_names(),
+            "filter_products": svc.get_available_products(),
+            "selected_category": category,
+            "selected_regional_director": regional_director,
+            "selected_partner": partner,
+            "selected_bakery_id": bakery_id,
+            "selected_product_id": product_id,
+            "selected_date_from": date_from_str,
+            "selected_date_to": date_to_str,
+            "trend_is_days": True,
+            "week_drilldown": week_start,
             "pct": _pct,
         },
     )
