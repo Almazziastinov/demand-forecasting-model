@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
 from app import db as embedded_db  # noqa: E402
 from app.auth import AuthContext, get_auth_context  # noqa: E402
+from app.routers import pilot_management as pilot_management_router  # noqa: E402
 from app.routers import ui as ui_router  # noqa: E402
 from app.services import bakery as bakery_service  # noqa: E402
 from app.services import runs as runs_service  # noqa: E402
@@ -237,6 +238,43 @@ def test_access_control_requires_portal_id(monkeypatch):
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Missing X-Vibe-Portal-Id"
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        AuthContext(user_id="1", portal_id="portal", role="admin"),
+        AuthContext(user_id="799", portal_id="portal", role="member"),
+    ],
+)
+def test_pilot_management_allows_admin_and_configured_pilot_user(monkeypatch, auth):
+    get_settings.cache_clear()
+    monkeypatch.setenv("ACCESS_CONTROL_ENABLED", "1")
+    monkeypatch.setenv("PILOT_USER_IDS", "799")
+    monkeypatch.setattr(
+        pilot_management_router, "get_auth_context", lambda request: auth
+    )
+
+    request = Request({"type": "http", "headers": []})
+    pilot_management_router._require_pilot_user(request)
+    get_settings.cache_clear()
+
+
+def test_pilot_management_rejects_non_pilot_user(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("ACCESS_CONTROL_ENABLED", "1")
+    monkeypatch.setenv("PILOT_USER_IDS", "799")
+    auth = AuthContext(user_id="800", portal_id="portal", role="member")
+    monkeypatch.setattr(
+        pilot_management_router, "get_auth_context", lambda request: auth
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        request = Request({"type": "http", "headers": []})
+        pilot_management_router._require_pilot_user(request)
+
+    assert exc_info.value.status_code == 403
     get_settings.cache_clear()
 
 

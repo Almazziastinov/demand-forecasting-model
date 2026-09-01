@@ -65,6 +65,7 @@ def main() -> int:
     # --- summary json ----------------------------------------------------
     summary_mode = None
     summary_refresh = None
+    unactivated_scenarios: list[dict] = []
     if summary_path.exists():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         summary_mode = summary.get("recent_correction_mode")
@@ -91,7 +92,7 @@ def main() -> int:
                 f"sku_hour={rows.get('sku_hour_rows')}"
             )
             if not s.get("activated"):
-                problems.append(f"scenario {s.get('scenario')} was not activated")
+                unactivated_scenarios.append(s)
     else:
         problems.append(f"summary not found: {summary_path}")
 
@@ -126,6 +127,15 @@ def main() -> int:
             print("\nactive run(s):")
             print(df.to_string(index=False))
             active_run_id = str(df["run_id"].iloc[0])
+            active_notes = str(df["notes"].iloc[0] or "")
+            direct_active = active_run_id.startswith("prod_direct_alpha_025_")
+            for scenario in unactivated_scenarios:
+                source_run_id = str(scenario.get("run_id") or "")
+                if direct_active and source_run_id in active_notes:
+                    continue
+                problems.append(
+                    f"scenario {scenario.get('scenario')} was not activated"
+                )
             snapshot_df = client.query_df(
                 """
                 select

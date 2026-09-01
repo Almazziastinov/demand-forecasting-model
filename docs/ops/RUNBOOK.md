@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-28
+Last updated: 2026-09-01
 
 ## Verify Production State
 
@@ -19,6 +19,12 @@ Expected:
 - timer is `enabled`;
 - timer is `active`;
 - verify command ends with `VERIFY OK`.
+- exactly one active run has pattern `prod_direct_alpha_025_*` and its notes
+  identify the inactive `prod_base_bakery_norm_recent_*` source run.
+
+Do not identify `base_norm_recent` as the current model merely because it is
+shown in the refresh summary. It is the inactive bakery-volume/source stage;
+the active Direct run is the served forecast.
 
 ## Activate A Known Good Run
 
@@ -28,7 +34,7 @@ Use this only when the intended run id is known and verified:
 cd /opt/demand-forecasting-model
 .venv/bin/python -m pipelines.forecast_publish.activate_run \
   --env-file .env \
-  --run-id prod_uplifted_bakery_norm_uplift_sku_YYYYMMDD_h14
+  --run-id prod_direct_alpha_025_YYYYMMDD_h14
 ```
 
 After activation, run:
@@ -36,6 +42,10 @@ After activation, run:
 ```bash
 .venv/bin/python -m scripts.verify_prod_deploy --env-file .env
 ```
+
+Manual activation is recovery-only. Normal nightly publication is performed by
+the Direct `ExecStartPost`; do not activate the intermediate
+`prod_base_bakery_norm_recent_*` run during an ordinary successful cycle.
 
 ## Check VM Production Timer
 
@@ -66,6 +76,12 @@ Expected:
 - `forecast-production.timer`: `disabled`, `inactive`
 - `forecast-production.service`: `inactive`
 - `bakery-forecast-nightly.timer`: `disabled`, `inactive`
+
+The separate read-only `pilot-forecast-publish.timer` is expected to be
+enabled and active. When changing its schedule after the current day's old
+slot has passed, do not restart a timer with `Persistent=true` directly: that
+causes an immediate catch-up publication. Stop the timer first and ensure its
+next calculated trigger is in the future before starting it again.
 
 ## Disable Blackhole Forecast Writers
 
@@ -121,7 +137,7 @@ backfill_uplifted_bakery_norm_uplift_sku_YYYYMMDD_h1
 ```
 
 Do not activate these runs. The active production forecast remains the current
-`prod_uplifted_bakery_norm_uplift_sku_YYYYMMDD_h14` run.
+`prod_direct_alpha_025_YYYYMMDD_h14` run.
 
 Verification query:
 

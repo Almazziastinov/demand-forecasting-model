@@ -61,9 +61,14 @@ def download_baking_plan(
         logger.error("baking_plan: workbook generation failed", exc_info=True)
         raise HTTPException(status_code=503, detail="Baking plan is unavailable") from exc
 
-    filename = f"baking_plan_{bakery_id}_{date}.xlsx"
+    filename = f"baking_plan_{bakery_id}_{date}_assortment_v2.xlsx"
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
     )

@@ -1,9 +1,4 @@
-"""Bakeable-products allowlist: which SKUs a given bakery is allowed to bake.
-
-Two layers, read from the `bakeable_products` ClickHouse table:
-- scope='city'   — products sold in >=80% of bakeries in the city
-- scope='bakery' — products unique to one bakery, not already in the city layer
-"""
+"""Effective bakery assortment used by the baking plan."""
 
 from __future__ import annotations
 
@@ -15,6 +10,7 @@ from ._clickhouse import get_client, records, table_name
 logger = logging.getLogger(__name__)
 
 BAKEABLE_TABLE = table_name("bakeable_products")
+EFFECTIVE_TABLE = table_name("bakery_product_assortment_embedded")
 
 
 def get_bakeable_products(
@@ -33,18 +29,10 @@ def get_bakeable_products(
     """
     client = get_client()
 
-    if bakery_id is not None:
-        scope_filter = """
-          and (
-              (ifNull(scope, 'city') = 'city')
-              or (ifNull(scope, '') = 'bakery' and toInt64OrNull(toString(b.bakery_id)) = %(bakery_id)s)
-          )"""
-        params: dict = {"city": city, "effective_date": effective_date, "bakery_id": bakery_id}
-    else:
+    if bakery_id is None:
         scope_filter = ""
         params = {"city": city, "effective_date": effective_date}
-
-    query = """
+        query = """
         select product_id, any(product_name) as product_name,
                any(category_name) as category_name
         from {table} as b final
@@ -62,6 +50,33 @@ def get_bakeable_products(
         group by product_id
         order by category_name, product_name, product_id
         """.format(table=BAKEABLE_TABLE, scope_filter=scope_filter)
+    else:
+        params = {"effective_date": effective_date, "bakery_id": bakery_id}
+        query = """
+        select
+            a.product_id,
+            any(p.product_name) as product_name,
+            any(p.category_name) as category_name
+        from {effective_table} as a final
+        left join (
+            select
+                toString(product_id) as product_id,
+                any(product_name) as product_name,
+                any(category_name) as category_name
+            from Svezhar.dim_products
+            group by product_id
+        ) as p
+          on toInt64OrNull(a.product_id) = toInt64OrNull(p.product_id)
+        where a.bakery_id = %(bakery_id)s
+          and a.valid_from = (
+              select max(valid_from)
+              from {effective_table} final
+              where bakery_id = %(bakery_id)s
+                and valid_from <= toDate(%(effective_date)s)
+          )
+        group by a.product_id
+        order by category_name, product_name, product_id
+        """.format(effective_table=EFFECTIVE_TABLE)
     try:
         df = client.query_df(query, parameters=params)
     except Exception:

@@ -127,3 +127,15 @@ def test_bakery_daily_template_deduplicates_check_lines_before_aggregation():
     assert "from svezhar.fct_check_lines as fcl" in lower_template
     assert "from (\n    select distinct" in lower_template
     assert "sum(tofloat64(sales.quantity))" in lower_template
+
+
+def test_bakery_daily_template_deduplicates_dimension_and_prefers_nonempty_city():
+    template = (ROOT / "scripts" / "clickhouse_bakery_daily_template.sql").read_text(
+        encoding="utf-8"
+    )
+    lower_template = template.lower()
+
+    assert "anyif(bakery_name, bakery_name != '') as bakery_name" in lower_template
+    assert "anyif(city, city != '') as city" in lower_template
+    assert "from svezhar.dim_bakeries" in lower_template
+    assert "group by bakery_id" in lower_template

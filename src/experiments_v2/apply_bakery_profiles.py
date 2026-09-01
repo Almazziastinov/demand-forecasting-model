@@ -183,6 +183,21 @@ def build_bakery_hour_profile_fallback(profile: pd.DataFrame) -> pd.DataFrame:
     return work.drop(columns=["profile_sum"])
 
 
+def build_network_bakery_hour_profile_fallback(profile: pd.DataFrame) -> pd.DataFrame:
+    """Build a DOW-aware network hour shape for bakeries absent from the profile."""
+    work = (
+        profile.groupby([DOW_COL, HOUR_COL], as_index=False)
+        .agg(**{BAKERY_HOUR_SHARE_COL: (BAKERY_HOUR_SHARE_COL, "mean")})
+    )
+    totals = work.groupby(DOW_COL)[BAKERY_HOUR_SHARE_COL].transform("sum")
+    work[BAKERY_HOUR_SHARE_COL] = np.where(
+        totals > 0,
+        work[BAKERY_HOUR_SHARE_COL] / totals,
+        0.0,
+    )
+    return work
+
+
 def load_sku_hour_profile(
     path: str | Path,
     *,
@@ -402,11 +417,25 @@ def allocate_bakery_to_hour(bakery_forecast: pd.DataFrame, bakery_hour_profile: 
     fallback = missing.merge(
         fallback_profile,
         on=[BAKERY_ID_COL],
-        how="left",
+        how="inner",
         validate="many_to_many",
     )
 
-    hourly = pd.concat([exact, fallback], ignore_index=True, sort=False)
+    fallback_covered = fallback_profile[[BAKERY_ID_COL]].drop_duplicates().assign(
+        has_bakery_fallback=1
+    )
+    network_missing = missing.merge(fallback_covered, on=BAKERY_ID_COL, how="left")
+    network_missing = network_missing[
+        network_missing["has_bakery_fallback"].isna()
+    ].drop(columns=["has_bakery_fallback"])
+    network_fallback = network_missing.merge(
+        build_network_bakery_hour_profile_fallback(bakery_hour_profile),
+        on=DOW_COL,
+        how="inner",
+        validate="many_to_many",
+    )
+
+    hourly = pd.concat([exact, fallback, network_fallback], ignore_index=True, sort=False)
     if BAKERY_NAME_COL not in hourly.columns and f"{BAKERY_NAME_COL}_profile" in hourly.columns:
         hourly[BAKERY_NAME_COL] = hourly[f"{BAKERY_NAME_COL}_profile"]
     for col in [f"{BAKERY_NAME_COL}_profile"]:

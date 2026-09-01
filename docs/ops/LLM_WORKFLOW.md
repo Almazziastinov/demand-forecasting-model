@@ -1,6 +1,6 @@
 # LLM Workflow
 
-Last updated: 2026-07-09
+Last updated: 2026-09-01
 
 These rules are for Codex, Claude, and other code agents working in this repo.
 
@@ -13,6 +13,13 @@ Before changing code or production state:
 3. Read only the relevant runbook sections in `docs/ops/RUNBOOK.md`.
 4. Run `git status --short --branch`.
 5. If the task touches production, verify live state before acting.
+
+Unless live verification records an explicit rollback, “current model” means
+Direct alpha=.25 (`model_version=direct_alpha_025_v1`, active run pattern
+`prod_direct_alpha_025_YYYYMMDD_h14`). `base_norm_recent` is the inactive
+bakery-volume/source stage and must not be presented as the current SKU
+allocation model. Keep forecast allocation separate from downstream stock and
+kratnost-based production-plan conversion in analysis and reporting.
 
 ## Treat Handoffs As History
 

@@ -11,12 +11,53 @@ from src.experiments_v2.apply_bakery_profiles_clickhouse import (
     cap_sku_uplift_per_sku,
     cap_sku_uplift_to_bakery_forecast,
     compensate_for_assortment_exclusion,
+    finalize_normalized_assortment,
     fill_missing_bakery_hours,
     filter_by_active_assortment,
     find_recent_sales_missing_from_assortment,
     renormalize_hourly_to_bakery_forecast,
     validate_assortment_freshness,
 )
+
+
+def test_finalize_normalized_assortment_preserves_filtered_mass() -> None:
+    sku_hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-08-28", "2026-08-28"]),
+            "dow": [4, 4],
+            "bakery_id": [270, 270],
+            "hour": [9, 9],
+            "product_id": [11615, 11616],
+            "sku_hour_forecast": [30.0, 40.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    bakery_hourly = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-08-28"]),
+            "dow": [4],
+            "bakery_id": [270],
+            "hour": [9],
+            "bakery_hour_forecast": [100.0],
+        }
+    )
+
+    preserved, gap_stats, renorm_stats = finalize_normalized_assortment(
+        sku_hourly,
+        bakery_hourly,
+        renormalize=False,
+    )
+    restored, _, restored_stats = finalize_normalized_assortment(
+        sku_hourly,
+        bakery_hourly,
+        renormalize=True,
+    )
+
+    assert preserved["sku_hour_forecast"].sum() == 70.0
+    assert gap_stats == {"groups_filled": 0, "groups_unfilled": 0}
+    assert renorm_stats["groups_scaled"] == 0
+    assert restored["sku_hour_forecast"].sum() == 100.0
+    assert restored_stats["groups_scaled"] == 1
 
 
 def test_recent_correction_targets_filter_dead_sku_and_preserve_day_total() -> None:
@@ -496,6 +537,54 @@ def test_assortment_filter_keeps_unconfigured_city() -> None:
 
     assert filtered["product_id"].tolist() == [999]
     assert stats == {"rows_removed": 0, "forecast_removed": 0.0}
+
+
+def test_missing_hour_uniform_fallback_supports_bakery_assortment() -> None:
+    sku_hourly = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-06-01")] * 2,
+            "dow": [0, 0],
+            "bakery_id": [1, 1],
+            "hour": [8, 9],
+            "product_id": [10, 10],
+            "sku_hour_forecast": [1.0, 1.0],
+            "source": ["exact", "exact"],
+        }
+    )
+    bakery_hourly = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-06-01")] * 3,
+            "dow": [0, 0, 0],
+            "bakery_id": [1, 1, 2],
+            "hour": [8, 9, 9],
+            "bakery_hour_forecast": [1.0, 1.0, 12.0],
+        }
+    )
+    bakery_city = pd.DataFrame(
+        {"bakery_id": [1, 2], "city": ["Kazan", "Kazan"]}
+    )
+    allowed = pd.DataFrame(
+        {
+            "city": ["Kazan", "Kazan", "Kazan"],
+            "bakery_id": [1, 2, 2],
+            "product_id": [10, 20, 30],
+        }
+    )
+
+    filled, stats = fill_missing_bakery_hours(
+        sku_hourly,
+        bakery_hourly,
+        bakery_city_lookup=bakery_city,
+        allowed_pairs=allowed,
+    )
+
+    bakery_2 = filled[filled["bakery_id"].eq(2)].sort_values("product_id")
+    assert bakery_2["product_id"].tolist() == [20, 30]
+    assert bakery_2["sku_hour_forecast"].tolist() == [6.0, 6.0]
+    assert bakery_2["source"].unique().tolist() == [
+        "assortment_uniform_fallback"
+    ]
+    assert stats == {"groups_filled": 1, "groups_unfilled": 0}
 
 
 def test_assortment_filter_honors_city_and_bakery_scopes() -> None:

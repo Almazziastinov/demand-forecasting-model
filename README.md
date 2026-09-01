@@ -6,23 +6,26 @@
 
 ## Текущий статус
 
+- Production-модель: Direct alpha=.25, `model_version=direct_alpha_025_v1`,
+  active run pattern `prod_direct_alpha_025_YYYYMMDD_h14`.
+- Каноническое описание живого состояния: `docs/ops/CURRENT_STATE.md`.
 - Основной исследовательский контур: `src/experiments_v2/`
 - Legacy baseline pipeline: `src/preprocessing.py`, `src/models/train_and_save.py`, `run_pipeline.py`
 - Demo UI: `web/`
 
-## Active pilot baking-plan correction
+## Active production forecast
 
-The daily Bitrix24 baking-plan publisher for the 10-bakery pilot applies two
-temporary, category-neutral SKU correction layers:
+The current production forecast uses the bakery-day LightGBM volume followed
+by Direct daily allocation across mature SKUs. It does not inherit old category
+totals or use the legacy hourly SKU profile for allocation. Predictive uplift,
+Core-SKU protection, alpha `.25`, adaptive floor and a causal tail cap are part
+of the selected model; cold-start SKUs are handled by an independent path.
+Hourly values are derived only after the daily SKU forecast is finalized.
 
-- own-sales cold start for forecast-immature products `11573` and `11574`;
-- adaptive persistent-bias correction for mature bakery/SKU pairs.
-
-The layers preserve bakery/category totals and run before previous-day stock
-subtraction and kratnost rounding. The combined 28-day walk-forward backtest
-improved WAPE from `25.7551%` to `25.0720%`. Implementation, deployment,
-rollback, and verification details are documented in
-[`docs/pilot_sku_corrections_20260729.md`](docs/pilot_sku_corrections_20260729.md).
+Do not treat `base_norm_recent` as the current model: its nightly run is an
+inactive source stage for Direct. Operational details, verification and
+rollback are in [`docs/ops/CURRENT_STATE.md`](docs/ops/CURRENT_STATE.md) and
+[`docs/ops/RUNBOOK.md`](docs/ops/RUNBOOK.md).
 
 Подробное разделение ролей описано в [PROJECT_STATUS.md](PROJECT_STATUS.md).
 

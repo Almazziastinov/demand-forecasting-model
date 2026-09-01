@@ -22,6 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.export_clickhouse_checks import create_client  # noqa: E402
+from src.pilot_config_service import (  # noqa: E402
+    DEFAULT_SCOPE_NAME,
+    PilotConfigService,
+)
 from src.pilot_metrics import aggregate_forecast_metrics  # noqa: E402
 from src.pilot_plan_archive import normalize_header, parse_pilot_plan  # noqa: E402
 from src.pilot_performance import (  # noqa: E402
@@ -49,10 +53,61 @@ SCOPE_CATEGORIES = (
     "Фастфуд",
 )
 SCOPE_VERSION = "pilot_38_v1"
+DYNAMIC_SCOPE_VERSION = "expanded_pilot_38_events_v1"
 METRIC_VERSION = "pilot_management_v1"
 FORECAST_RELIABILITY_VERSION = "forecast_reliability_v1"
 OUTPUT_DIR = ROOT / "reports" / "pilot_management_summary"
 DEFAULT_PLAN_MANIFEST = ROOT / ".codex_tmp" / "pilot_plan_archive" / "manifest.json"
+
+
+def build_historical_scope(
+    date_from: date,
+    date_to: date,
+    events: list[dict[str, object]],
+) -> dict[date, tuple[int, ...]]:
+    """Return event-aware pilot membership for every business date."""
+    parsed_events: list[tuple[date, int, str]] = []
+    for event in events:
+        changed_at = pd.to_datetime(event.get("changed_at"), errors="coerce")
+        if pd.isna(changed_at):
+            continue
+        parsed_events.append(
+            (changed_at.date(), int(event["bakery_id"]), str(event["action"]))
+        )
+    parsed_events.sort(key=lambda item: item[0])
+
+    active = set(PILOT_IDS)
+    result: dict[date, tuple[int, ...]] = {}
+    event_index = 0
+    for business_date in pd.date_range(date_from, date_to, freq="D").date:
+        while (
+            event_index < len(parsed_events)
+            and parsed_events[event_index][0] <= business_date
+        ):
+            _, bakery_id, action = parsed_events[event_index]
+            if action == "add":
+                active.add(bakery_id)
+            elif action == "exclude":
+                active.discard(bakery_id)
+            event_index += 1
+        result[business_date] = tuple(sorted(active))
+    return result
+
+
+def filter_to_historical_scope(
+    frame: pd.DataFrame,
+    scope_by_date: dict[date, tuple[int, ...]],
+) -> pd.DataFrame:
+    """Remove bakery rows from dates when that bakery was outside the pilot."""
+    if frame.empty:
+        return frame.copy()
+    work = frame.copy()
+    date_key = pd.to_datetime(work["date"]).dt.date
+    keep = [
+        int(bakery_id) in scope_by_date.get(business_date, ())
+        for business_date, bakery_id in zip(date_key, work["bakery_id"])
+    ]
+    return work.loc[keep].copy()
 
 
 def load_effective_plan_archive(
@@ -132,12 +187,16 @@ def select_coherent_lead1(
     forecast: pd.DataFrame,
     *,
     scope_bakery_ids: tuple[int, ...] = PILOT_IDS,
+    scope_bakery_ids_by_date: dict[date, tuple[int, ...]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Select one pre-08:00 run covering the entire scope for each date.
+    """Select the latest pre-08:00 run covering the entire scope for each date.
 
     VM forecast-production.timer fires at 03:30 UTC (06:30 MSK) and publishes
     to ClickHouse by ~06:40 MSK. Cutoff is 08:00 MSK so nightly runs land
-    inside the window while ad-hoc afternoon reruns are excluded.
+    inside the window while ad-hoc afternoon reruns are excluded.  The input
+    may contain horizons greater than one: when a nightly run is missed, the
+    publisher continues to use the still-active older run, so excluding those
+    rows would incorrectly remove a business date that had a valid forecast.
     """
 
     required = {
@@ -157,6 +216,11 @@ def select_coherent_lead1(
     exclusions: list[dict[str, object]] = []
     selected: list[pd.DataFrame] = []
     for business_date, group in work.groupby("date"):
+        required_scope = (
+            scope_bakery_ids_by_date.get(business_date, scope_bakery_ids)
+            if scope_bakery_ids_by_date
+            else scope_bakery_ids
+        )
         cutoff = pd.Timestamp(business_date).tz_localize(
             "Europe/Moscow"
         ) + pd.Timedelta(hours=8)
@@ -176,18 +240,30 @@ def select_coherent_lead1(
                 }
             )
             continue
+        group = group[group["bakery_id"].isin(required_scope)].copy()
         run_coverage = group.groupby("source_run_id")["bakery_id"].nunique()
-        full_runs = run_coverage[run_coverage.eq(len(scope_bakery_ids))].index
+        full_runs = run_coverage[run_coverage.eq(len(required_scope))].index
         candidates = group[group["source_run_id"].isin(full_runs)]
         if candidates.empty:
+            if run_coverage.empty or run_coverage.max() == 0:
+                exclusions.append(
+                    {
+                        "date": business_date,
+                        "bakery_id": None,
+                        "reason": "no_scope_run",
+                    }
+                )
+                continue
+            best_coverage = run_coverage.max()
+            best_runs = run_coverage[run_coverage.eq(best_coverage)].index
+            candidates = group[group["source_run_id"].isin(best_runs)]
             exclusions.append(
                 {
                     "date": business_date,
                     "bakery_id": None,
-                    "reason": "no_full_scope_run",
+                    "reason": "partial_scope_run",
                 }
             )
-            continue
         run_times = candidates.groupby("source_run_id")["generated_at"].max()
         latest_time = run_times.max()
         latest_runs = run_times[run_times.eq(latest_time)].index.tolist()
@@ -222,6 +298,8 @@ def build_detail(
     facts: pd.DataFrame,
     *,
     scope_bakery_ids: tuple[int, ...] = PILOT_IDS,
+    scope_bakery_ids_by_date: dict[date, tuple[int, ...]] | None = None,
+    scope_version: str = SCOPE_VERSION,
     plans_are_confirmed: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     facts = facts.copy()
@@ -232,7 +310,9 @@ def build_detail(
         exclusions = pd.DataFrame(columns=["date", "bakery_id", "reason"])
     else:
         selected, exclusions = select_coherent_lead1(
-            forecast, scope_bakery_ids=scope_bakery_ids
+            forecast,
+            scope_bakery_ids=scope_bakery_ids,
+            scope_bakery_ids_by_date=scope_bakery_ids_by_date,
         )
     forecast_dates = set(pd.to_datetime(forecast["date"]).dt.date)
     absent_dates = sorted(set(facts["date"]).difference(forecast_dates))
@@ -321,7 +401,7 @@ def build_detail(
             )
         contract = PerformanceContract(
             metric_version=METRIC_VERSION,
-            scope_version=SCOPE_VERSION,
+            scope_version=scope_version,
             forecast_run_id=str(run_id),
         )
         rows.extend(
@@ -1387,7 +1467,7 @@ def extract_clickhouse(
     if bakery_ids is not None:
         params["bakery_ids"] = bakery_ids
         bakery_filter = "and toInt64(bakery_id) in %(bakery_ids)s"
-        stores_filter = "where toInt64(bakery_id) in %(bakery_ids)s"
+        stores_filter = "where toInt64(s.bakery_id) in %(bakery_ids)s"
         stores_params = {"bakery_ids": bakery_ids}
     else:
         bakery_filter = ""
@@ -1397,9 +1477,10 @@ def extract_clickhouse(
     forecast = client.query_df(
         f"""
         select forecast_date date, toInt64(bakery_id) bakery_id,
-               toInt64(product_id) product_id, source_run_id, generated_at, forecast_qty
+               toInt64(product_id) product_id, source_run_id, generated_at,
+               lead_days, forecast_qty
         from Svezhar.sku_forecast_day_snapshots
-        where lead_days=1 and forecast_date between %(date_from)s and %(date_to)s
+        where forecast_date between %(date_from)s and %(date_to)s
           {bakery_filter}
           and category_name in %(categories)s
         """,
@@ -1429,7 +1510,7 @@ def extract_clickhouse(
     )
     # produced: fct_production_release with argMax(_updated_at) dedup per (release_id, line_id)
     _fct_bakery_filter = (
-        f"and toInt64OrZero(toString(bakery_id)) in %(bakery_ids)s"
+        "and toInt64OrZero(toString(bakery_id)) in %(bakery_ids)s"
         if bakery_ids is not None
         else ""
     )
@@ -1459,7 +1540,7 @@ def extract_clickhouse(
     )
     # product_name / fact_category_name from forecast snapshots (mart had these denormalized)
     _fct_names = client.query_df(
-        f"""
+        """
         select
             toInt64(product_id) as product_id,
             any(product_name)   as product_name,
@@ -1501,10 +1582,17 @@ def extract_clickhouse(
     )
     stores = client.query_df(
         f"""
-        select toInt64(bakery_id) bakery_id,
-               regional_director, partner, operational_director, city
-        from Svezhar.dim_stores
+        select toInt64(s.bakery_id) bakery_id,
+               any(b.bakery_name) bakery_name,
+               any(s.regional_director) regional_director,
+               any(s.partner) partner,
+               any(s.operational_director) operational_director,
+               any(s.city) city
+        from Svezhar.dim_stores s
+        left join Svezhar.dim_bakeries b
+          on toInt64(b.bakery_id) = toInt64(s.bakery_id)
         {stores_filter}
+        group by s.bakery_id
         """,
         parameters=stores_params,
     )
@@ -1517,49 +1605,82 @@ def main() -> None:
     parser.add_argument("--date-to", required=True, type=date.fromisoformat)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--plan-manifest", type=Path, default=DEFAULT_PLAN_MANIFEST)
+    parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument(
         "--scope",
-        choices=["pilot_38", "all"],
-        default="pilot_38",
-        help="pilot_38 = 38 pilot bakeries (default); all = all active bakeries",
+        choices=["pilot_dynamic", "pilot_38", "all"],
+        default="pilot_dynamic",
+        help=(
+            "pilot_dynamic = current event-aware pilot membership (default); "
+            "pilot_38 = frozen seed; all = all active bakeries"
+        ),
     )
     args = parser.parse_args()
 
+    client = create_client(args.env_file)
+    scope_by_date: dict[date, tuple[int, ...]] | None = None
     if args.scope == "all":
         bakery_ids: tuple[int, ...] | None = None
         scope_version = "all_bakeries_v1"
+    elif args.scope == "pilot_dynamic":
+        pilot_config = PilotConfigService(client, ensure_table=False)
+        bakery_ids = pilot_config.get_active_bakery_ids(DEFAULT_SCOPE_NAME)
+        if not bakery_ids:
+            raise RuntimeError(f"Dynamic pilot scope {DEFAULT_SCOPE_NAME!r} is empty")
+        scope_by_date = build_historical_scope(
+            args.date_from,
+            args.date_to,
+            pilot_config.get_history(DEFAULT_SCOPE_NAME, limit=10_000),
+        )
+        scope_version = DYNAMIC_SCOPE_VERSION
     else:
         bakery_ids = PILOT_IDS
         scope_version = SCOPE_VERSION
 
-    client = create_client(ROOT / ".env")
     weekly_analytics = build_weekly_analytics_all(client, args.date_from, args.date_to)
     forecast, facts, prices, stores = extract_clickhouse(
         client, args.date_from, args.date_to, bakery_ids=bakery_ids
     )
-    # derive actual bakery scope from facts so select_coherent_lead1 checks real coverage
-    actual_scope = (
-        tuple(int(x) for x in sorted(facts["bakery_id"].unique()))
-        if not facts.empty
-        else (bakery_ids or ())
-    )
+    if scope_by_date is not None:
+        forecast = filter_to_historical_scope(forecast, scope_by_date)
+        facts = filter_to_historical_scope(facts, scope_by_date)
+        prices = filter_to_historical_scope(prices, scope_by_date)
+    actual_scope = bakery_ids or ()
     if args.plan_manifest.exists():
         archived, archive_exclusions = load_effective_plan_archive(
             args.plan_manifest, facts, date_to=args.date_to
         )
         detail, exclusions = build_detail(
-            archived, facts, scope_bakery_ids=actual_scope, plans_are_confirmed=True
+            archived,
+            facts,
+            scope_bakery_ids=actual_scope,
+            scope_bakery_ids_by_date=scope_by_date,
+            scope_version=scope_version,
+            plans_are_confirmed=True,
         )
         exclusions = pd.concat([exclusions, archive_exclusions], ignore_index=True)
         forecast_source = "effective_bitrix_attachment"
     else:
         forecast = _compute_kratnost_plan(forecast, facts, client)
         detail, exclusions = build_detail(
-            forecast, facts, scope_bakery_ids=actual_scope
+            forecast,
+            facts,
+            scope_bakery_ids=actual_scope,
+            scope_bakery_ids_by_date=scope_by_date,
+            scope_version=scope_version,
         )
         forecast_source = "snapshot_fallback"
     if not stores.empty and not detail.empty:
-        stores_join = stores[["bakery_id", "regional_director", "partner", "operational_director", "city"]].drop_duplicates("bakery_id")
+        stores_join = stores[
+            [
+                "bakery_id",
+                "bakery_name",
+                "regional_director",
+                "partner",
+                "operational_director",
+                "city",
+            ]
+        ].drop_duplicates("bakery_id")
         detail = detail.merge(stores_join, on="bakery_id", how="left")
     if not prices.empty and not detail.empty:
         prices_join = prices[["date", "bakery_id", "product_id", "revenue"]].copy()

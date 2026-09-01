@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from scripts.build_pilot_management_summary import (
+    build_historical_scope,
     build_coverage_diagnostics,
     build_detail,
     build_execution_triage,
@@ -12,6 +13,7 @@ from scripts.build_pilot_management_summary import (
     build_priority_queues,
     select_coherent_lead1,
 )
+from src.pilot_config_service import PilotConfigService
 
 
 def forecasts() -> pd.DataFrame:
@@ -59,12 +61,81 @@ def test_selects_one_latest_coherent_run() -> None:
     assert len(selected) == 2
 
 
+def test_selects_older_horizon_when_lead1_run_is_missing() -> None:
+    frame = forecasts().copy()
+    frame["lead_days"] = [3, 2, 2]
+
+    selected, excluded = select_coherent_lead1(frame, scope_bakery_ids=(20,))
+
+    assert excluded.empty
+    assert set(selected["source_run_id"]) == {"new"}
+    assert set(selected["lead_days"]) == {2}
+
+
+def test_dynamic_scope_returns_seed_plus_added_bakery(monkeypatch) -> None:
+    service = object.__new__(PilotConfigService)
+    monkeypatch.setattr(
+        service,
+        "get_all_bakeries",
+        lambda scope_name: [
+            {"bakery_id": bakery_id, "is_active": True}
+            for bakery_id in range(1, 39)
+        ]
+        + [{"bakery_id": 273, "is_active": True}],
+    )
+
+    bakery_ids = service.get_active_bakery_ids("expanded_pilot_38")
+
+    assert len(bakery_ids) == 39
+    assert bakery_ids[-1] == 273
+
+
+def test_historical_scope_applies_add_from_event_date() -> None:
+    scopes = build_historical_scope(
+        pd.Timestamp("2026-07-23").date(),
+        pd.Timestamp("2026-08-18").date(),
+        [
+            {
+                "bakery_id": 273,
+                "action": "add",
+                "changed_at": "2026-08-17T14:44:15",
+            }
+        ],
+    )
+
+    assert len(scopes[pd.Timestamp("2026-07-23").date()]) == 38
+    assert 273 not in scopes[pd.Timestamp("2026-08-16").date()]
+    assert 273 in scopes[pd.Timestamp("2026-08-17").date()]
+
+
+def test_build_detail_uses_selected_scope_version() -> None:
+    detail, _ = build_detail(
+        forecasts(),
+        facts(),
+        scope_bakery_ids=(20,),
+        scope_version="expanded_pilot_38_events_v1",
+    )
+
+    assert set(detail["scope_version"]) == {"expanded_pilot_38_events_v1"}
+
+
 def test_tied_latest_runs_are_excluded() -> None:
     frame = forecasts().iloc[[1, 2]].copy()
     frame.loc[frame.index[1], "source_run_id"] = "other"
     selected, excluded = select_coherent_lead1(frame, scope_bakery_ids=(20,))
     assert selected.empty
     assert excluded.iloc[0]["reason"] == "ambiguous_full_run"
+
+
+def test_partial_scope_run_keeps_available_bakery_data() -> None:
+    frame = forecasts().copy()
+
+    selected, excluded = select_coherent_lead1(
+        frame, scope_bakery_ids=(20, 270)
+    )
+
+    assert set(selected["source_run_id"]) == {"new"}
+    assert excluded.iloc[0]["reason"] == "partial_scope_run"
 
 
 def test_summary_has_forecast_kpi_but_no_execution_kpi() -> None:

@@ -24,6 +24,7 @@ _SEED_PILOT_IDS: frozenset[int] = frozenset({
 
 _EVENTS_TABLE = "Svezhar.pilot_scope_events"
 _DIM_STORES_TABLE = "Svezhar.dim_stores"
+DEFAULT_SCOPE_NAME = "expanded_pilot_38"
 
 _CREATE_SQL = """
 CREATE TABLE IF NOT EXISTS Svezhar.pilot_scope_events (
@@ -51,9 +52,10 @@ def _to_py(value: Any) -> Any:
 
 
 class PilotConfigService:
-    def __init__(self, client) -> None:
+    def __init__(self, client, *, ensure_table: bool = True) -> None:
         self._client = client
-        self._ensure_table()
+        if ensure_table:
+            self._ensure_table()
 
     # ------------------------------------------------------------------ setup
 
@@ -130,6 +132,16 @@ class PilotConfigService:
         # Sort: active first, then by bakery_id
         rows.sort(key=lambda r: (0 if r["is_active"] else 1, r["bakery_id"]))
         return rows
+
+    def get_active_bakery_ids(
+        self, scope_name: str = DEFAULT_SCOPE_NAME
+    ) -> tuple[int, ...]:
+        """Return current event-aware pilot membership in stable ID order."""
+        return tuple(
+            row["bakery_id"]
+            for row in self.get_all_bakeries(scope_name)
+            if row["is_active"]
+        )
 
     def get_history(self, scope_name: str, limit: int = 200) -> list[dict]:
         """Full event log newest-first, enriched with bakery_name."""

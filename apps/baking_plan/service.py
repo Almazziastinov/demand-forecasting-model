@@ -24,11 +24,12 @@ from .algorithms.milp import allocate_milp_detailed
 from .capacity import CapacityConfig, get_capacity_config, get_molding_minutes_map
 from .demand_milp import build_sku_demand
 from .rendering_milp import MANDATORY_ASSORTMENT, render_workbook
+from .simple_plan import build_workbook as build_simple_plan_workbook
 
 logger = logging.getLogger(__name__)
 
 
-def build_baking_plan_workbook(
+def build_milp_baking_plan_workbook(
     *,
     run_id: str,
     forecast_date: str,
@@ -114,3 +115,21 @@ def build_baking_plan_workbook(
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+def build_baking_plan_workbook(
+    *,
+    run_id: str,
+    forecast_date: str,
+    bakery_id: int,
+    bakery_name: str,
+    city: str,
+) -> bytes:
+    """Build the current quantity-oriented plan for one bakery and date."""
+    del city  # kept in the public signature for router compatibility
+    return build_simple_plan_workbook(
+        run_id=run_id,
+        forecast_date=forecast_date,
+        bakery_id=bakery_id,
+        bakery_name=bakery_name,
+    )

@@ -37,10 +37,14 @@ from src.experiments_v2.sku_systematic_correction import (  # noqa: E402
     build_correction_registry,
 )
 from src.experiments_v2.sku_cold_start import (  # noqa: E402
-    ColdStartConfig,
-    apply_category_neutral_cold_start,
+    apply_independent_cold_start,
     build_cold_start_registry,
 )
+from src.pilot_scope import BASE_PILOT_10  # noqa: E402
+
+# Compatibility/exported analytical scope. Runtime publishing uses the dynamic
+# pilot_scope_events membership loaded by _load_pilot_bakery_ids().
+PILOT_BAKERY_IDS = sorted(BASE_PILOT_10.bakery_ids)
 
 # Управляемый scope в ClickHouse.  Если таблица пуста — используется fallback.
 _PILOT_SCOPE_NAME = "expanded_pilot_38"
@@ -63,6 +67,14 @@ BAKEABLE_CATEGORIES = {
     "Фастфуд",
 }
 
+PRODUCT_NAME_OVERRIDES = {
+    11615: "Плетенка кленовая",
+    11616: "Плетенка с черникой",
+    11617: "Плетенка с земляникой",
+}
+
+MISSING_KRATNOST_LABEL = "нет данных по кратности"
+
 
 def _load_env(env_file: str) -> None:
     with open(env_file) as f:
@@ -79,6 +91,62 @@ def _round_up_kratnost(value: float, kratnost: int) -> int:
     if value <= 0 or kratnost <= 0:
         return 0
     return int(math.ceil(value / kratnost - 1e-9) * kratnost)
+
+
+def _production_plan_with_optional_kratnost(
+    net_need: float,
+    kratnost: int | None,
+) -> tuple[int, int | str]:
+    """Keep an SKU in the plan when its production multiple is unknown."""
+    if kratnost is None:
+        return max(0, int(math.ceil(net_need - 1e-9))), MISSING_KRATNOST_LABEL
+    return _round_up_kratnost(net_need, kratnost), kratnost
+
+
+def _enrich_forecast_product_metadata(
+    forecast: pd.DataFrame,
+    product_meta: pd.DataFrame,
+) -> pd.DataFrame:
+    """Fill missing forecast names/categories from the product dimension."""
+    if forecast.empty or product_meta.empty:
+        return forecast.copy()
+    meta = product_meta[["product_id", "product_name", "category_name"]].copy()
+    meta = meta.drop_duplicates("product_id").rename(
+        columns={
+            "product_name": "dimension_product_name",
+            "category_name": "dimension_category_name",
+        }
+    )
+    enriched = forecast.merge(meta, on="product_id", how="left", validate="many_to_one")
+    for column in ("product_name", "category_name"):
+        dimension_column = f"dimension_{column}"
+        current = enriched[column].astype("string").str.strip()
+        missing = current.isna() | current.eq("")
+        enriched.loc[missing, column] = enriched.loc[missing, dimension_column]
+        enriched = enriched.drop(columns=dimension_column)
+    return enriched
+
+
+def _add_missing_cold_start_candidates(
+    forecast: pd.DataFrame,
+    candidates: pd.DataFrame,
+) -> pd.DataFrame:
+    """Add zero-forecast candidate rows before applying cold-start floors."""
+    keys = ["bakery_id", "product_id"]
+    existing = set(map(tuple, forecast[keys].values.tolist()))
+    additions = candidates[
+        ~candidates.apply(
+            lambda row: (row["bakery_id"], row["product_id"]) in existing,
+            axis=1,
+        )
+    ].copy()
+    if additions.empty:
+        return forecast.copy()
+    additions["forecast_qty"] = 0.0
+    if "date" in forecast.columns:
+        additions["date"] = forecast["date"].iloc[0] if not forecast.empty else pd.NaT
+    additions = additions.reindex(columns=forecast.columns, fill_value=pd.NA)
+    return pd.concat([forecast, additions], ignore_index=True)
 
 
 def _load_pilot_bakery_ids(client) -> list[int]:
@@ -128,6 +196,7 @@ def _build_report(
     *,
     sku_correction_registry: str | Path | None = None,
     enable_new_sku_cold_start: bool = True,
+    forecast_override: str | Path | None = None,
 ) -> list[dict]:
     """Build daily pilot rows with previous-day stock and production plan."""
     from app.db import get_client
@@ -137,11 +206,18 @@ def _build_report(
     pilot_bakery_ids = _load_pilot_bakery_ids(client)
 
     run_df = client.query_df(
-        f"select run_id from {table_name('forecast_runs_embedded')} where status = 'active' limit 1"
+        f"select run_id, model_version from "
+        f"{table_name('forecast_runs_embedded')} "
+        "where status = 'active' limit 1"
     )
     if run_df.empty:
         raise RuntimeError("No active forecast run")
     run_id = str(run_df.iloc[0]["run_id"])
+    active_model_version = str(run_df.iloc[0].get("model_version") or "")
+    direct_handles_cold_start = (
+        active_model_version == "direct_alpha_025_v1"
+        and forecast_override is None
+    )
 
     # Bakery names for pilot bakeries
     # dim_bakeries uses zero-padded string bakery_id ("000000016"), same as baking_sku_meta
@@ -183,9 +259,50 @@ def _build_report(
         },
     )
 
+    if forecast_override is not None:
+        override_path = Path(forecast_override)
+        forecast_df = pd.read_csv(override_path)
+        required = {
+            "bakery_id",
+            "product_id",
+            "product_name",
+            "category_name",
+            "forecast_qty",
+        }
+        missing = sorted(required.difference(forecast_df.columns))
+        if missing:
+            raise ValueError(f"Forecast override is missing columns: {missing}")
+        forecast_df = forecast_df[list(required)].copy()
+        forecast_df["bakery_id"] = pd.to_numeric(forecast_df["bakery_id"], errors="raise").astype("int64")
+        forecast_df["product_id"] = pd.to_numeric(forecast_df["product_id"], errors="raise").astype("int64")
+        forecast_df["forecast_qty"] = pd.to_numeric(forecast_df["forecast_qty"], errors="raise").clip(lower=0.0)
+        forecast_df = forecast_df[forecast_df["bakery_id"].isin(pilot_bakery_ids)]
+
     if forecast_df.empty:
         print(f"  WARNING: no forecast rows for {forecast_date}, run {run_id}")
         return []
+
+    forecast_df["product_id"] = pd.to_numeric(
+        forecast_df["product_id"], errors="coerce"
+    ).astype("Int64")
+    dimension_df = client.query_df(
+        """
+        select
+            toInt64OrZero(toString(product_id)) as product_id,
+            any(product_name) as product_name,
+            any(category_name) as category_name
+        from Svezhar.dim_products
+        where toInt64OrZero(toString(product_id)) in %(product_ids)s
+        group by product_id
+        """,
+        parameters={
+            "product_ids": [
+                int(product_id)
+                for product_id in forecast_df["product_id"].dropna().unique()
+            ]
+        },
+    )
+    forecast_df = _enrich_forecast_product_metadata(forecast_df, dimension_df)
 
     previous_date = str(date_type.fromisoformat(forecast_date) - timedelta(days=1))
     # Stock: qty_produced - qty_sold for previous day, computed from fct tables.
@@ -304,18 +421,9 @@ def _build_report(
             & eligible["category_name"].isin(BAKEABLE_CATEGORIES)
             & ~eligible["product_id"].isin(frozen_pids)
         ].copy()
-        has_meta = eligible.apply(
-            lambda row: (
-                int(row["product_id"]) in base_kratnost
-                or (int(row["product_id"]), int(row["bakery_id"]))
-                in bakery_kratnost
-            ),
-            axis=1,
-        )
-        eligible = eligible[has_meta].copy()
         eligible["date"] = pd.Timestamp(forecast_date)
 
-    if enable_new_sku_cold_start:
+    if enable_new_sku_cold_start and not direct_handles_cold_start:
         history_from = str(
             date_type.fromisoformat(forecast_date) - timedelta(days=60)
         )
@@ -335,7 +443,6 @@ def _build_report(
                   and check_date >= toDate(%(history_from)s)
                   and check_date < toDate(%(forecast_date)s)
                   and toInt64OrZero(toString(bakery_id)) in %(bids)s
-                  and toInt64OrZero(toString(product_id)) in %(product_ids)s
             )
             group by date, bakery_id, product_id
             """,
@@ -343,7 +450,6 @@ def _build_report(
                 "history_from": history_from,
                 "forecast_date": forecast_date,
                 "bids": pilot_bakery_ids,
-                "product_ids": list(ColdStartConfig().product_ids),
             },
         )
         forecast_history = client.query_df(
@@ -358,14 +464,12 @@ def _build_report(
               and forecast_date < toDate(%(forecast_date)s)
               and lead_days = 1
               and toInt64(bakery_id) in %(bids)s
-              and toInt64(product_id) in %(product_ids)s
             group by date, bakery_id, product_id
             """,
             parameters={
                 "history_from": history_from,
                 "forecast_date": forecast_date,
                 "bids": pilot_bakery_ids,
-                "product_ids": list(ColdStartConfig().product_ids),
             },
         )
         cold_history = sales_history.merge(
@@ -379,15 +483,70 @@ def _build_report(
             cold_history,
             as_of_date=forecast_date,
         )
-        eligible = apply_category_neutral_cold_start(
+        if not cold_registry.empty:
+            cold_ids = sorted(cold_registry["product_id"].astype(int).unique())
+            cold_ids_padded = [f"{product_id:09d}" for product_id in cold_ids]
+            cold_meta = client.query_df(
+                f"""
+                select product_id, bakery_id, dough_group, kratnost, scope
+                from {table_name('baking_sku_meta')} final
+                where is_active = 1 and product_id in %(pids)s
+                """,
+                parameters={"pids": cold_ids_padded},
+            )
+            for row in cold_meta.to_dict("records"):
+                product_id = int(row["product_id"])
+                if "замороженные полуфабрикаты" in str(
+                    row.get("dough_group") or ""
+                ).lower():
+                    frozen_pids.add(product_id)
+                    continue
+                kratnost = int(row.get("kratnost") or 1) or 1
+                if row["scope"] == "bakery" and row["bakery_id"] is not None:
+                    bakery_kratnost[(product_id, int(row["bakery_id"]))] = kratnost
+                else:
+                    base_kratnost[product_id] = kratnost
+            product_meta = client.query_df(
+                """
+                select
+                    toInt64OrZero(toString(product_id)) as product_id,
+                    any(product_name) as product_name,
+                    any(category_name) as category_name
+                from Svezhar.dim_products
+                where toInt64OrZero(toString(product_id)) in %(product_ids)s
+                group by product_id
+                """,
+                parameters={"product_ids": cold_ids},
+            )
+            candidates = cold_registry[["bakery_id", "product_id"]].merge(
+                product_meta,
+                on="product_id",
+                how="inner",
+                validate="many_to_one",
+            )
+            candidates = candidates[
+                candidates["category_name"].isin(BAKEABLE_CATEGORIES)
+                & ~candidates["product_id"].isin(frozen_pids)
+            ]
+            candidates = candidates[
+                candidates.apply(
+                    lambda row: int(row["product_id"]) in base_kratnost
+                    or (int(row["product_id"]), int(row["bakery_id"]))
+                    in bakery_kratnost,
+                    axis=1,
+                )
+            ]
+            eligible = _add_missing_cold_start_candidates(eligible, candidates)
+        eligible = apply_independent_cold_start(
             eligible,
             cold_registry,
         )
-        eligible["forecast_qty"] = eligible["cold_start_forecast_qty"]
+        eligible["forecast_qty"] = eligible["independent_forecast_qty"]
+        eligible = eligible.drop(columns="independent_forecast_qty")
         print(
             "  new-SKU cold start: "
             f"{len(cold_registry)} bakery/SKU floors, "
-            "bakery/category totals preserved"
+            "independent volume added above mature allocation"
         )
 
     mature_registry = pd.DataFrame()
@@ -548,16 +707,27 @@ def _build_report(
         )
 
     if not mature_registry.empty:
+        cold_mask = eligible.get(
+            "is_cold_start",
+            pd.Series(False, index=eligible.index),
+        )
+        mature_eligible = eligible[~cold_mask].copy()
         corrected = apply_category_neutral_corrections(
-            eligible,
+            mature_eligible,
             mature_registry,
         )
         corrected_forecast = {
             (int(row["bakery_id"]), int(row["product_id"])): float(
+                row["forecast_qty"]
+            )
+            for row in eligible.to_dict("records")
+        }
+        corrected_forecast.update({
+            (int(row["bakery_id"]), int(row["product_id"])): float(
                 row["corrected_forecast_qty"]
             )
             for row in corrected.to_dict("records")
-        }
+        })
         changed = (
             corrected["corrected_forecast_qty"]
             - corrected["forecast_qty"]
@@ -575,8 +745,13 @@ def _build_report(
             for row in eligible.to_dict("records")
         }
 
+    report_df = (
+        eligible
+        if sku_correction_registry or enable_new_sku_cold_start
+        else forecast_df
+    )
     rows = []
-    for rec in forecast_df.to_dict("records"):
+    for rec in report_df.to_dict("records"):
         try:
             bid = int(rec["bakery_id"])
         except (TypeError, ValueError):
@@ -592,31 +767,43 @@ def _build_report(
             continue
         if pid_int in frozen_pids:
             continue
-        if pid_int not in base_kratnost and (pid_int, bid) not in bakery_kratnost:
-            continue  # no baking meta → not a bakeable SKU
-
-        kratnost = bakery_kratnost.get((pid_int, bid)) or base_kratnost.get(pid_int) or 1
+        kratnost = bakery_kratnost.get((pid_int, bid)) or base_kratnost.get(pid_int)
         forecast_qty = corrected_forecast.get(
             (bid, pid_int),
             float(rec.get("forecast_qty") or 0),
         )
         stock_qty = yesterday_stock.get((bid, pid_int), 0.0)
         net_need = max(forecast_qty - stock_qty, 0.0)
-        production_plan = _round_up_kratnost(net_need, kratnost)
+        production_plan, kratnost_display = _production_plan_with_optional_kratnost(
+            net_need,
+            kratnost,
+        )
 
         bname = bakery_info.get(bid, {}).get("name") or str(bid)
         rows.append({
             "bakery_id": bid,
             "bakery_name": bname,
             "category": category,
-            "product_name": str(rec.get("product_name") or ""),
+            "product_name": PRODUCT_NAME_OVERRIDES.get(
+                pid_int, str(rec.get("product_name") or "")
+            ),
             "forecast": round(forecast_qty, 1),
             "yesterday_stock": round(stock_qty, 1),
             "net_need": round(net_need, 1),
             "production_plan": production_plan,
             "total_for_sale": round(production_plan + stock_qty, 1),
-            "kratnost": kratnost,
+            "kratnost": kratnost_display,
         })
+
+    missing_kratnost_rows = sum(
+        row["kratnost"] == MISSING_KRATNOST_LABEL for row in rows
+    )
+    if missing_kratnost_rows:
+        print(
+            "  WARNING: "
+            f"{missing_kratnost_rows} forecast rows have no baking_sku_meta; "
+            "kept with unit rounding"
+        )
 
     rows.sort(key=lambda r: (r["bakery_id"], r["category"], r["product_name"]))
     return rows
@@ -695,7 +882,18 @@ def _build_excel(rows: list[dict], forecast_date: str) -> bytes:
             data_row["total_for_sale"],
             data_row["kratnost"],
         ]
-        fmts = [None, None, None, number_fmt, number_fmt, number_fmt, int_fmt, number_fmt, int_fmt]
+        kratnost_fmt = int_fmt if isinstance(data_row["kratnost"], int) else None
+        fmts = [
+            None,
+            None,
+            None,
+            number_fmt,
+            number_fmt,
+            number_fmt,
+            int_fmt,
+            number_fmt,
+            kratnost_fmt,
+        ]
         for col_idx, (val, fmt) in enumerate(zip(values, fmts), start=1):
             cell = ws.cell(row=row_num, column=col_idx, value=val)
             cell.fill = fill
@@ -732,13 +930,9 @@ def _send_to_chat(file_bytes: bytes, filename: str, forecast_date: str) -> None:
       3. im.disk.file.commit → sends file as a proper attachment in chat
       4. Send short text message via VibeCode chats API
     """
-    import email.generator
-    import io
     import json
     import time as _time
     import urllib.request
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.application import MIMEApplication
 
     api_key = os.environ.get("VIBECODE_API_KEY") or ""
     if not api_key:
@@ -769,7 +963,7 @@ def _send_to_chat(file_bytes: bytes, filename: str, forecast_date: str) -> None:
     if "error" in step1:
         raise RuntimeError(f"disk.folder.uploadfile failed: {step1}")
     upload_url = step1["result"]["uploadUrl"]
-    print(f"  [b24] uploadUrl obtained")
+    print("  [b24] uploadUrl obtained")
 
     # Step 2: POST file bytes to uploadUrl as multipart/form-data
     boundary = f"----FormBoundary{int(_time.time())}"
@@ -836,6 +1030,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Build Excel but do not send to Bitrix24")
     parser.add_argument("--out-dir", default="output/pilot_forecast")
     parser.add_argument(
+        "--forecast-override",
+        default=None,
+        help="Optional read-only CSV replacement for forecast rows; intended for controlled dry-runs.",
+    )
+    parser.add_argument(
         "--sku-correction-registry",
         default=None,
         help=(
@@ -862,6 +1061,7 @@ def main() -> None:
     rows = _build_report(
         forecast_date,
         sku_correction_registry=registry_path,
+        forecast_override=args.forecast_override,
     )
     if not rows:
         print("No data found — aborting.")

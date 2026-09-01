@@ -21,12 +21,15 @@ if str(_REPO_ROOT) not in sys.path:
 
 from app.auth import get_auth_context  # noqa: E402
 from app.db import get_client  # noqa: E402
-from src.pilot_config_service import PilotConfigService  # noqa: E402
+from src.pilot_config_service import (  # noqa: E402
+    DEFAULT_SCOPE_NAME,
+    PilotConfigService,
+)
 
 router = APIRouter(prefix="/pilot/config", tags=["pilot-config"])
 templates = Jinja2Templates(directory="app/templates")
 
-DEFAULT_SCOPE = "expanded_pilot_38"
+DEFAULT_SCOPE = DEFAULT_SCOPE_NAME
 
 
 def _get_service() -> PilotConfigService:

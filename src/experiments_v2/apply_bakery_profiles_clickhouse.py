@@ -86,6 +86,36 @@ def load_active_assortment_pairs(
     assortment_table: str,
     effective_date: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
+    if "bakery_product_assortment" in assortment_table:
+        if effective_date is None:
+            raise ValueError("effective_date is required for bakery assortment")
+        return client.query_df(
+            f"""
+            select
+                b.city as city,
+                toInt64OrNull(replaceRegexpOne(toString(a.product_id), '^0+', ''))
+                    as product_id_int,
+                toInt64(a.bakery_id) as bakery_id,
+                a.valid_from as valid_from
+            from {assortment_table} as a final
+            inner join (
+                select bakery_id,
+                       anyIf(city, city != '' and city != 'unknown') as city
+                from dim_bakeries
+                group by bakery_id
+            ) as b on toInt64(a.bakery_id) = toInt64(b.bakery_id)
+            inner join (
+                select bakery_id, max(valid_from) as latest_valid_from
+                from {assortment_table} final
+                where valid_from <= toDate(%(effective_date)s)
+                group by bakery_id
+            ) latest on a.bakery_id = latest.bakery_id
+                and a.valid_from = latest.latest_valid_from
+            where product_id_int is not null
+            group by b.city, product_id_int, bakery_id, a.valid_from
+            """,
+            parameters={"effective_date": str(pd.Timestamp(effective_date).date())},
+        ).rename(columns={"product_id_int": PRODUCT_ID_COL})
     if "bakeable_products" in assortment_table:
         if effective_date is None:
             raise ValueError("effective_date is required for bakeable assortment")
@@ -438,6 +468,59 @@ def cap_sku_uplift_to_bakery_forecast(
         "bakery_days_capped": n_capped,
         "bakery_days_total": int(len(ratio_df)),
         "avg_scale_when_capped": round(avg_scale, 4),
+    }
+
+
+def floor_sku_allocation_to_bakery_forecast(
+    hourly: pd.DataFrame,
+    bakery_forecast: pd.DataFrame,
+    *,
+    min_ratio: float,
+    forecast_col: str,
+) -> tuple[pd.DataFrame, dict[str, float | int]]:
+    """Raise non-empty under-allocated bakery-days to a safe minimum ratio."""
+    if not 0 < min_ratio <= 1:
+        raise ValueError("min_ratio must be in (0, 1]")
+
+    keys = [DATE_COL, BAKERY_ID_COL]
+    work = hourly.copy()
+    work[DATE_COL] = pd.to_datetime(work[DATE_COL])
+    targets = bakery_forecast[[DATE_COL, BAKERY_ID_COL, forecast_col]].copy()
+    targets[DATE_COL] = pd.to_datetime(targets[DATE_COL])
+    targets = targets.rename(columns={forecast_col: "_bakery_day_forecast"})
+    totals = (
+        work.groupby(keys, as_index=False)[SKU_HOUR_FORECAST_COL]
+        .sum()
+        .rename(columns={SKU_HOUR_FORECAST_COL: "_sku_day_forecast"})
+    )
+    ratios = targets.merge(totals, on=keys, how="left")
+    ratios["_sku_day_forecast"] = ratios["_sku_day_forecast"].fillna(0.0)
+    positive_target = ratios["_bakery_day_forecast"].gt(0.0)
+    repairable = positive_target & ratios["_sku_day_forecast"].gt(0.0)
+    below_floor = repairable & (
+        ratios["_sku_day_forecast"]
+        < ratios["_bakery_day_forecast"] * min_ratio
+    )
+    ratios["_allocation_floor_scale"] = 1.0
+    ratios.loc[below_floor, "_allocation_floor_scale"] = (
+        ratios.loc[below_floor, "_bakery_day_forecast"]
+        * min_ratio
+        / ratios.loc[below_floor, "_sku_day_forecast"]
+    )
+    scaled = work.merge(
+        ratios[[*keys, "_allocation_floor_scale"]], on=keys, how="left"
+    )
+    scaled[SKU_HOUR_FORECAST_COL] = scaled[SKU_HOUR_FORECAST_COL] * scaled[
+        "_allocation_floor_scale"
+    ].fillna(1.0)
+    scaled = scaled.drop(columns=["_allocation_floor_scale"])
+    applied = ratios.loc[below_floor, "_allocation_floor_scale"]
+    return scaled, {
+        "min_ratio": min_ratio,
+        "bakery_days_scaled": int(below_floor.sum()),
+        "bakery_days_total": int(len(ratios)),
+        "bakery_days_without_sku": int((positive_target & ~repairable).sum()),
+        "avg_scale_when_applied": round(float(applied.mean()), 4) if len(applied) else 1.0,
     }
 
 
@@ -838,9 +921,26 @@ def fill_missing_bakery_hours(
         )
         city_added = city_added[city_added["_city_product_share"].notna()].copy()
         if not city_added.empty:
+            city_added, _ = filter_by_active_assortment(
+                city_added,
+                allowed_pairs=(
+                    allowed_pairs
+                    if allowed_pairs is not None
+                    else pd.DataFrame(columns=[CITY_COL, PRODUCT_ID_COL])
+                ),
+                bakery_city_lookup=bakery_city_lookup,
+                forecast_col="_city_product_share",
+            )
+            city_added["_allowed_city_share_sum"] = city_added.groupby(keys)[
+                "_city_product_share"
+            ].transform("sum")
+            city_added = city_added[
+                city_added["_allowed_city_share_sum"].gt(0.0)
+            ].copy()
             city_added[SKU_HOUR_FORECAST_COL] = (
                 city_added[BAKERY_HOUR_FORECAST_COL]
                 * city_added["_city_product_share"]
+                / city_added["_allowed_city_share_sum"]
             )
             city_added["source"] = "assortment_city_hour_fallback"
             city_added = city_added[[*HOURLY_OUTPUT_COLS, "source"]]
@@ -1001,11 +1101,26 @@ def fill_missing_bakery_hours(
         and allowed_pairs is not None
         and not allowed_pairs.empty
     ):
-        uniform_added = remaining.merge(
+        uniform_base = remaining.merge(
             bakery_city_lookup,
             on=BAKERY_ID_COL,
             how="left",
-        ).merge(allowed_pairs, on=CITY_COL, how="left")
+        )
+        if BAKERY_ID_COL in allowed_pairs.columns:
+            bakery_allowed = allowed_pairs[
+                [BAKERY_ID_COL, PRODUCT_ID_COL]
+            ].drop_duplicates()
+            uniform_added = uniform_base.merge(
+                bakery_allowed,
+                on=BAKERY_ID_COL,
+                how="left",
+            )
+        else:
+            uniform_added = uniform_base.merge(
+                allowed_pairs,
+                on=CITY_COL,
+                how="left",
+            )
         uniform_added = uniform_added.dropna(subset=[PRODUCT_ID_COL]).copy()
         uniform_added["_allowed_count"] = uniform_added.groupby(keys)[
             PRODUCT_ID_COL
@@ -1028,6 +1143,36 @@ def fill_missing_bakery_hours(
         "groups_filled": total_filled,
         "groups_unfilled": int(len(missing) - total_filled),
     }
+
+
+def finalize_normalized_assortment(
+    sku_hourly: pd.DataFrame,
+    bakery_hourly: pd.DataFrame,
+    *,
+    bakery_city_lookup: pd.DataFrame | None = None,
+    allowed_pairs: pd.DataFrame | None = None,
+    recent_product_weights: pd.DataFrame | None = None,
+    renormalize: bool = True,
+) -> tuple[pd.DataFrame, dict[str, int], dict[str, float | int]]:
+    """Fill true hour gaps and optionally restore the full bakery-hour mass.
+
+    Bakery-scoped bakeable assortments use ``renormalize=False`` so demand
+    removed with non-bakeable SKUs is not transferred onto bakery products.
+    """
+    work, gap_stats = fill_missing_bakery_hours(
+        sku_hourly,
+        bakery_hourly,
+        bakery_city_lookup=bakery_city_lookup,
+        allowed_pairs=allowed_pairs,
+        recent_product_weights=recent_product_weights,
+    )
+    if not renormalize:
+        return work, gap_stats, {"groups_scaled": 0, "groups_without_sku": 0}
+    work, renormalization_stats = renormalize_hourly_to_bakery_forecast(
+        work,
+        bakery_hourly,
+    )
+    return work, gap_stats, renormalization_stats
 
 
 def load_profile_lookup_frames(
@@ -1269,11 +1414,17 @@ def load_recent_assortment_stats(
             any(category_name) as category_name,
             sum(toFloat64(quantity)) as recent_qty,
             uniqExact(check_date) as recent_days_sold
-        from {source_sql}
-        where check_date between %(recent_start)s and %(recent_end)s
-          and toInt64OrNull(toString(bakery_id)) is not null
-          and toInt64OrNull(toString(product_id)) is not null
-          and toFloat64(quantity) > 0
+        from {source_sql} as recent_source
+        where recent_source.check_date between %(recent_start)s and %(recent_end)s
+          and toInt64OrNull(toString(recent_source.bakery_id)) is not null
+          and toInt64OrNull(toString(recent_source.product_id)) is not null
+          and toFloat64(recent_source.quantity) > 0
+          and not startsWith(lowerUTF8(toString(recent_source.product_name)), 'я_не_исп')
+          and not startsWith(lowerUTF8(toString(recent_source.product_name)), 'я не исп')
+          and match(
+              lowerUTF8(toString(recent_source.category_name)),
+              'пирог|выпечка|фастфуд'
+          )
 {bakery_clause}        group by bakery_id, product_id
         """,
         parameters=params,
@@ -1994,6 +2145,7 @@ def allocate_from_clickhouse(
     hierarchical_haircut_history_days: int = 7,
     hierarchical_haircut_pair_prior_days: float = 7.0,
     hierarchical_haircut_min_coefficient: float = 0.85,
+    min_sku_allocation_ratio: float | None = None,
     recent_category_upward_cap_pattern: str | None = DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
     recent_category_upward_cap_multiplier: float = DEFAULT_RECENT_UPWARD_CAP_MULTIPLIER,
     recent_category_absolute_cap_days: int | None = None,
@@ -2292,6 +2444,7 @@ def allocate_from_clickhouse(
     sku_uplift_cap_stats: dict[str, float | int] = {}
     stockout_correction_stats: dict[str, float | int] = {}
     hierarchical_haircut_stats: dict[str, float | int] = {}
+    allocation_floor_stats: dict[str, float | int] = {}
     if recent_correction_mode != "none":
         sku_daily, sku_hour_rows, source_summary, recent_product_weights = (
             apply_recent_sku_hour_correction(
@@ -2343,19 +2496,18 @@ def allocate_from_clickhouse(
         renormalization_stats = {"groups_scaled": 0, "groups_without_sku": 0}
         gap_fill_stats = {"groups_filled": 0, "groups_unfilled": 0}
         assortment_compensation_stats = {"groups_scaled": 0, "groups_without_remaining_rows": 0}
-        if not use_raw_uplift_multiplier and not disable_assortment_renormalization:
-            hourly_after_recent, gap_fill_stats = fill_missing_bakery_hours(
+        if not use_raw_uplift_multiplier:
+            (
+                hourly_after_recent,
+                gap_fill_stats,
+                renormalization_stats,
+            ) = finalize_normalized_assortment(
                 hourly_after_recent,
                 hourly_forecast,
                 bakery_city_lookup=bakery_city_lookup,
                 allowed_pairs=allowed_assortment_pairs,
                 recent_product_weights=recent_product_weights,
-            )
-            hourly_after_recent, renormalization_stats = (
-                renormalize_hourly_to_bakery_forecast(
-                    hourly_after_recent,
-                    hourly_forecast,
-                )
+                renormalize=not disable_assortment_renormalization,
             )
         elif use_raw_uplift_multiplier and not disable_assortment_renormalization:
             # Raw uplift never renormalizes to the flat bakery-hour total by
@@ -2373,6 +2525,13 @@ def allocate_from_clickhouse(
                     group_keys=[DATE_COL, BAKERY_ID_COL, HOUR_COL],
                     forecast_col=SKU_HOUR_FORECAST_COL,
                 )
+            )
+            hourly_after_recent, gap_fill_stats = fill_missing_bakery_hours(
+                hourly_after_recent,
+                hourly_forecast,
+                bakery_city_lookup=bakery_city_lookup,
+                allowed_pairs=allowed_assortment_pairs,
+                recent_product_weights=recent_product_weights,
             )
         if use_raw_uplift_multiplier and max_uplift_ratio is not None:
             # bakery_forecast always has BAKERY_FORECAST_COL regardless of the
@@ -2413,6 +2572,18 @@ def allocate_from_clickhouse(
                     "bakeries_total": int(len(_bakery_coefficients)),
                     "pairs_total": int(len(_pair_coefficients)),
                 }
+            )
+        if (
+            min_sku_allocation_ratio is not None
+            and not disable_assortment_renormalization
+        ):
+            hourly_after_recent, allocation_floor_stats = (
+                floor_sku_allocation_to_bakery_forecast(
+                    hourly_after_recent,
+                    bakery_forecast,
+                    min_ratio=min_sku_allocation_ratio,
+                    forecast_col=BAKERY_FORECAST_COL,
+                )
             )
         hourly_after_recent.to_csv(hourly_path, index=False, encoding="utf-8-sig")
         sku_daily = (
@@ -2465,6 +2636,7 @@ def allocate_from_clickhouse(
         summary["assortment_filter"]["hour_gap_fallback"] = gap_fill_stats
     if recent_correction_mode != "none" and use_raw_uplift_multiplier:
         summary["assortment_filter"]["exclusion_compensation"] = assortment_compensation_stats
+        summary["assortment_filter"]["hour_gap_fallback"] = gap_fill_stats
     if use_raw_uplift_multiplier and uplift_cap_stats:
         summary["uplift_cap"] = uplift_cap_stats
     if use_raw_uplift_multiplier and sku_uplift_cap_stats:
@@ -2473,6 +2645,8 @@ def allocate_from_clickhouse(
         summary["stockout_correction"] = stockout_correction_stats
     if use_raw_uplift_multiplier and hierarchical_haircut_stats:
         summary["hierarchical_haircut"] = hierarchical_haircut_stats
+    if allocation_floor_stats:
+        summary["allocation_floor"] = allocation_floor_stats
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -2508,6 +2682,7 @@ def main() -> None:
     parser.add_argument("--assortment-table", default=ASSORTMENT_TABLE)
     parser.add_argument("--disable-assortment-filter", action="store_true")
     parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument("--disable-assortment-coverage-guard", action="store_true")
     parser.add_argument(
         "--max-uplift-ratio",
         type=float,
@@ -2542,6 +2717,7 @@ def main() -> None:
     parser.add_argument("--hierarchical-haircut-history-days", type=int, default=7)
     parser.add_argument("--hierarchical-haircut-pair-prior-days", type=float, default=7.0)
     parser.add_argument("--hierarchical-haircut-min-coefficient", type=float, default=0.85)
+    parser.add_argument("--min-sku-allocation-ratio", type=float, default=None)
     parser.add_argument(
         "--recent-category-upward-cap-pattern",
         default=DEFAULT_RECENT_UPWARD_CAP_CATEGORY_PATTERN,
@@ -2596,6 +2772,8 @@ def main() -> None:
         hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
         hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
         hierarchical_haircut_min_coefficient=args.hierarchical_haircut_min_coefficient,
+        min_sku_allocation_ratio=args.min_sku_allocation_ratio,
+        disable_assortment_coverage_guard=args.disable_assortment_coverage_guard,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),

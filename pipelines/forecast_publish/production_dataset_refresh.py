@@ -15,6 +15,22 @@ from pipelines.forecast_publish.table_names import (
     get_table_suffix_from_env_file,
     table_name,
 )
+from pipelines.forecast_publish.assortment_override_store import (
+    TABLE_BASE as OVERRIDE_TABLE_BASE,
+    load_active_overrides,
+)
+from scripts.build_bakery_product_assortment import (
+    add_city_core_for_cold_start_bakeries,
+    add_network_core_for_cold_start_bakeries,
+    build_assortment_from_sales,
+    build_cold_start_city_core,
+    build_cold_start_network_core,
+    carry_forward_bakeries_without_recent_sales,
+    ensure_table as ensure_bakery_product_assortment_table,
+    insert_to_clickhouse as insert_bakery_product_assortment,
+    load_previous_assortment,
+    _query_bakery_city_map,
+)
 from scripts.build_city_assortment_from_sales import build_layers
 from scripts.build_city_assortment_from_sales import (
     insert_to_clickhouse as insert_assortment,
@@ -53,6 +69,8 @@ from src.experiments_v2.build_uplifted_bakery_daily_dataset import BASE_TARGET_C
 from src.experiments_v2.build_uplifted_bakery_daily_dataset import (
     DEFAULT_OUTPUT_PATH as DEFAULT_UPLIFTED_OUTPUT_PATH,
 )
+
+
 from src.experiments_v2.build_uplifted_bakery_daily_dataset import (
     DEFAULT_SUMMARY_PATH as DEFAULT_UPLIFTED_SUMMARY_PATH,
 )
@@ -66,6 +84,35 @@ from src.experiments_v2.build_uplifted_bakery_daily_dataset import (
 from src.experiments_v2.build_uplifted_bakery_daily_dataset import (
     build_summary as build_uplifted_summary_base,
 )
+
+
+CLOSED_BAKERY_DAYS_WITHOUT_SALES = 30
+
+
+def exclude_closed_bakeries(
+    daily: pd.DataFrame,
+    *,
+    as_of_date: str | pd.Timestamp,
+    max_days_without_sales: int = CLOSED_BAKERY_DAYS_WITHOUT_SALES,
+) -> tuple[pd.DataFrame, list[int]]:
+    """Exclude bakeries whose last positive sale is older than the threshold."""
+    required = {DATE_COL, BAKERY_ID_COL, TARGET_COL}
+    missing = sorted(required.difference(daily.columns))
+    if missing:
+        raise KeyError(f"Daily dataset is missing columns: {missing}")
+    work = daily.copy()
+    work[DATE_COL] = pd.to_datetime(work[DATE_COL], errors="raise").dt.normalize()
+    positive = work[pd.to_numeric(work[TARGET_COL], errors="coerce").fillna(0).gt(0)]
+    last_sale = positive.groupby(BAKERY_ID_COL)[DATE_COL].max()
+    age = pd.Timestamp(as_of_date).normalize() - last_sale
+    closed_ids = sorted(
+        int(value)
+        for value in age[age.dt.days.gt(max_days_without_sales)].index
+    )
+    return (
+        work[~work[BAKERY_ID_COL].isin(closed_ids)].reset_index(drop=True),
+        closed_ids,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -539,6 +586,17 @@ def refresh_production_datasets(
 
     daily_aggregate = pd.read_csv(raw_output, encoding="utf-8-sig")
     daily_df = build_bakery_daily_dataset_from_aggregates(daily_aggregate)
+    daily_df, closed_bakery_ids = exclude_closed_bakeries(
+        daily_df,
+        as_of_date=history_end_date,
+    )
+    active_bakery_ids = set(daily_df[BAKERY_ID_COL].astype(int).unique())
+    print(
+        "Closed bakery filter: "
+        f"excluded={len(closed_bakery_ids)} threshold_days="
+        f"{CLOSED_BAKERY_DAYS_WITHOUT_SALES}",
+        flush=True,
+    )
     daily_summary = build_daily_summary(daily_df)
     daily_paths = save_daily_outputs(processed_dir, daily_df, daily_summary)
 
@@ -603,6 +661,17 @@ def refresh_production_datasets(
         )
         bakery_counts = _query_bakery_count_per_city(
             assortment_client, bakery_table=bakery_tbl
+        )
+        bakery_city_map = _query_bakery_city_map(
+            assortment_client, bakery_table=bakery_tbl
+        )
+        bakery_city_map = bakery_city_map[
+            bakery_city_map["bakery_id"].astype(int).isin(active_bakery_ids)
+        ].copy()
+        bakery_counts = (
+            bakery_city_map.groupby("city", as_index=False)["bakery_id"]
+            .nunique()
+            .rename(columns={"bakery_id": "total_bakeries"})
         )
         valid_from = history_end_date
         assortment_df = build_layers(
@@ -686,6 +755,82 @@ def refresh_production_datasets(
             f"valid_from={valid_from}",
             flush=True,
         )
+
+        bakery_product_tbl = table_name(
+            "bakery_product_assortment_embedded", suffix=suffix
+        )
+        bakery_product_df = build_assortment_from_sales(
+            sales,
+            valid_from=valid_from,
+            overrides=load_active_overrides(
+                assortment_client,
+                table=table_name(OVERRIDE_TABLE_BASE, suffix=suffix),
+                effective_date=valid_from,
+            ),
+        )
+        required_bakery_ids = sorted(active_bakery_ids)
+        missing_bakery_ids = sorted(
+            set(required_bakery_ids)
+            - set(bakery_product_df["bakery_id"].astype(int))
+        )
+        previous_bakery_product_df = load_previous_assortment(
+            assortment_client,
+            table=bakery_product_tbl,
+            bakery_ids=missing_bakery_ids,
+            before_date=valid_from,
+        )
+        bakery_product_df, carried_bakery_ids = (
+            carry_forward_bakeries_without_recent_sales(
+                bakery_product_df,
+                previous_bakery_product_df,
+                required_bakery_ids=required_bakery_ids,
+                valid_from=valid_from,
+            )
+        )
+        bakery_product_df, cold_start_bakery_ids = (
+            add_city_core_for_cold_start_bakeries(
+                bakery_product_df,
+                bakery_city_map,
+                build_cold_start_city_core(sales),
+                required_bakery_ids=required_bakery_ids,
+                valid_from=valid_from,
+            )
+        )
+        bakery_product_df, network_cold_start_bakery_ids = (
+            add_network_core_for_cold_start_bakeries(
+                bakery_product_df,
+                build_cold_start_network_core(sales),
+                required_bakery_ids=required_bakery_ids,
+                valid_from=valid_from,
+            )
+        )
+        ensure_bakery_product_assortment_table(
+            assortment_client, bakery_product_tbl
+        )
+        insert_bakery_product_assortment(
+            assortment_client,
+            bakery_product_df,
+            target_table=bakery_product_tbl,
+        )
+        bp_rows = len(bakery_product_df)
+        bp_bakeries = int(bakery_product_df["bakery_id"].nunique())
+        bp_products = int(bakery_product_df["product_id"].nunique())
+        assortment_result["bakery_product_assortment_rows"] = bp_rows
+        assortment_result["bakery_product_assortment_bakeries"] = bp_bakeries
+        assortment_result["bakery_product_assortment_carried_bakeries"] = (
+            carried_bakery_ids
+        )
+        assortment_result["bakery_product_assortment_cold_start_bakeries"] = (
+            cold_start_bakery_ids
+        )
+        assortment_result[
+            "bakery_product_assortment_network_cold_start_bakeries"
+        ] = network_cold_start_bakery_ids
+        print(
+            f"Bakery-product assortment: bakeries={bp_bakeries} "
+            f"products={bp_products} rows={bp_rows}",
+            flush=True,
+        )
     except Exception as exc:
         assortment_result["assortment_error"] = str(exc)
         assortment_result["assortment_status"] = "failed"
@@ -694,6 +839,8 @@ def refresh_production_datasets(
     return {
         "history_start_date": history_start_date,
         "history_end_date": history_end_date,
+        "closed_bakery_days_without_sales": CLOSED_BAKERY_DAYS_WITHOUT_SALES,
+        "closed_bakery_ids": closed_bakery_ids,
         "daily_aggregate_output": str(Path(raw_output)),
         "daily_aggregate_rows": aggregate_export["rows"],
         "base_dataset_path": str(daily_paths["dataset"]),

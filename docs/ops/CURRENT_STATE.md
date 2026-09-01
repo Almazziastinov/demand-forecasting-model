@@ -1,6 +1,949 @@
 # Current Project State
 
-Last updated: 2026-08-17
+Last updated: 2026-09-01
+
+## AUTHORITATIVE ACTIVE MODEL — READ THIS FIRST
+
+Production has switched from the legacy hourly/category SKU allocation to the
+**Direct alpha=.25 model**. This is not a research-only candidate and must be
+the default meaning of “current model” in future work.
+
+- Active `model_version`: `direct_alpha_025_v1`.
+- Active run verified on 2026-09-01:
+  `prod_direct_alpha_025_20260831_h14`, horizon 2026-08-31..2026-09-13.
+- Nightly run pattern: `prod_direct_alpha_025_YYYYMMDD_h14`.
+- The bakery-day LightGBM forecast remains the volume source. Direct then
+  allocates each bakery-day total directly across mature SKUs. It does **not**
+  preserve legacy category totals and does **not** use the old hourly SKU
+  profile for allocation. Category totals emerge from the SKU predictions.
+- Selected post-processing is causal expected-loss predictive uplift, Core-SKU
+  protection, alpha `0.25` soft volume expansion, adaptive floor, and causal
+  tail cap. SKU-day quantities are distributed to hours only after the Direct
+  daily allocation, conserving every finalized SKU-day quantity.
+- SKU cold start is an independent, non-competing path: cold-start SKU volume
+  is not subtracted from the mature Direct pool. Bakeries with no positive sale
+  for more than 30 days are treated as closed and excluded.
+- The legacy source run `prod_base_bakery_norm_recent_*` is still built as an
+  inactive intermediate because it supplies the bakery-day forecast and
+  refreshed datasets. It is **not** the served production model. A successful
+  systemd `ExecStartPost` Direct step activates the final run.
+- The Blackhole/VibeCode app remains read-only. Its pilot publisher consumes
+  the active Direct run and must not reapply legacy cold-start allocation.
+- Latest corrected pilot workbook check (2026-09-01): 55 bakeries, 3,215 SKU
+  rows, 51,903.6 forecast units; maximum top-SKU bakery share `17.66%`, with
+  zero bakeries at or above `20%`. The old 40–58% concentration failure is
+  absent.
+- Remaining operational risk is **kratnost rounding, not Direct allocation**:
+  the same workbook has 46,561.4 net need and 55,771 planned production
+  (`+9,209.6` units from row-level upward rounding). Treat forecast quality and
+  conversion of forecast to production plan as separate layers.
+
+Live verification on 2026-09-01 returned `VERIFY OK`; the production timer is
+enabled and active. Rollback is activation of the corresponding verified
+`prod_base_bakery_norm_recent_*` source run plus removal of the Direct systemd
+drop-in, only as described in the runbook.
+
+## Baking SKU metadata template sync and no-silent-drop fallback (2026-09-01)
+
+- `baking_sku_meta` was synchronized from
+  `Шаблон плана выпекания для ИИ (1).xlsx` (updated 2026-08-04). The reviewed
+  `комментарии` sheet yielded 78 matched production SKUs. Explicit aliases
+  cover renamed hand rolls, tube rolls, large pizzas, Keksovyi mango and
+  `Пирог с киви` (`11613`); fuzzy matches are never written.
+- `Основа чиабатта покупная` is treated as a group heading, not an SKU.
+  `Мексиканский ролл` remains unresolved because it is absent from
+  `dim_products` and the active forecast. Newer separately business-confirmed
+  SKUs absent from the template were preserved.
+- Older active base versions for the synchronized product IDs were closed
+  before inserting the 2026-08-31 version. Verification: 82 active rows for
+  82 unique products and zero duplicate active product/scope/bakery keys.
+  Confirmed changes include `Сосиска под шубой` multiple `10`,
+  `Сэндвич курица` multiple `6`, and newly covered SKU `11572` multiple `10`.
+- Full pre-change backup table:
+  `baking_sku_meta_backup_20260901_0006_before_template_sync` (76 rows).
+- The pilot publisher and the in-app single-bakery plan no longer silently
+  discard a forecast SKU when `baking_sku_meta` is missing. Such a row is kept,
+  unit-rounded, and the `Кратность` column displays
+  `нет данных по кратности`. Known frozen/no-production rows with explicit
+  metadata remain excluded as before.
+- Pilot publisher read-only dry-run for 2026-09-01 produced 3,018 rows across
+  55 bakeries before the early-filter audit. That initial zero
+  missing-multiple result was invalid: an older `eligible[has_meta]` filter
+  still removed the rows before rendering. The filter was removed after the
+  missing `Капуста и курица` report.
+- Corrected 2026-09-01 dry-run produces 3,215 rows across 55 bakeries and keeps
+  197 missing-meta rows (1,227.4 forecast units) with the explicit text label.
+  It includes `Капуста и курица` in 53 bakeries (318.1 forecast units) and
+  `Пирожок капуста и курица` in 7 bakeries (187.9 units). Installed publisher
+  SHA-256:
+  `ae682062442370cdd63768eb6671f66c20ad716895feb99fade89829bbfc7257`;
+  rollback backup:
+  `/opt/backups/pilot_forecast_remove_early_meta_filter_20260831_213733`.
+- In-app smoke for bakery 29 / 2026-09-01 produced 67 rows and retained three
+  otherwise missing-meta products with the explicit text label. Installed
+  `/opt/baking_plan/simple_plan.py` SHA-256:
+  `4ad0ecedc0d97e44ee4567ff775d0f4318414f01f9f449b8a76ccecb0c60e887`.
+  Rollback backup:
+  `/opt/backups/baking_simple_plan_missing_kratnost_20260831_211918`.
+  `app.service` is active and `/health` is OK. Blackhole forecast-writer
+  timers remain disabled/inactive.
+
+## Direct pilot publisher compatibility and schedule (2026-08-31)
+
+- The Blackhole pilot publisher now reads the active run `model_version`. For
+  `direct_alpha_025_v1` it does not reapply the legacy category-neutral
+  new-SKU cold-start layer because independent cold-start is already included
+  by the production Direct runner. Other model versions keep the prior
+  publisher behavior.
+- A read-only 2026-09-01 dry-run used active run
+  `prod_direct_alpha_025_20260831_h14`, produced 2,951 workbook rows across 55
+  pilot bakeries and did not send a Bitrix24 message. Zorge 101 showed
+  Smetannik `25.1` and chicken triangle `232`, instead of the reported legacy
+  plan values `1` and `420`.
+- `pilot-forecast-publish.timer` was moved from `03:00 UTC` to `04:00 UTC`
+  (07:00 MSK), after the production writer timer at `03:30 UTC`. It is enabled
+  and active; the next trigger is 2026-09-01 04:00 UTC. Both Blackhole forecast
+  writer timers remain disabled and inactive.
+- Operational incident: restarting the persistent publisher timer after its
+  old daily slot had passed immediately triggered one successful duplicate
+  publication for 2026-08-31 (Bitrix message ids `8233805` and `8233807`). No
+  2026-09-01 file was sent during deployment. Future schedule-only changes
+  must stop the timer, update/reload it, and start it with a future trigger or
+  temporarily disable persistence to avoid catch-up execution.
+- Installed publisher SHA-256:
+  `d1588e2ca6a4ba763651c77e9598c51d9f0cc09f3d5dae8dd5a10fea40d7d2a9`.
+  Rollback backup:
+  `/opt/backups/pilot_forecast_direct_compat_20260831_141320`.
+
+## Closed bakery production filter (2026-08-31)
+
+- Production now excludes a bakery before forecasting and assortment fallback
+  when its last positive sale is more than 30 days before the facts cutoff.
+- The 2026-08-30 refresh excluded 37 historically observed but inactive
+  bakeries, reducing the active forecast scope from 214 to 177 bakeries.
+  The same open-bakery set is used for bakery-day datasets and the flat
+  bakery/SKU assortment, so closed IDs cannot return through carry-forward,
+  city-core, or network-core fallback.
+- Active run remains named `prod_direct_alpha_025_20260831_h14`, regenerated at
+  16:23 MSK with 2,478 bakery-day, 149,526 SKU-day and 2,484,338 SKU-hour rows.
+  All 37 closed IDs have zero rows at all three levels. `VERIFY OK`; production
+  timer is enabled and active.
+- Production backup:
+  `/opt/backups/20260831_closed_bakery_filter/production_dataset_refresh.py`.
+  Local verification: 13 focused tests and Ruff passed.
+
+## Independent SKU cold-start candidate (2026-08-31)
+
+- The agreed lifecycle has exactly two states: `cold_start` and `mature`; no
+  transition blend is used.
+- Cold-start bakery/SKU pairs are excluded from Direct normalization. The full
+  bakery forecast is allocated over mature SKUs, while the own-sales EWMA
+  cold-start forecast is added independently above that total.
+- The pilot publisher no longer applies category-neutral cold-start
+  renormalization for a Direct run and mature systematic corrections exclude
+  cold-start rows.
+- Local verification passes: 19 focused tests and Ruff on the new production
+  Direct/cold-start code. This is a local candidate only; production services
+  and the currently active run have not been changed by this edit.
+- A fallback shadow using the locally archived 2026-07-22..2026-08-23 history
+  and the frozen 2026-08-31 h14 Direct horizon estimates `+27,125` units
+  (`+1.087%`) over 14 days from 1,258 effective bakery/SKU cold-start pairs.
+  This is diagnostic only: the local archive does not contain the complete
+  60-day lead-1 forecast history through 2026-08-30, so it over-classifies
+  cold-start pairs. Exact production comparison remains pending network access.
+- The shadow exposed and fixed an all-cold bakery guard: when classification
+  leaves no mature SKU in a bakery-day, the original allocation is retained.
+  Twenty focused tests now pass.
+
+## Direct alpha=.25 shadow integration started (2026-08-31)
+
+- The research candidate is frozen as Direct bakery-day-to-SKU allocation,
+  causal expected-loss uplift, Core-SKU protection, alpha=.25 soft volume
+  expansion, adaptive floor, and causal tail cap.
+- Selected post-processing was moved into
+  `src/experiments_v2/direct_alpha_allocation.py` with immutable defaults and
+  no database dependencies. It does not use hourly/category allocation.
+- `scripts/run_direct_alpha_shadow.py` writes local parquet/CSV/JSON artifacts
+  only. It has no ClickHouse client, load path, or activation command.
+- Four focused tests pass. On the calibrated 2026-08-17 frozen fold, the new
+  module reproduces all 72,849 reference rows with max absolute error 0.0.
+- The next integration component is the current-horizon causal feature builder
+  and Direct/predictive model artifact loader. No production or dev database
+  state was changed.
+
+## Direct alpha=.25 current-horizon shadow passed (2026-08-31)
+
+- A single read-only shadow was built for 2026-09-01 from active run
+  `prod_base_bakery_norm_recent_20260831_h14`, using sales only through
+  2026-08-30 (the day before run generation).
+- Scope: 214 bakeries, 185 products, 12,282 SKU rows. Selected shadow volume is
+  189,506.67 versus Direct P50 181,584.44; one tail-cap row was applied.
+- Zorge 101 complaint is corrected on the fresh horizon: Smetannik changes
+  0.043 -> 27.593 and chicken triangle 379.811 -> 235.282. Bakery 29 chicken
+  triangle changes 466.815 -> 262.935.
+- Zero negative/NaN/duplicate rows and zero incumbent-positive rows assigned a
+  near-zero selected forecast.
+- Twenty-five bakery-days have no 56-day sales evidence. They now use an
+  explicit incumbent fallback. All four top shares >=30% belong to that
+  fallback group; no observed Direct bakery-day is >=30%.
+- Five focused tests pass. Shadow artifacts are under
+  `reports/direct_alpha_current_shadow_20260831/`. No ClickHouse write or run
+  activation occurred.
+
+## Bakeable assortment mass inflation fix (2026-08-28)
+
+- Root cause: `bakery_product_assortment_embedded` intentionally contains only
+  bakeable categories, but the normalized allocation restored those remaining
+  SKU rows to the full bakery-day forecast and the `0.95` allocation floor
+  reinforced that transfer.  Demand previously allocated to non-bakeable
+  products was therefore moved onto bakery products.
+- Production now defaults `FORECAST_DISABLE_ASSORTMENT_RENORMALIZATION=1` for
+  bakery-product assortment tables.  True missing bakery-hours are still
+  filled, but existing filtered groups keep their post-filter mass; the
+  bakery-total allocation floor is skipped in this mode.
+- A read-only 2026-08-28 dry-run produced 32,405.82 units for the original 39
+  pilot bakeries versus 47,867.35 before the fix; bakery 270 produced 425.997.
+  The selected allocation ratio is 0.805236, all 756 true hour gaps were
+  filled, and zero groups remained unfilled.
+- The first same-id production reload timed out waiting for old
+  `sku_forecast_hour_embedded` parts to disappear.  No incomplete run was
+  activated.  The already generated corrected files were loaded under the
+  unique run id `hotfix_base_bakery_norm_recent_20260828_h14` and activated.
+  `scripts.verify_prod_deploy` ended with `VERIFY OK`: 2,996 bakery-day,
+  172,676 SKU-day, and 1,901,964 SKU-hour snapshot rows.
+- Blackhole publisher dry-run for 2026-08-28 generated 2,965 rows / 55
+  bakeries without sending to Bitrix24.  Workbook forecast is 49,421.9 units
+  versus 67,395.8 before the fix; bakery 270 is 396.1 versus 497.7.  All three
+  temporary pletenka display names remain present.
+- Production writer backup:
+  `/opt/backups/assortment_mass_fix_20260828_093038`.  Writer timer is
+  enabled/active; Blackhole remains read-only.
+
+## In-app baking-plan assortment fix (2026-08-27)
+
+- The actual `/bakery/{bakery_id}/baking-plan.xlsx` generator is
+  `/opt/baking_plan/simple_plan.py`; it is separate from the pilot chat
+  publisher. Its product universe now comes from the latest effective
+  `bakery_product_assortment_embedded` snapshot for the requested bakery/date.
+- Product names and categories are filled from `dim_products`. If an effective
+  assortment SKU has no row for the requested day because of a sparse weekday
+  profile, its automatic fallback is the same SKU's mean forecast over the
+  active run horizon; no manual assortment value is involved.
+- Production verification for bakery 270 / 2026-08-27 includes 11575, 11615,
+  11616, and 11617 and excludes 11573/11574. The generated workbook has 51
+  rows. Installed hash:
+  `6a9e2385ce23b4199f56dbc839579a193cb3c8c01651edd007ce8463e10d137e`.
+  Rollback backup:
+  `/opt/backups/baking_plan_assortment_fix_20260827_153413`.
+- `app.service` is active and `/health` is OK. Blackhole writer timers remain
+  disabled/inactive; the separate pilot chat publisher timer remains
+  enabled/active.
+- The download response is explicitly non-cacheable and uses the distinguishable
+  filename `baking_plan_<bakery>_<date>_assortment_v2.xlsx`, preventing an older
+  same-named workbook in the browser/Downloads directory from being reopened.
+  Router rollback backup:
+  `/opt/backups/baking_plan_download_cache_fix_20260827_154607`.
+- Temporary emergency display-name overrides are active in both the in-app
+  plan and the pilot chat publisher: 11615=`Плетенка кленовая`,
+  11616=`Плетенка с черникой`, 11617=`Плетенка с земляникой`. They do not
+  mutate `dim_products` and must be removed after the duplicate-name records
+  there are reconciled. Production verification generated all three names.
+  In-app rollback backup:
+  `/opt/backups/baking_plan_assortment_fix_20260827_160034`; publisher rollback
+  backup: `/opt/backups/pilot_forecast_publisher_fix_20260827_160045`.
+
+## Pilot Excel assortment fix (2026-08-27)
+
+- The Blackhole chat publisher now fills missing `product_name` and
+  `category_name` values from `dim_products` before applying bakeable-category
+  filters. It also renders the completed cold-start candidate frame instead of
+  falling back to the original forecast frame and silently discarding added
+  bakery/SKU rows.
+- A production dry-run for 2026-08-28 verified bakery 270 contains all four
+  introduced SKUs: 11575, 11615, 11616, and 11617, with the expected categories
+  and baking multiples. The dry-run did not send a Bitrix24 message.
+- Installed Blackhole file hash:
+  `de9d2f5ff0d8e4c1590c6d7ad91c7f1675ba655402d2ea86eadc1d27967ff2a7`.
+  Rollback backup:
+  `/opt/backups/pilot_forecast_publisher_fix_20260827_151128`.
+- `pilot-forecast-publish.timer` remains enabled/active. The embedded app is
+  healthy. Both Blackhole forecast-writer timers remain disabled/inactive.
+
+## Automatic bakery assortment rollout (2026-08-27)
+
+Production now uses `bakery_product_assortment_embedded` as the effective
+bakery/SKU allowlist.  The primary source is positive sales for the concrete
+bakery during the previous seven calendar days, restricted to bakery
+categories (`пирог`, `выпечка`, `фастфуд`) and inactive-name prefixes are
+excluded.  Effective-dated manual overrides remain emergency-only.
+
+Automatic zero-data fallbacks are hierarchical and apply only when the bakery
+has no current seven-day pairs: latest prior bakery snapshot, then the 80%
+city core computed over bakeries participating in the window, then the 80%
+network core for a completely new city.  Bakery-scoped filtering is repeated
+inside city/hour fallbacks so a SKU from another bakery cannot leak back into
+the forecast.
+
+Active run:
+`prod_assortment7d_v4_base_bakery_norm_recent_20260827_h14`, horizon
+2026-08-27..2026-09-09.  Production verification returned `VERIFY OK` with
+2,996 bakery-day, 172,130 SKU-day, and 1,893,880 SKU-hour snapshot rows.  The
+writer timer is enabled/active.  Blackhole is read-only, app health is OK, and
+both forecast timers there remain disabled/inactive.
+
+Bakery 270 snapshot verification: removed SKU 11573/11574 are absent; new SKU
+11575/11615/11616/11617 are present with positive forecast.  Baking metadata
+for the four new SKU was seeded before activation.  Writer rollback backup:
+`/opt/backups/assortment_rollout_20260827_094330`; Blackhole reader backup is
+under `/opt/backups/assortment_rollout_*` on that host.
+
+## Direct bakery-day to SKU allocation research (2026-08-27)
+
+- A clean frozen-fold candidate now allocates the bakery-day total directly
+  across all forecast-assortment SKUs. Incumbent SKU shares, incumbent category
+  totals/shares, hourly profiles, and old uplift outputs are excluded. Category
+  is a feature only; category totals emerge from SKU predictions.
+- On the 1,406 bakery-day current fold, SKU WAPE is `33.17%` versus `56.62%`
+  current and `44.46%` previous Predictive. Category WAPE is `13.20%` versus
+  `28.68%` for both inherited-category variants. Direct wins 1,297/1,406
+  bakery-days against previous Predictive.
+- On the earlier 2,154 bakery-day fold, SKU WAPE is `38.00%` versus `40.39%`
+  current and `39.54%` previous Predictive. This is a smaller but positive
+  temporally separate result.
+- Current-fold maximum top-SKU share is `16.07%` with zero bakery-days >=20%
+  and zero positive-sales rows assigned a near-zero forecast. SKU 1071 WAPE is
+  `15.82%` and bias `-5.81%`, although it remains the predicted leader on
+  1,158/1,406 bakery-days and requires a separate leadership audit.
+- Bakery 29 / 2026-08-23 SKU 1071 changes from 440.98 current and 300.56 old
+  Predictive to 221.43 direct, against actual 161. Savory bakery changes from
+  the inherited 1,101.56 to an emergent 856.31, against actual 767.
+- This remains research only: target is observed sales, the assortment universe
+  is still inherited from the historical snapshot, and reconstructed-demand and
+  operational-balance tests remain outstanding. See
+  `docs/analysis/direct_bakery_sku_allocation_20260827.md`.
+- In the same Kazan two-day FIFO economic simulation, direct allocation at the
+  incumbent bakery volume raises gross profit from 93.632m current to 100.627m.
+  With P50 bakery volume it reaches 106.374m (+4.186m versus actual and +4.772m
+  versus previous Predictive P50) at 71.80% service level. The old Predictive
+  floor remains highest at 111.641m but produces 224,025 more units than direct
+  P50 and is most exposed to the known aggressive reconstructed-demand target;
+  it is not production-approved by this result.
+- Production and dev database state were not changed.
+
+## Weighted Direct and soft normalization (2026-08-27)
+
+- Volume-weighted Direct training (`sqrt(1+historical volume)`) is rejected:
+  calibrated WAPE worsens `41.08% -> 41.33%`, underbake rises, and Bakery 29 /
+  SKU 1071 / Aug 23 rises from Direct P50 246 to weighted 275 against actual 161.
+- Soft normalization on original Direct is validated. Alpha is the fraction of
+  expected-loss uplift added to bakery volume; Core SKUs (causal top 70% trailing
+  volume) cannot fall below original Direct P50. Full no-normalization alpha=1
+  is rejected (WAPE 42.36%, SKU 1071 bias +8.24%).
+- Calibrated alpha=.25+floor gives best WAPE 40.29% and minimum imbalance:
+  surplus/underbake 407,649/686,849. Alpha=.50 gives 40.50% and prioritizes
+  underbake at 481,967/618,233; versus actual it cuts underbake 29.8% for 44.4%
+  more surplus. SKU 1071 WAPE/bias is 25.33%/-2.92% with alpha .50.
+- Kazan FIFO delta versus actual for previous final / alpha .25 / alpha .50 is
+  +3.02/+3.76/+4.56% conservative, +6.57/+9.06/+11.43% calibrated, and
+  +8.35/+12.80/+16.88% upper. Alpha .50 adds material production and terminal
+  carry, so alpha .25 remains the safer comparator.
+- Bakery 244 / SKU 11018 / Jul 27 is a blocker: 124 forecast vs 32 demand and
+  23.3% bakery share. No shadow publication until causal tail cap plus capacity
+  and rounding validation. See
+  `docs/analysis/weighted_direct_soft_normalization_20260827.md`.
+- Production and dev database state were not changed.
+
+## Rolling Direct robustness and tail audit (2026-08-27)
+
+- The snapshot archive supports four real rolling blocks; no missing forecast
+  snapshots were synthesized. The first block initializes floor calibration and
+  three later blocks are independent expanding-history evaluation folds.
+- Across conservative/current/upper lost-demand scenarios, Direct P50 WAPE is
+  `33.37/41.08/48.07%`, uplift is `33.12/40.86/47.90%`, and final adaptive
+  floor is `33.10/40.64/47.56%`. Uplift lowers both surplus and underbake at
+  fixed volume in all scenarios; floor lowers WAPE and underbake in all nine
+  fold/scenario tests. The same strict floor gate is selected every time.
+- Kazan FIFO gross-profit uplift versus actual remains positive under all demand
+  scenarios: final floor is +3.02% conservative, +6.57% calibrated, and +8.35%
+  upper. It is also positive in every individual evaluation fold.
+- Tail improvement versus Direct P50 covers 71.8% of bakeries, 68.0% of
+  categories, and 67.2% of products. SKU 1071 is the main blocker: uplift moves
+  25,209 units away, worsening WAPE `25.38% -> 26.42%` and bias
+  `-6.61% -> -15.71%`; floor restores only 670 units.
+- Decision: aggregate/economic robustness passes, but no shadow deployment yet.
+  Next work is a prior-fold SKU-level uplift gate/shrinkage rule, without old
+  shares or category constraints. See
+  `docs/analysis/rolling_direct_robustness_20260827.md`.
+- Production and dev database state were not changed.
+
+## Direct predictive uplift and adaptive floor (2026-08-27)
+
+- Three clean variants were compared: Direct+P50, Direct+causal expected-loss
+  uplift+P50, and Direct+uplift+adaptive floor. None uses old SKU/category
+  shares, hourly allocation, previous Predictive, or the previous floor.
+- Uplift is `P(clear stockout) * E(imputed loss | stockout)` using forecast-time
+  causal features only. At exactly the same 20-date P50 volume it improves WAPE
+  `41.83% -> 41.63%` and reduces both surplus and underbake by 3,591 units.
+- Adaptive-floor parameters were selected on the earlier blocked fold only:
+  n>=8 matching weekdays, historical stockout rate>=75%, mean lost>=4,
+  `0.8*P67`, cap `min(+5 units,+10%)`. Applied unchanged to the current fold,
+  it improves WAPE `41.45% -> 41.25%`, underbake `436,615 -> 428,976`, and
+  recognized imputed loss `96,218 -> 101,861`, while surplus rises
+  `189,975 -> 194,659`. No current bakery-day has a top SKU share >=20%.
+- Kazan two-day FIFO gross profit is 106.374m Direct+P50, 108.112m with uplift,
+  and 108.869m with selected floor, versus 102.187m actual and 93.632m current.
+  Final service level is 72.58% and simulated lost demand 656,622.
+- This remains research: uplift/floor depend on reconstructed-demand labels and
+  need probability calibration, more rolling folds, economic-tail and capacity
+  validation. See `docs/analysis/direct_uplift_adaptive_floor_20260827.md`.
+- Production and dev database state were not changed.
+
+## Bakery 29 / SKU 1071 time-history audit (2026-08-27)
+
+Over June 1-August 23, SKU 1071 sells 230/day overall but 195.8 on Sundays.
+August 23 sales of 161 are the period minimum but the day is not a detected
+stockout: production is 200 and sales 161. Historical Sunday SKU share is
+26.53% inside savory bakery and 13.23% of all bakery sales; August 23 is
+20.99%/9.99%. Predictive assigns a reasonable 27.28% inside-category share
+versus incumbent 40.03%, but preserves an incumbent category forecast of
+1,101.6 against 767 observed category sales, producing a still-high 300.6 SKU
+forecast; P50 raises it to 354.5. Calibrated lost-demand references also lift
+some observed Sundays 201/220/248 to reconstructed 365/298/410. The residual
+incident is therefore mainly frozen category-total allocation plus possibly
+aggressive SKU lost-demand reconstruction. Next test direct bakery-day-to-SKU
+allocation without incumbent category constraints. See
+`docs/analysis/bakery29_sku1071_history_20260827.md`. Production unchanged.
+
+## Guarded predictive allocation (2026-08-27)
+
+A research candidate fills zero predictive rows from causal-trend shares,
+preserves bakery-day totals, caps floor uplift at +25%, and water-fills SKU
+share above 20%. Exact-zero positive-demand rows fall from 1,318 original-floor
+to zero, but the fill assigns only 507 units against 4,688 reconstructed demand
+and leaves thin-SKU WAPE near 90%. Final WAPE/RMSE/R2/bias is
+45.210%/11.784/0.7388/-0.254%, slightly better than original floor except for
+WAPE comparison to P50. Kazan FIFO gross profit is 111.552m (+9.365m vs actual)
+versus 111.641m original floor (+9.454m). SKU 1071 dominance is unchanged.
+The guard improves numerical coverage and volume tails but is not a replacement
+candidate; the next allocation research needs a stronger causal thin-SKU
+quantity prior and a separate 1071 ranking correction. See
+`docs/analysis/guarded_predictive_allocation_20260827.md`. Production unchanged.
+
+## Forecast shape audit (2026-08-27)
+
+Across 3,554 controlled bakery-days, top-SKU share >=20% drops from 652 current
+to 57 predictive and 7 with floor; >=30% drops 191 -> 2 -> 0. However SKU 1071
+is still top on 2,860 predictive and 2,838 floor days versus 1,965 reconstructed
+demand days. Predictive also outputs exact zero on 1,323 positive-demand rows
+(4,688 demand units / 1,010 bakery-days); simple floor leaves 1,318 of them
+because qualifying history is thin or absent. Bakery 29 / 2026-08-23 SKU 1071
+improves from 32.86% current to 21.96% predictive and 18.67% floor but remains
+above reconstructed demand share 8.25%. Concentration amplitude is largely
+fixed; dominance frequency, thin-SKU coverage, and volume tails are not. See
+`docs/analysis/forecast_shape_audit_20260827.md`. Production unchanged.
+
+## Causal economic floor gate (2026-08-27)
+
+Kazan-only walk-forward research tested a SKU/category profit gate over
+P50+Predictive+floor. On evaluation blocks 2-4, gross profit is 43.408m actual,
+35.370m current, 41.389m P50, 46.958m universal floor, and 46.949m gated floor.
+The gate reduces production by 636, strategy expiry by 79, and terminal carry
+by 167 versus universal floor, but serves 390 fewer units and loses 8.2k gross
+profit. It trails universal floor in all three evaluation blocks. A static
+past-profit SKU sign is therefore not validated; four date blocks are too few
+for reliable product-level automation. See
+`docs/analysis/causal_economic_floor_gate_20260827.md`. Production unchanged.
+
+## Actual-markup two-day economics (2026-08-26)
+
+Clean Kazan-only rerun: 114 bakeries, 324 mapped products, four uninterrupted
+date blocks. Opening-stock expiry is separated from strategy expiry and block
+end carry is not treated as expiry. Gross profit is 102.187m actual, 93.632m
+current (-8.555m), 101.601m P50+Predictive (-0.586m), and 111.641m
+P50+Predictive+floor (+9.454m). Strategy-created expiry is 33,168 / 24,892 /
+29,111 / 50,738; terminal carry is 63,556 / 60,187 / 64,668 / 90,466. Floor
+beats actual in all four blocks but has materially negative category/SKU
+pockets, so the next candidate is a causal economic gate over floor, not a
+universal rollout. See `docs/analysis/clean_kazan_two_day_economics_20260826.md`.
+Production unchanged.
+
+Correction later on 2026-08-26: forecast variants must treat forecast as a
+target available stock, not as fresh daily production. With carry deducted
+before production, gross profit on the 328 price-mapped products is 146.552m
+actual, 133.611m current, 145.213m P50+Predictive, and 159.542m
+P50+Predictive+simple floor. Floor is +12.990m versus actual in this research
+simulation; P50 is -1.340m. Expiry is 62,117 / 47,369 / 50,580 / 81,708.
+SKU-specific price/cost is retained and results are now also aggregated by
+workbook category. This remains non-production research and requires Kazan-only
+scope plus SKU-level economic gating before automation.
+
+Kazan workbook prices/new costs were mapped to 328 products covering 96.76%
+of rolling demand; day-two sales receive a 30% discount. Actual-state gross
+profit is 146.552m. Current is 128.511m (-12.31%), P50+Predictive 137.639m
+(-6.08%), and simple floor 141.192m (-3.66%). Floor beats P50 by 3.553m and
+current by 12.681m but remains 5.360m below actual because 31.645m added
+revenue costs 37.005m additional production. The earlier relative-cost result
+was optimistic. Automation must optimize product-level profit and discounted
+carry, not underbake alone. Scope still mixes a Kazan price file with network
+operations and is not accounting-grade. See
+`docs/analysis/markup_two_day_economics_20260826.md`. Production unchanged.
+
+## Two-day carryover economics (2026-08-26)
+
+A FIFO two-day shelf-life simulation gives served/lost/expired units of
+2,488,435/1,085,858/65,070 for actual state, 2,679,480/894,813/203,614 for
+P50+Predictive, and 2,963,941/610,352/349,523 for floor. With sale price 1,
+disposal cost .05 and production cost .35, profit delta versus actual is
++23,031 (+1.46%) P50 and +113,588 (+7.18%) floor. Break-even production-cost
+ratios versus actual are .400 and .464; floor beats P50 below .520. This is a
+sensitivity model, not a ruble business case, and excludes capacity, labor,
+batch and heterogeneous shelf-life constraints. See
+`docs/analysis/two_day_economics_20260826.md`. Production unchanged.
+
+## Candidate canonical ML metrics (2026-08-26)
+
+On 20 dates/282,842 controlled SKU-days, current SKU WAPE/MAE/RMSE/bias is
+48.92%/6.182/13.734/-23.47%; P50+Predictive is
+44.81%/5.663/12.132/-14.85%; P50+Predictive+simple floor is
+45.29%/5.723/11.801/+0.06%. P50 is best on SKU WAPE/MAE, while floor is best
+on RMSE, sMAPE, R2 and bias. SKU-level recognized reconstructed loss is
+163,060 (15.73%) current, 230,685 (22.25%) P50, and 387,117 (37.34%) floor.
+At bakery-day level floor has WAPE 12.51% and recognizes 78.59%, but bakery
+aggregation masks SKU placement errors; SKU metrics remain operationally
+authoritative. See `docs/analysis/candidate_canonical_metrics_20260826.md`.
+Production unchanged.
+
+## Rolling actual-state comparison (2026-08-26)
+
+Actual production, transfers and prior-day calculated stock were joined to
+the 20 rolling dates on 282,842 controlled SKU-days. Actual-state
+surplus/underbake is 466,915/1,155,055; current is 454,798/1,293,696;
+same-volume Predictive 394,322/1,226,923; P50+Predictive
+535,389/1,066,303; and P50+Predictive+simple floor 810,525/808,272.
+P50+Predictive beats actual underbake on all four folds and has the lowest
+aggregate imbalance. Floor reduces underbake most but adds nearly one surplus
+unit per underbake unit saved versus actual. Actual underbake includes a
+118,223 availability reconciliation gap where sales exceed computed
+availability; this is DQ/opening-stock uncertainty, not confirmed underbake.
+See `docs/analysis/rolling_actual_state_comparison_20260826.md`. Production
+unchanged.
+
+## Rolling calibrated-loss and floor backtest (2026-08-26)
+
+Nine weekly pseudo-stockout folds over June 1-August 23 validate cutoff-hour
+calibration: weekly aggregate recovery is 94.04%-102.19%. A four-fold,
+20-forecast-date rolling comparison gives current surplus/underbake
+714,389/1,510,091; same-volume Predictive 638,293/1,433,995; P50+Predictive
+831,826/1,250,431; and P50+Predictive+simple n>=8 floor
+1,123,840/978,629. Predictive remains the allocation baseline. P50 and floor
+both reduce underbake on an economically favorable trade when underbake costs
+more than about 1.05-1.07 times surplus, but floor is not best at equal cost.
+The evaluation is rolling one-day-ahead style, not fixed 14-day recursive.
+Two-level product selection was excluded because clean pre-fold selection
+history is unavailable for every fold. See
+`docs/analysis/rolling_post_last_sale_and_floor_20260826.md`. Production
+unchanged.
+
+## Two-level selective SKU floor (2026-08-26)
+
+Product-specific caps were selected on four calibration dates and evaluated
+on four frozen test dates. Standard n>=8 gives total surplus/underbake
+297,912/359,545. The under-center two-level rule selects 49 calibration-
+efficient products, uses scale 1.05/cap 15, and reaches 347,105/323,167; test
+is 156,760/174,098. Versus the prior n>=6 center, test underbake improves by
+7,437 for 11,128 more surplus (break-even ~1.50). Kystyby P is selected;
+SKU 1071 and Makovka are rejected by the frozen 50% efficiency gate. See
+`docs/analysis/two_level_selective_floor_20260826.md`. Production unchanged.
+
+## Calibrated selective floor decomposition (2026-08-26)
+
+The center SKU floor adds 265,893 units: 150,118 reduce underbake and 115,775
+become surplus (56.46% efficiency). Efficiency improves from 54.21% on the
+calibration half to 58.44% on test. The 8+ history segment is 58.76% efficient,
+while 6-7 observations are only 46.33%, making history depth the clearest
+guardrail. Kystyby P (10340) is above average at 61.32% efficiency but retains
+21,247 underbake because the 8-unit cap is restrictive. Next test n>=8 as the
+default and calibration-selected product-specific caps for efficient residual
+underbake. See
+`docs/analysis/calibrated_selective_floor_decomposition_20260826.md`.
+Production unchanged.
+
+## Calibrated selective SKU floor (2026-08-26)
+
+A 9,900-candidate causal grid was evaluated with a frozen chronological 4+4
+split. The calibration-selected balanced P50 floor (same-weekday P67, n>=7,
+scale .75, cap 10) has total surplus/underbake 263,550/388,110 and test
+115,820/208,397, beating test actual underbake 229,282. The underbake-first
+center candidate (P50, n>=6, scale .95, cap 8) reaches total
+324,338/336,729 and test 145,633/181,535. An extreme P95+2% floor reaches
+156,419 underbake but creates 798,235 surplus and is rejected operationally.
+The center candidate is the next research point; no rollout is authorized.
+See `docs/analysis/calibrated_selective_sku_floor_20260826.md`. Production
+unchanged.
+
+## Calibrated lost-demand quantile comparison (2026-08-26)
+
+The network label was rebuilt with post-last-sale coefficients frozen on
+August 1-10, raising historical reconstructed loss from 2.774m to 6.212m.
+On the common eight-date/175-bakery/267-SKU operational scope, calibrated
+actual-state underbake is 468,732 versus 626,677 for current. P50 has the
+lowest equal-cost imbalance at 695,411. P67 is the first quantile below
+actual-state underbake (457,048); P95 +2% reaches 377,522 but raises surplus
+to 364,416. The remaining underbake is SKU-placement error. Coefficients use
+only ten calibration dates and are not rollout-ready. See
+`docs/analysis/calibrated_quantile_operational_balance_20260826.md`.
+Production unchanged.
+
+## Post-last-sale demand calibration (2026-08-26)
+
+A frozen August 1-10 calibration / August 11-23 holdout shows that the current
+fixed lost-demand cap is severely downward biased for early last-sale hours.
+It recovers only 4.6% at 07:00, 14.7% at 10:00, 42.1% at 15:00 and 69.0% at
+17:00. A cutoff-hour calibrated same-day rate recovers 83.9%, 90.1%, 96.8%
+and 99.3% respectively; 18:00 is mildly high at 103.6%. Case-level error is
+still large, so these are aggregate label coefficients, not SKU-day forecasts.
+Next rebuild the post-last-sale labels with frozen coefficients and rerun the
+operational model comparison. See
+`docs/analysis/post_last_sale_calibration_20260826.md`. Production unchanged.
+
+## Same-day-rate pseudo-stockout validation (2026-08-26)
+
+The relaxed lost-demand formula recovers only 46.7%, 57.2%, and 75.6% of
+hidden sales after synthetic 15:00, 16:00, and 17:00 cutoffs; at 18:00 it
+recovers 102.5%. The fixed cap makes the current 191,866 lost-demand label a
+conservative lower bound for early stockouts, not a validated point estimate.
+Consequently the selective floor's numerical win over observed underbake is
+not yet rollout evidence. Cold-start is secondary: <6-observation rows account
+for 31,898 of 170,270 residual underbake, while 8+ rows account for 122,921.
+Next calibrate the loss estimator by last-sale hour on a frozen holdout. See
+`docs/analysis/pseudo_stockout_same_day_rate_20260826.md`. Production was
+unchanged.
+
+## Selective SKU floor frozen split (2026-08-26)
+
+The aggregate P67 x0.70 floor was rejected after a chronological 4+4 split:
+it won only the first half and failed all four later dates. A selective floor
+on P85 + Predictive +2% using same-weekday P67 x0.83, at least six historical
+observations, and a 15-unit per-SKU-day uplift cap passes both halves. Across
+all eight dates it has volume 1,373,874, surplus 315,612 and underbake 170,270
+versus 191,866 observed and 409,352 current. The underbake gain is robust in
+this small split but costs 144,230 surplus units above observed. See
+`docs/analysis/selective_sku_floor_20260826.md`. Production was unchanged.
+
+## Causal SKU floor beats observed underbake (2026-08-26)
+
+On top of P85 + Predictive +2%, a causal same-weekday P67 SKU floor at scale
+0.70 reduces underbake to 189,948 versus 191,866 observed and 409,352 current.
+Volume is 1,338,723 and surplus 300,138. This is the first tested causal plan
+to pass the underbake-first gate, but the margin is only 1,918 units and the
+surplus cost is material. Floors requiring three observations cannot remove
+the final approximately 19 thousand underbake units; cold-start/category
+priors are required for that segment. See
+`docs/analysis/causal_sku_floor_20260826.md`. Production was unchanged.
+
+## High-quantile +2% grid (2026-08-26)
+
+P75-P95 with Predictive allocation and optional +2% bakery uplift were tested
+on the common eight-date, 175-bakery, 267-SKU scope. P95 +2% has the lowest
+underbake at 227,237, a 44.5% reduction from current 409,352, but remains above
+actual 191,866 and raises surplus to 320,724. More bakery volume cannot remove
+the remaining SKU-placement error; the next candidate needs a causal SKU
+floor. See `docs/analysis/network_high_quantile_grid_20260826.md`. Production
+was unchanged.
+
+## Network quantile operational comparison (2026-08-26)
+
+The bakery-day history was extended through 2026-08-23 and relaxed stockout
+labels were rebuilt network-wide. P50-P75 were trained through 2026-08-10 and
+combined with the frozen Predictive allocation on the common eight-date,
+175-bakery, 267-SKU operational universe. Predictive +2% has the lowest
+equal-cost imbalance (488,160); P67 is best when underbake costs 1.5 times
+surplus, and P75 is best at weight 2.0. P75 volume (1,188,173) is close to
+actual available volume (1,178,537), but its underbake remains 272,082 versus
+191,866 actual, confirming that volume alone does not repair SKU placement.
+See `docs/analysis/network_quantile_operational_balance_20260826.md`.
+Production was unchanged.
+
+## Relaxed same-day-rate stockout experiment (2026-08-26)
+
+A research-only detector now marks an inventory-controlled SKU-day as a
+stockout when available quantity is positive but no greater than sales and the
+last sale is before 19:00. Lost demand is extrapolated from the same day's
+average rate between 07:00 and the last sale through a 23:00 close, retaining
+the existing min(10 units, 50% of sales) cap. It identifies 28,391 historical
+SKU-days and 142,059 capped units. On the common 18-day/11-bakery comparison,
+lost demand increases from 2,339 to 30,564 units. P75 has the lowest tested
+imbalance (19,773) but still covers only 60.69% of reconstructed loss; direct
+demand imbalance is 24,146. Selective uplift collapses to the sales baseline
+under the prevalent label. See
+`docs/analysis/relaxed_stockout_quantiles_20260826.md`. This is not validated
+for rollout and production was unchanged.
+
+## Available-to-sell balance correction (2026-08-26)
+
+The factual operational-state row was rebuilt on the same eight dates, 176
+bakeries and 267 products using total available to sell: production plus
+positive prior-day closing stock plus received minus sent. Deduplicated
+`fct_*` sources were used because the mart covered only 91 products and did
+not reconcile to trusted sales. The corrected factual state is 1,183,823
+units available, 172,466 surplus, 40,035 recognized underbake, and 212,501
+total imbalance. Forecast-plan rows are unchanged: current 537,651 total
+imbalance, predictive 392,906, predictive +2% 397,104. No candidate beats
+the factual underbake. See
+`docs/analysis/available_to_sell_balance_20260826.md`. Production was not
+changed.
+
+## Forecast evaluation correction (2026-08-25)
+
+The 2026-08-24 conclusion that a direct seven-day mean beat the current
+bakery-level ML model was invalid. The evaluation silently treated 304
+forecast-only bakery-days across 38 bakeries as zero observed demand. Their
+158,267 forecast units inflated bakery-level WAPE.
+
+On 1,406 observable bakery-days across 176 bakeries, current
+`base_norm_recent` bakery-level observed-sales WAPE is `7.0755%` versus
+`12.4591%` for Mean7. Strict-demand WAPE is `7.5902%` versus `12.6066%`.
+The base model itself has `6.7632%` WAPE; recent correction improves bias but
+slightly worsens WAPE to about `7.10%`. SKU snapshots conserve the bakery
+total exactly, so remaining large SKU errors belong to allocation/mix.
+
+The predictive allocation backtest was also filtered to observable
+bakery-days. Predictive remains the best challenger (`38.6535%` end-to-end
+SKU WAPE and `31.0759%` equal-total allocation WAPE), but the prior historical
+concentration claim disappears on the corrected universe and is not evidence
+for the separate August incident.
+
+Corrected sources:
+
+- `docs/analysis/base_norm_recent_vs_mean7_20260824.md`
+- `docs/analysis/daily_predictive_sku_allocation_20260824.md`
+- `scripts/recalculate_active_bakery_universe.py`
+
+Production and serving state were not changed.
+
+### Current SKU allocation backtest (2026-08-25)
+
+On the same eight `base_norm_recent` dates and 1,406 observable bakery-days,
+the incumbent SKU allocation has strict-demand WAPE `56.1277%`. A causal
+daily trend allocation that preserves every bakery/category total reduces it
+to `43.7352%` and improves 1,233 of 1,406 bakery-days. Its p95 largest-SKU
+share is `18.52%` versus `30.36%` for the incumbent; bakery-days at or above
+30% fall from 73 to 15. SKU 1071 WAPE falls from `60.27%` to `22.53%`.
+
+This is research evidence only, not a rollout decision. The challenger was
+selected on the evaluation dates and requires a blocked fold or prospective
+shadow. See `docs/analysis/current_sku_allocation_backtest_20260825.md`.
+
+The blocked 2026-07-17..2026-08-02 validation rejected full causal-trend
+replacement: WAPE worsened from `40.4570%` to `40.9225%`. A conservative 25%
+blend improved WAPE to `40.2778%`, won all 17 dates and improved 2,007 of
+3,072 bakery-days while preserving category totals and concentration. It is
+the only retained shadow candidate; this gain is not sufficient for canary.
+See `docs/analysis/blocked_sku_allocation_backtest_20260825.md`.
+
+The forecast-conditioned predictive-choice model was subsequently rebuilt
+with explicit runs, non-oracle production totals and frozen folds. It improves
+blocked observed-sales WAPE from `40.3878%` to `39.5393%` across all 12 test
+dates, and current WAPE from `56.6228%` to `44.4550%` across all eight dates.
+Current p95 top-SKU share falls from `30.36%` to `19.28%`; >=40% cases fall
+from 10 to zero. Predictive choice replaces causal blend 25% as the primary
+shadow candidate, but no production rollout is authorized. See
+`docs/analysis/rebuilt_predictive_choice_20260825.md`.
+
+The first prospective local shadow was generated from production run
+`prod_base_bakery_norm_recent_20260825_h14` for 2026-08-25, using training
+information only through 2026-08-23. It conserves the 199,963.23-unit network
+plan and every bakery/category total (maximum delta `1.14e-13`). The p95
+largest-SKU share falls from `28.57%` to `17.69%`; >=20% cases fall from 69 to
+6 and >=30% cases from 6 to 1. There are 7,882 cold-start rows and 38 bakeries
+without recent observable sales, so accuracy must be evaluated separately
+after the 2026-08-25 fact closes. No production data was changed. See
+`docs/analysis/predictive_choice_shadow_20260825.md`.
+
+A joint current-period diagnostic then tested higher bakery volume together
+with predictive allocation. On the corrected eight-date observable universe,
+a uniform +2% volume candidate raises forecast by 26,850 units and recognized
+SKU lost demand by 2,037 units while reducing true SKU overforecast by 67,032
+units and 2,162 rows versus the incumbent. Strict-demand SKU WAPE is 44.54%
+versus 56.13%. At bakery level WAPE improves from 7.59% to 7.25% and bias from
+-3.34% to -1.41%, but true-overforecast bakery-days increase from 524 to 635.
+Therefore +2% is only a diagnostic center point: the next challenger must use
+a causal bakery/day-specific uplift and pass a frozen fold. A first frozen
+four-date calibration/four-date test rejected simple smoothed residual
+calibration because bakery-level true-overforecast cases rose from 251 to 274.
+See
+`docs/analysis/joint_demand_allocation_20260825.md`. No production data was
+changed.
+
+A three-fold causal comparison on the 11 bakeries with reconstructed
+lost-demand history evaluated direct demand-target LightGBM and a two-stage
+selective uplift. Mean bakery WAPE improves from 6.024% for the sales-target
+baseline to 5.878% for direct demand and 5.848% for selective uplift;
+recognized-lost coverage rises from 37.41% to 41.90% and 43.46%. Selective
+uplift beats the baseline on all three folds and direct demand on two of
+three. Neither passes the overforecast gate: mean true-overforecast quantity
+rises from 3,619 to 3,881 and 4,167 respectively. Continue both as research
+candidates, with direct demand the conservative default; network rollout is
+not authorized. See
+`docs/analysis/direct_demand_vs_selective_uplift_20260825.md`.
+
+An asymmetric operational-balance gate was added on the current eight dates and the 267
+products covered by production releases. The observed production-state proxy
+has 142,200 surplus units plus 40,035 underbake units, total 182,235. The
+incumbent forecast plan has 537,651 units of projected imbalance; predictive
+allocation improves this to 392,906, while predictive +2% has 397,104. No
+candidate beats observed underbake, so none passes the primary gate. Surplus
+is secondary: predictive +2% trades 12,635 additional surplus units for 8,437
+fewer underbake units versus predictive alone and is economically preferable
+when underbake costs more than 1.50 times surplus.
+Opening inventory is unavailable; observed surplus is explicitly only
+`max(same-day production-sales,0)`, not verified ending stock. See
+`docs/analysis/operational_balance_20260825.md`. Production was unchanged.
+
+Direct-demand quantiles P50/P55/P60/P67/P75 were compared on the same three
+causal 14-day folds and 11 labeled bakeries. Every quantile reduces underbake
+on all three folds. P50 already moves aggregate bias relative to sales to
++0.29%; P55 gives +1.38%. With underbake weighted 1.5 times surplus, P55 has
+the lowest weighted operational loss; at weight 2.0 P67 is best. Mean WAPE
+worsens as the quantile rises, so operational weighting rather than WAPE must
+select the level. P50 is the conservative candidate and P55 the center
+candidate; neither is authorized for rollout. See
+`docs/analysis/direct_demand_quantiles_20260825.md`.
+
+## Pilot management history restored on production (2026-08-25)
+
+- The production report at `/opt/reports/pilot_management_summary` was
+  replaced atomically with the validated 2026-07-23..2026-08-23 history.
+  All 32 calendar dates are present. Weeks start on Monday; weeks beginning
+  2026-07-27, 2026-08-03, 2026-08-10, and 2026-08-17 are complete. The week
+  beginning 2026-07-20 is intentionally partial because the pilot started on
+  Thursday 2026-07-23.
+- Historical scope is event-aware: 38 bakeries through 2026-08-16 and 39 from
+  the 2026-08-17 addition of bakery 273. Before 2026-08-07, bakery 270 has no
+  saved forecast; available bakery data is retained and the missing forecast
+  is explicit instead of dropping the whole date.
+- Forecast selection now uses the latest complete or best-covered run that was
+  available before 08:00 MSK. This retains dates on which the active forecast
+  came from an older horizon (`lead_days > 1`) after a missed nightly run.
+- Pre-deploy validation required 39 distinct bakery names, exact 32-date
+  coverage, and the four complete weeks above. Post-deploy verification found
+  the same five week rows, `app.service=active`, and `/health` returned HTTP
+  200 with `app_env=prod` and an empty table suffix.
+- Backup:
+  `/opt/backups/pilot_management_summary_before_20260825_20260825_062105`.
+  Forecast tables, active forecast run, and Blackhole writer timers were not
+  changed; both Blackhole forecast-writer timers remain disabled/inactive.
+
+## Current live production status (2026-08-24)
+
+- The active production run is
+  `prod_base_bakery_norm_recent_20260823_h14`, horizon
+  `2026-08-23..2026-09-05`. `scripts.verify_prod_deploy` returns `VERIFY OK`;
+  active snapshots contain 2,996 bakery-day, 566,696 SKU-day, and 6,953,436
+  SKU-hour rows.
+- The scheduled 2026-08-24 writer run refreshed source data through
+  `2026-08-23` but stopped before inference and activation because the SKU
+  profile freshness guard rejected `data_through=2026-08-15` at age 9 days
+  (configured maximum: 8 days). The previous known-good run remained active;
+  no partial forecast run was activated and no serving data was lost.
+- SKU profiles are scheduled separately by `weekly-profile-refresh.timer`
+  every Sunday at `02:00 UTC` (`05:00 MSK`). The timer is enabled/active and
+  did fire on 2026-08-23, but `weekly-profile-refresh.service` was terminated
+  by the Linux OOM killer during export batch 12/13 (the July 2026 block) after
+  loading a rolling one-year range. The last successful refresh therefore
+  remains `weekly_20260816`, with `data_through=2026-08-15`; the failure was in
+  resource usage, not timer scheduling.
+- `forecast-production.timer` remains enabled/active, with its next scheduled
+  attempt at `2026-08-25 03:30 UTC` (`06:30 MSK`). Before that attempt, refresh
+  the SKU profile or make an explicit, validated freshness-policy decision; do
+  not silently raise the limit.
+- The separate Blackhole chat publisher succeeded on 2026-08-24 at
+  `03:00 UTC` (`06:00 MSK`): 2,076 SKU rows across 39 bakeries were generated,
+  uploaded, and sent to chat `179919` (file message id `8146035`). Its timer
+  remains enabled/active.
+- Blackhole forecast-writer timers remain disabled/inactive. Production writer
+  ownership is unchanged: only the VM may generate and publish forecast runs.
+
+## Pilot Management UI Release Deployed To Blackhole (2026-08-20)
+
+The 2026-08-18 pilot-management UI and report-reader changes were deployed as
+a deliberately narrow seven-file release. Pilot management routes now use
+`AuthContext.is_pilot_user`, preserving access for admins and all 37 ids in
+`PILOT_USER_IDS` while rejecting unrelated portal users.
+
+Deployed targets:
+
+- `/opt/app/app/routers/pilot_management.py`
+- `/opt/app/app/static/app.js`
+- `/opt/app/app/templates/layout.html`
+- `/opt/app/app/templates/pilot_management.html`
+- `/opt/app/app/templates/pilot_bakery.html`
+- `/opt/app/app/templates/pilot_bakery_week.html`
+- `/opt/src/pilot_management_service.py`
+
+`main.py` and `db.py` were intentionally preserved from the Blackhole runtime:
+the former contains deployment-layout-specific `/opt` import handling and the
+latter contains connection recovery behavior absent from the workstation
+version. Forecast writer and pilot publisher files were not part of this
+release.
+
+Pre-deploy recovery point:
+`/opt/backups/codex_20260820_before_pilot_ui` (`BACKUP_VERIFY_OK`).
+
+Post-deploy verification:
+
+- all 7 deployed SHA-256 hashes match the local release candidate;
+- `app.service`: `active`;
+- `/health`: HTTP 200, `app_env=prod`, empty table suffix;
+- 11 `/pilot*` routes registered;
+- access model verified for configured pilot user, admin, and non-pilot user;
+- both Blackhole forecast timers remain `disabled` and `inactive`;
+- recent `app.service` logs show clean shutdown/startup and no import, template,
+  or ClickHouse errors.
+
+Detailed release boundary and rollback instructions:
+`docs/ops/BLACKHOLE_RELEASE_20260820.md`.
+
+## Production Forecast Writer Repaired After Missed 2026-08-19/20 Runs (2026-08-20)
+
+The production timer fired at `03:30 UTC` on both 2026-08-19 and 2026-08-20,
+but `forecast-production.service` failed before inference because the deployed
+runtime files were from incompatible point-in-time copies. `.env` selected
+`base_norm_recent`, while the active `run_production_inference.py` did not
+define that scenario. Restoring the runner exposed two further mismatches: the
+active ClickHouse allocator did not accept `assortment_max_age_days`, and its
+matching version required `MIN_FALLBACK_N_DAYS` from the base allocator. The
+active dataset refresh module also no longer refreshed assortment tables, so
+the freshness guard correctly rejected nine cities at age 3 days (limit 2).
+
+The following mutually compatible VM backups were restored:
+
+- `pipelines/forecast_publish/run_production_inference.py.backup_20260810_174532_pilot38_12m`
+- `src/experiments_v2/apply_bakery_profiles_clickhouse.py.backup_20260810_122506_base_norm_recent`
+- `src/experiments_v2/apply_bakery_profiles.py.backup_20260806_155645`
+- `pipelines/forecast_publish/production_dataset_refresh.py.backup_20260806_assortment_dim_fix`
+
+Pre-repair copies of the replaced files were preserved with the suffix
+`backup_20260820_before_base_norm_restore` or
+`backup_20260820_before_assortment_restore` beside the active files.
+
+The repaired service refreshed source data through `2026-08-19`, refreshed
+allocation assortment with `valid_from=2026-08-19`, and successfully published
+and activated `prod_base_bakery_norm_recent_20260820_h14` for horizon
+`2026-08-20..2026-09-02`.
+
+Post-repair verification:
+
+- `forecast-production.timer`: `enabled`, `active`
+- bakery-day snapshot rows: `2,968`
+- SKU-day snapshot rows: `561,570`
+- SKU-hour snapshot rows: `6,877,148`
+- `scripts.verify_prod_deploy`: `VERIFY OK`
+
+The VM Git checkout remains unsuitable as deployment truth because runtime
+files have historically been delivered as targeted copies. Do not run a broad
+`git pull` or replace the VM tree until these production-only versions are
+reconciled and committed as one tested deployment unit.
 
 ## Pilot Access Control Deployed To Blackhole (2026-08-17)
 
@@ -1663,3 +2606,181 @@ Update this file after any change to:
 - Read-only validation for the 2026-07-22 run: 211 bakeries, 29,578 recent
   bakery/SKU pairs, zero blocking gaps.
 - This code has not been deployed to the production writer VM.
+
+## Dev forecast parity refresh (2026-08-20)
+
+- The previous active `_dev` run covered only `2026-06-23..2026-07-06`.
+- Before changing dev state, the complete `forecast_runs_embedded_dev` registry
+  was copied to
+  `forecast_runs_embedded_dev_backup_20260820_before_refresh` (116/116 rows).
+- The mutable dev assortment tables were backed up as
+  `bakeable_products_dev_backup_20260820_before_refresh` and
+  `assortment_city_products_dev_backup_20260820_before_refresh`. Local dataset
+  files were copied to `.codex_tmp/dev_refresh_backup_20260820/`.
+- The known-good production runtime additions were reconciled into the local
+  source, including `base_norm_recent`, SKU allocation coverage/floor handling,
+  the network bakery-hour fallback, and bakery-product assortment refresh.
+  The related selected test set passes: 53 tests.
+- A local dataset refresh reached facts through `2026-08-19` and weather
+  through `2026-09-02`. The dev assortment refresh remains unsuitable for
+  parity because its legacy city values are mojibake/incomplete; production
+  assortment/profile tables were therefore used read-only for validation.
+- For exact UI comparison, production run
+  `prod_base_bakery_norm_recent_20260820_h14` was copied server-side into the
+  suffixed dev tables as
+  `dev_mirror_prod_base_norm_recent_20260820_h14`. Counts and row hashes match
+  for bakery-day (2,968), context (126), SKU-day (561,570), and SKU-hour
+  (6,877,148). Only the dev run id differs.
+- At this intermediate parity-check stage, the mirrored run was the sole active
+  `_dev` run, with horizon `2026-08-20..2026-09-02`. It was superseded later
+  the same day by the validated `devfix` run documented below. Production
+  tables and production active state were not changed by this mirror step.
+- Dynamic pilot configuration has 39 active bakery ids. Bakery 273 is present
+  in the mirrored forecast for all 14 days. Bakery 270 is absent from both the
+  production and mirrored-dev forecast universes and requires a separate
+  model/network-scope decision; do not silently synthesize it.
+
+### Root cause and local candidate for bakeries 270/271
+
+- The `2026-08-20` source export still contained sales through `2026-08-19`
+  for bakeries 270 and 271, but both rows had a null city. The model dataset
+  builder groups by city and therefore dropped them.
+- Root cause: `dim_bakeries` contains duplicate rows for these ids, including
+  rows with an empty city. The export's direct `ANY LEFT JOIN` could select the
+  empty duplicate nondeterministically.
+- Local fix: `scripts/clickhouse_bakery_daily_template.sql` now aggregates the
+  dimension to one row per bakery with `anyIf(... != '')` before joining.
+  A regression assertion was added to
+  `tests/test_export_clickhouse_bakery_daily.py`; the selected refresh/export
+  suite passes (26 tests) and Ruff passes for the touched Python test/export
+  files.
+- The fixed local candidate covers `2026-08-20..2026-09-02`, 214 bakeries,
+  2,996 bakery-day rows, 566,554 SKU-day rows, and 6,947,742 SKU-hour rows.
+  All 39 dynamic pilot ids are present; bakeries 270, 271, and 273 each have 14
+  bakery-day rows and balanced SKU allocations.
+- Direct TLS connections from the Windows dev host continued to time out, so
+  the validated candidate was transferred with a matching SHA-256 to the
+  production writer VM and loaded from that VM exclusively into `_dev` tables.
+- Before the load, the dev registry was copied to
+  `forecast_runs_embedded_dev_backup_20260820_150018_before_devfix` (118 rows).
+- The new active dev run is
+  `devfix_base_bakery_norm_recent_20260820_h14`: 2,996 bakery-day rows, 126
+  context rows, 566,554 SKU-day rows, 6,947,742 SKU-hour rows, and 214 distinct
+  bakeries. Bakeries 270, 271, and 273 each have all 14 horizon days. The
+  maximum bakery-day versus allocated SKU-day delta is
+  `3.183231456205249e-12`.
+- At this dev-only stage, production remained active on
+  `prod_base_bakery_norm_recent_20260820_h14`; no production forecast table or
+  run status was changed by the dev load. The later production rollout is
+  documented separately below.
+- For local UI inspection while the direct Windows-to-ClickHouse TLS route is
+  unavailable, the dev API can use an SSH local forward through the writer VM
+  (`127.0.0.1:18443` to ClickHouse `:8443`) with the local-only
+  `.env.dev.tunnel`. The active-run endpoint returned the new devfix run and
+  `/bakery/270?date=2026-08-20` returned HTTP 200.
+
+## Pilot management report production refresh (2026-08-20)
+
+- The validated 39-bakery management-report candidate from
+  `reports/pilot_management_summary_candidate_20260820` was deployed to the
+  Blackhole read-only app at `/opt/reports/pilot_management_summary`.
+- The installed `detail.csv` was checked before activation and contains 39
+  distinct non-empty bakery names. This restores the conditionally rendered
+  bakery selector in the production pilot management UI.
+- The previous production report was copied to
+  `/opt/backups/pilot_management_summary_before_20260820_20260820_142900`.
+- After the atomic directory replacement, `app.service` remained active and
+  `/health` returned `{"ok":true,"app_env":"prod","table_suffix":""}`.
+- `forecast-production.timer` and `bakery-forecast-nightly.timer` remained
+  disabled and inactive. No forecast run, ClickHouse table, or production
+  writer state was changed by this report-only deployment.
+
+## Production city-dimension fix and pre-06:00 recovery run (2026-08-20)
+
+- The validated aggregate join fix in
+  `scripts/clickhouse_bakery_daily_template.sql` was deployed narrowly to the
+  production writer VM. The previous template is backed up at
+  `/opt/backups/codex_20260820_before_dim_bakeries_city_fix/` and the deployed
+  SHA-256 matches the workstation candidate.
+- A distinct transient recovery run was generated with prefix `prodfix` so the
+  prior production run was not replaced in place. It became active on
+  2026-08-20 as
+  `prodfix_base_bakery_norm_recent_20260820_h14`, horizon
+  `2026-08-20..2026-09-02`, and was subsequently superseded by normal nightly
+  production runs. See the top of this file for the current active run.
+- Independent ClickHouse verification passed: 214 bakeries, 2,996 bakery-day,
+  126 context, 566,554 SKU-day, and 6,947,742 SKU-hour rows. All 39 dynamic
+  pilot bakeries are present; bakeries 270, 271, and 273 each cover 14 days;
+  maximum bakery/SKU allocation delta is `3.637978807091713e-12`. The common
+  212-bakery network changed by only `-0.026487%` versus the prior active run.
+- `scripts.verify_prod_deploy` ended with `VERIFY OK`. The VM
+  `forecast-production.timer` remains enabled/active for `03:30 UTC` on
+  2026-08-21.
+- A Blackhole publisher dry-run for `2026-08-21` completed without sending to
+  Bitrix24: valid 95,303-byte XLSX, 2,104 SKU rows, and 39 bakeries. The
+  `pilot-forecast-publish.timer` remains enabled/active for `03:00 UTC` on
+  2026-08-21.
+- Blackhole forecast-writer timers remain disabled/inactive. Blackhole remains
+  read-only; only its separate chat publisher is scheduled.
+## Direct alpha=.25 production-package dry-run (2026-08-31)
+
+The selected daily SKU allocation candidate is now packaged as versioned model
+artifacts under `models/direct_alpha_025_v1/`.  The current-horizon runner loads
+those artifacts without retraining and emits the three files accepted by
+`load_forecast_run`: bakery-day, SKU-day and SKU-hour.  The hourly layer uses
+only bakery/DOW timing and conserves every finalized SKU-day quantity; it does
+not restore the retired category/hourly SKU allocation.
+
+Read-only dry-run for 2026-09-01 used active source run
+`prod_base_bakery_norm_recent_20260831_h14` and causal sales history through
+2026-08-30.  It produced 214 bakery rows, 12,282 SKU-day rows and 201,083
+SKU-hour rows.  SKU-day and SKU-hour totals both equal `189,506.6725913064`;
+maximum conservation error is below `9e-14`, with no NaN, negative or duplicate
+key defects. Six bakery/DOW pairs without their own hourly history used an
+explicit network-DOW timing fallback. Outputs and summary are in
+`reports/direct_alpha_publish_dryrun_20260831/`.
+
+No database write or activation was performed.  Production draft insertion
+must be executed on the production VM, not from the workstation or Blackhole.
+## Direct alpha=.25 h14 activated (2026-08-31)
+
+Production active run is `draft_direct_alpha_025_20260831_h14`, horizon
+2026-08-31..2026-09-13. It contains 2,996 bakery-day, 171,858 SKU-day and
+2,816,030 SKU-hour rows. All three levels total `2,494,990.693343`; keys are
+unique, quantities are non-negative, product/category names are populated and
+maximum SKU day/hour conservation error is below `1.2e-13`.
+`scripts.verify_prod_deploy --env-file .env` returned `VERIFY OK` after
+activation. On bakery 23 / 2026-08-31, Smetannik changes from `0.72` to
+`24.82`, and SKU 1071 from `404.38` to `211.58`.
+
+The existing timer code still generates `base_norm_recent`. To prevent it from
+overwriting the Direct active run before the native timer scenario is deployed,
+the production VM `.env` currently has `FORECAST_ACTIVATE_RUN=none`; the timer
+remains enabled and active and may build drafts. Backup:
+`.env.bak_20260831_before_direct_alpha_timer_guard`. Rollback active run:
+`prod_base_bakery_norm_recent_20260831_h14`.
+## Direct alpha=.25 native nightly integration (2026-08-31)
+
+The production VM now runs Direct as a systemd `ExecStartPost` after the
+unchanged `forecast-production.service` main command. The main
+`base_norm_recent` scenario refreshes datasets and creates the bakery/source
+run with `.env` `FORECAST_ACTIVATE_RUN=none`; only a successful Direct
+postprocess activates `prod_direct_alpha_025_YYYYMMDD_h14`. Drop-in:
+`/etc/systemd/system/forecast-production.service.d/direct-alpha.conf`.
+
+The native module and frozen artifacts are deployed under
+`pipelines/forecast_publish/direct_alpha_production.py` and
+`models/direct_alpha_025_v1/`. Production does not require research scripts or
+PyArrow; floor history is packaged as `floor_history.csv.gz`. A native draft
+matched the manually generated run across all 171,858 SKU-day rows with max
+absolute error `8.53e-14`.
+
+The first full systemd preflight exposed a root-owned output directory left by
+the earlier manual test; Direct stopped before loading and active production
+was preserved. Ownership was corrected to `forecast:forecast`, then the exact
+postprocess command was rerun as `forecast`. Active run is now
+`prod_direct_alpha_025_20260831_h14`; it has 2,996 bakery-day, 171,858 SKU-day
+and 2,816,030 SKU-hour snapshot rows. The verifier now recognizes the intended
+inactive source run through the Direct run notes and ends with `VERIFY OK`.
+Timer remains enabled/active. Rollback remains activation of
+`prod_base_bakery_norm_recent_20260831_h14` plus removal of the systemd drop-in.

@@ -9,7 +9,7 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class ColdStartConfig:
-    product_ids: tuple[int, ...] = (11573, 11574)
+    product_ids: tuple[int, ...] | None = None
     alpha: float = 0.90
     min_sales_days: int = 3
     max_forecast_days: int = 13
@@ -35,10 +35,10 @@ def build_cold_start_registry(
         work["forecast_qty"],
         errors="coerce",
     ).fillna(0.0)
-    work = work[
-        work["date"].lt(as_of)
-        & work["product_id"].isin(config.product_ids)
-    ].sort_values(["bakery_id", "product_id", "date"])
+    work = work[work["date"].lt(as_of)]
+    if config.product_ids is not None:
+        work = work[work["product_id"].isin(config.product_ids)]
+    work = work.sort_values(["bakery_id", "product_id", "date"])
     if work.empty:
         return pd.DataFrame()
 
@@ -114,3 +114,88 @@ def apply_category_neutral_cold_start(
             "_candidate_total",
         ]
     )
+
+
+def apply_independent_cold_start(
+    forecast: pd.DataFrame,
+    registry: pd.DataFrame,
+    *,
+    output_col: str = "independent_forecast_qty",
+) -> pd.DataFrame:
+    """Keep the mature allocation intact and add cold-start demand on top.
+
+    Cold-start bakery/SKU pairs are excluded from the allocation pool.  The
+    complete original bakery-day total is reallocated over mature rows only;
+    each cold-start row then receives its own-sales forecast independently.
+    Consequently the final bakery-day total equals the original mature total
+    plus the cold-start forecasts.
+    """
+    required = {"bakery_id", "product_id", "forecast_qty"}
+    missing = sorted(required.difference(forecast.columns))
+    if missing:
+        raise KeyError(f"Missing required columns: {missing}")
+
+    work = forecast.copy()
+    if registry.empty:
+        work[output_col] = work["forecast_qty"]
+        work["is_cold_start"] = False
+        return work
+
+    work = work.merge(
+        registry[["bakery_id", "product_id", "cold_start_floor"]],
+        on=["bakery_id", "product_id"],
+        how="left",
+        validate="many_to_one",
+    )
+    work["is_cold_start"] = work["cold_start_floor"].notna()
+    group_cols = ["bakery_id"]
+    if "date" in work.columns:
+        group_cols.insert(0, "date")
+    has_mature = (~work["is_cold_start"]).groupby(
+        [work[column] for column in group_cols]
+    ).transform("any")
+    work.loc[~has_mature, "is_cold_start"] = False
+
+    original_total = work.groupby(group_cols)["forecast_qty"].transform("sum")
+    mature_value = work["forecast_qty"].where(~work["is_cold_start"], 0.0)
+    mature_total = mature_value.groupby(
+        [work[column] for column in group_cols]
+    ).transform("sum")
+    mature_scale = original_total / mature_total.replace(0.0, pd.NA)
+
+    work[output_col] = mature_value * mature_scale.fillna(0.0)
+    work.loc[work["is_cold_start"], output_col] = work.loc[
+        work["is_cold_start"], "cold_start_floor"
+    ].clip(lower=0.0)
+    return work.drop(columns=["cold_start_floor"])
+
+
+def add_missing_cold_start_candidates(
+    forecast: pd.DataFrame,
+    candidates: pd.DataFrame,
+) -> pd.DataFrame:
+    """Add zero-forecast rows for effective-assortment candidates before flooring."""
+    required = {
+        "bakery_id",
+        "product_id",
+        "product_name",
+        "category_name",
+    }
+    missing = sorted(required.difference(candidates.columns))
+    if missing:
+        raise KeyError("Missing candidate columns: " + ", ".join(missing))
+    keys = ["bakery_id", "product_id"]
+    existing = set(map(tuple, forecast[keys].values.tolist()))
+    additions = candidates[
+        ~candidates.apply(
+            lambda row: (row["bakery_id"], row["product_id"]) in existing,
+            axis=1,
+        )
+    ].copy()
+    if additions.empty:
+        return forecast.copy()
+    additions["forecast_qty"] = 0.0
+    if "date" in forecast.columns:
+        additions["date"] = forecast["date"].iloc[0] if not forecast.empty else pd.NaT
+    additions = additions.reindex(columns=forecast.columns, fill_value=pd.NA)
+    return pd.concat([forecast, additions], ignore_index=True)

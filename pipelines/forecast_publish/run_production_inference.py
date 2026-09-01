@@ -75,10 +75,15 @@ DEFAULT_RECENT_SALES_TABLE = os.getenv("FORECAST_RECENT_SALES_TABLE", "mart_sale
 DEFAULT_REFRESH_DATASETS = os.getenv("FORECAST_REFRESH_DATASETS", "").strip().lower() in {"1", "true", "yes", "on"}
 DEFAULT_REFRESH_WEATHER = os.getenv("FORECAST_REFRESH_WEATHER", "").strip().lower() in {"1", "true", "yes", "on"}
 DEFAULT_ASSORTMENT_TABLE = os.getenv(
-    "FORECAST_ASSORTMENT_TABLE", "assortment_city_products"
+    "FORECAST_ASSORTMENT_TABLE", "bakery_product_assortment_embedded"
 )
+DEFAULT_DISABLE_ASSORTMENT_RENORMALIZATION = os.getenv(
+    "FORECAST_DISABLE_ASSORTMENT_RENORMALIZATION",
+    "1" if "bakery_product_assortment" in DEFAULT_ASSORTMENT_TABLE else "0",
+).strip().lower() in {"1", "true", "yes", "on"}
 DEFAULT_ASSORTMENT_MAX_AGE_DAYS = int(os.getenv("FORECAST_ASSORTMENT_MAX_AGE_DAYS", "2"))
 DEFAULT_PROFILE_MAX_AGE_DAYS = int(os.getenv("FORECAST_PROFILE_MAX_AGE_DAYS", "8"))
+DEFAULT_SKU_PROFILE_TABLE = os.getenv("FORECAST_SKU_PROFILE_TABLE", PROFILE_TABLE).strip() or PROFILE_TABLE
 _max_sku_uplift_env = os.getenv("FORECAST_MAX_SKU_UPLIFT_RATIO", "").strip()
 DEFAULT_MAX_SKU_UPLIFT_RATIO: float | None = float(_max_sku_uplift_env) if _max_sku_uplift_env else None
 DEFAULT_STOCKOUT_CORRECTION_VERSION: str | None = os.getenv("FORECAST_STOCKOUT_CORRECTION_VERSION", "").strip() or None
@@ -95,6 +100,13 @@ DEFAULT_HIERARCHICAL_HAIRCUT_PAIR_PRIOR_DAYS = float(
 DEFAULT_HIERARCHICAL_HAIRCUT_MIN_COEFFICIENT = float(
     os.getenv("FORECAST_HIERARCHICAL_HAIRCUT_MIN_COEFFICIENT", "0.85")
 )
+_min_sku_allocation_env = os.getenv("FORECAST_MIN_SKU_ALLOCATION_RATIO", "").strip()
+DEFAULT_MIN_SKU_ALLOCATION_RATIO: float | None = (
+    float(_min_sku_allocation_env) if _min_sku_allocation_env else None
+)
+DEFAULT_DISABLE_ASSORTMENT_COVERAGE_GUARD = os.getenv(
+    "FORECAST_DISABLE_ASSORTMENT_COVERAGE_GUARD", "0"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 
 SCENARIOS = {
@@ -135,6 +147,19 @@ SCENARIOS = {
         "output_suffix": "prod_base_bakery_no_sku_uplift",
         "model_version": "bakery_day_lgbm_base",
         "profile_version": "clickhouse_no_sku_uplift",
+        "use_raw_uplift_multiplier": False,
+    },
+    "base_norm_recent": {
+        "description": "base bakery forecast + normalized dynamic SKU allocation (no uplift inflation)",
+        "run_id_suffix": "base_bakery_norm_recent",
+        "dataset_attr": "base_dataset_path",
+        "model_attr": "base_model_path",
+        "meta_attr": "base_meta_path",
+        "bias_attr": "base_bias_path",
+        "forecast_name": "bakery_day_forecast_prod_base_norm_recent.csv",
+        "output_suffix": "prod_base_bakery_norm_recent",
+        "model_version": "bakery_day_lgbm_base",
+        "profile_version": "clickhouse_norm_recent",
         "use_raw_uplift_multiplier": False,
     },
 }
@@ -294,6 +319,7 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         hierarchical_haircut_history_days=args.hierarchical_haircut_history_days,
         hierarchical_haircut_pair_prior_days=args.hierarchical_haircut_pair_prior_days,
         hierarchical_haircut_min_coefficient=args.hierarchical_haircut_min_coefficient,
+        min_sku_allocation_ratio=args.min_sku_allocation_ratio,
         recent_category_upward_cap_pattern=(
             args.recent_category_upward_cap_pattern or None
         ),
@@ -304,7 +330,36 @@ def run_scenario(args: argparse.Namespace, scenario_name: str) -> dict:
         recent_category_absolute_cap_multiplier=args.recent_category_absolute_cap_multiplier,
     )
 
+    allocation_summary = json.loads(Path(allocated_paths["summary"]).read_text(encoding="utf-8"))
+    if args.min_sku_allocation_ratio is not None:
+        floor_stats = allocation_summary.get("allocation_floor", {})
+        unfilled_hours = int(
+            allocation_summary.get("assortment_filter", {})
+            .get("hour_gap_fallback", {})
+            .get("groups_unfilled", 0)
+        )
+        bakery_days_without_sku = int(floor_stats.get("bakery_days_without_sku", 0))
+        if unfilled_hours or bakery_days_without_sku:
+            raise RuntimeError(
+                "SKU allocation coverage guard failed: "
+                f"unfilled_hours={unfilled_hours} "
+                f"bakery_days_without_sku={bakery_days_without_sku}"
+            )
+
     run_id = _build_run_id(args.run_prefix, scenario, bakery_path, args.horizon_days)
+    if args.skip_load:
+        return {
+            "scenario": scenario_name,
+            "description": scenario["description"],
+            "run_id": run_id,
+            "bakery_path": str(bakery_path),
+            "sku_day_path": str(allocated_paths["sku_daily"]),
+            "sku_hour_path": str(allocated_paths["sku_hourly"]),
+            "allocation_summary_path": str(allocated_paths["summary"]),
+            "loaded_rows": None,
+            "activated": False,
+            "skipped_load": True,
+        }
     load_result = load_forecast_run(
         env_file=args.env_file,
         schema_path=args.schema_path,
@@ -375,7 +430,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-bias-path", default=str(DEFAULT_BASE_BIAS_PATH))
     parser.add_argument("--uplifted-bias-path", default=str(DEFAULT_UPLIFTED_BIAS_PATH))
     parser.add_argument("--bakery-hour-profile-path", default=str(DEFAULT_BAKERY_HOUR_PROFILE_PATH))
-    parser.add_argument("--profile-table", default=PROFILE_TABLE)
+    parser.add_argument("--profile-table", default=DEFAULT_SKU_PROFILE_TABLE)
     parser.add_argument("--uplift-table", default=UPLIFT_MULTIPLIER_TABLE)
     parser.add_argument("--uplift-profile-version", default=None)
     parser.add_argument(
@@ -399,13 +454,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fail before allocation when the latest assortment batch is older than this many days.",
     )
     parser.add_argument("--disable-assortment-filter", action="store_true")
-    parser.add_argument("--disable-assortment-renormalization", action="store_true")
+    parser.add_argument(
+        "--disable-assortment-renormalization",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_DISABLE_ASSORTMENT_RENORMALIZATION,
+        help=(
+            "Preserve forecast mass left after assortment filtering. "
+            "Enabled by default for bakery_product_assortment tables."
+        ),
+    )
     parser.add_argument("--assortment-guard-recent-days", type=int, default=7)
     parser.add_argument("--assortment-guard-min-days-sold", type=int, default=2)
     parser.add_argument("--assortment-guard-min-qty", type=float, default=2.0)
     parser.add_argument(
         "--disable-assortment-coverage-guard",
         action="store_true",
+        default=DEFAULT_DISABLE_ASSORTMENT_COVERAGE_GUARD,
         help="Emergency-only bypass for the recent-sales assortment preflight.",
     )
     parser.add_argument(
@@ -444,6 +508,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--hierarchical-haircut-min-coefficient",
         type=float,
         default=DEFAULT_HIERARCHICAL_HAIRCUT_MIN_COEFFICIENT,
+    )
+    parser.add_argument(
+        "--min-sku-allocation-ratio",
+        type=float,
+        default=DEFAULT_MIN_SKU_ALLOCATION_RATIO,
+        help=(
+            "Raise each non-empty bakery-day SKU sum to at least this share "
+            "of the bakery-day forecast."
+        ),
     )
     parser.add_argument(
         "--recent-category-upward-cap-pattern",
@@ -498,6 +571,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rolling-bias-days", type=int, default=DEFAULT_ROLLING_BIAS_DAYS)
     parser.add_argument("--rolling-bias-min-days", type=int, default=DEFAULT_ROLLING_BIAS_MIN_DAYS)
     parser.add_argument("--no-replace-existing", action="store_true")
+    parser.add_argument(
+        "--skip-load",
+        action="store_true",
+        help="Build forecast CSVs and validation summaries without writing a run to ClickHouse.",
+    )
     parser.add_argument("--bias-clip-pct", type=float, default=0.15)
     parser.add_argument("--chunk-size", type=int, default=200_000)
     return parser

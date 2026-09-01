@@ -1,21 +1,18 @@
 # Data Contracts
 
-Last updated: 2026-07-14
+Last updated: 2026-09-01
 
-**Note:** this file had drifted out of date (last content update 2026-06-29
-describing the `uplifted_norm` scenario) while `CURRENT_STATE.md` kept
-moving — always trust `CURRENT_STATE.md`'s "Active Forecast" section over
-this file if they disagree. Refreshed now as part of the 2026-07-14
-pilot-uplift reconfiguration.
+`CURRENT_STATE.md` remains the operational source of truth for the exact live
+run. This file defines the durable serving contract for the Direct model.
 
 ## Forecast Run Contract
 
 Production forecast outputs are grouped by `run_id`.
 
-Current active run pattern (as of 2026-07-14):
+Current active run pattern:
 
 ```text
-prod_base_bakery_raw_uplift_sku_YYYYMMDD_h14
+prod_direct_alpha_025_YYYYMMDD_h14
 ```
 
 The active run must be represented in `forecast_runs_embedded` with
@@ -24,18 +21,18 @@ scenario.
 
 ## Current Scenario Contract
 
-- Scenario: `base_raw_uplift` (base bakery-day model + raw SKU-hour uplift
-  multiplier, all bakeries — switched 2026-07-14 for the pilot, see
-  `docs/ops/DECISIONS.md`)
-- Horizon days: `14`
-- Active horizon observed on 2026-07-14: `2026-07-14` through `2026-07-27`
-- Recent correction mode: `runner_city_prior_soft_weekpart`
-- Recent correction days: `30`
-- Recent sales table: `mart_sales_60d` (VM production writer); pilot publisher
-  uses `fct_check_lines` directly since 2026-08-14 (mart ETL outage)
-- SKU-hour uplift multiplier: `sku_hour_uplift_multiplier_embedded`,
-  `profile_version=weekly_20260714` (not renormalized — SKU-hour sums can
-  exceed the bakery-hour total, see `CURRENT_STATE.md`)
+- Model version: `direct_alpha_025_v1`.
+- Horizon: 14 days.
+- Bakery-day volume source: inactive `prod_base_bakery_norm_recent_*` run.
+- SKU allocation: direct bakery-day-to-SKU prediction over mature assortment;
+  no inherited category totals and no hourly SKU-profile allocation.
+- Volume/guard layers: predictive expected-loss uplift, Core-SKU protection,
+  alpha `.25`, adaptive floor and causal tail cap.
+- Cold-start SKU forecasts are produced independently of mature-SKU
+  normalization.
+- Hourly rows are a downstream timing split and must conserve finalized
+  SKU-day totals.
+- The active run, and only the active run, is served through ClickHouse.
 
 ## Serving Tables
 
@@ -55,12 +52,12 @@ The production verification script checks snapshot tables for active runs:
 - `sku_forecast_day_snapshots`
 - `sku_forecast_hour_snapshots`
 
-Observed rows for active run
-`prod_base_bakery_raw_uplift_sku_20260714_h14`:
+Observed rows for the verified active run
+`prod_direct_alpha_025_20260831_h14`:
 
-- bakery day snapshots: `2954`
-- SKU day snapshots: `445822`
-- SKU hour snapshots: `5017688`
+- bakery day snapshots: `2478`
+- SKU day snapshots: `149526`
+- SKU hour snapshots: `2484338`
 
 Lead-1 historical backfills use separate draft run ids:
 

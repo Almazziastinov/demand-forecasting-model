@@ -39,7 +39,14 @@ FROM (
     WHERE hex(fcl.cash_event_type) = 'D09FD180D0BED0B4D0B0D0B6D0B0'
       AND fcl.check_date BETWEEN toDate('{date_from}') AND toDate('{date_to}')
 ) AS sales
-ANY LEFT JOIN Svezhar.dim_bakeries AS db
+ANY LEFT JOIN (
+    SELECT
+        bakery_id,
+        anyIf(bakery_name, bakery_name != '') AS bakery_name,
+        anyIf(city, city != '') AS city
+    FROM Svezhar.dim_bakeries
+    GROUP BY bakery_id
+) AS db
     ON db.bakery_id = sales.bakery_id
 GROUP BY
     sales.check_date,

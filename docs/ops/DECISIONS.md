@@ -2,6 +2,44 @@
 
 This file records durable project decisions. It is not a session log.
 
+## 2026-08-31 - Direct Alpha=.25 Replaced Legacy SKU Allocation In Production
+
+Decision:
+
+- The production model is `direct_alpha_025_v1`; active runs follow
+  `prod_direct_alpha_025_YYYYMMDD_h14`.
+- The bakery-day LightGBM forecast remains the volume source, but the daily
+  volume is allocated directly across mature SKUs. Legacy category totals and
+  hourly SKU profiles are not allocation inputs.
+- The selected model includes causal predictive uplift, Core-SKU protection,
+  alpha `.25` soft expansion, adaptive floor and causal tail cap.
+- SKU cold start is an independent path and does not compete for or reduce the
+  mature Direct allocation pool. Hourly forecasts are a downstream,
+  quantity-conserving timing split.
+
+Context:
+
+- The legacy filtered hourly profile could retain only part of its original
+  SKU mass and then normalize that remainder back to 100%; subsequent hourly
+  correction normalized again. This systematically concentrated volume in
+  large SKUs, including bakery-level shares above 40–50%.
+- Direct fixed the reported Zorge and bakery 29 failures and, in the corrected
+  2026-09-01 pilot workbook, produced no bakery with a top-SKU share at or
+  above 20%.
+- Production keeps building `prod_base_bakery_norm_recent_*` as an inactive
+  source run because it supplies bakery volume and refreshed datasets. Its
+  presence does not make it the current model.
+
+Implication:
+
+- Future sessions, reports and comparisons must use Direct alpha=.25 as the
+  current-system baseline unless live verification shows an explicit rollback.
+- Forecast allocation quality and production-plan kratnost rounding are
+  separate layers. The known rounding overage must not be attributed to the
+  Direct forecast itself.
+- Rollback requires both activation of a verified source run and removal of
+  the Direct systemd drop-in; it must be recorded in `CURRENT_STATE.md`.
+
 ## 2026-06-28 - VM Is The Only Production Forecast Writer
 
 Decision:

@@ -1,6 +1,6 @@
 # Services
 
-Last updated: 2026-07-21
+Last updated: 2026-09-01
 
 ## Service Ownership Matrix
 
@@ -25,8 +25,14 @@ Last updated: 2026-07-21
   --env-file .env
 ```
 
-The systemd unit expands the production settings from `.env` and command-line
-flags. See `CURRENT_STATE.md` for the current scenario and verification command.
+The main systemd command refreshes datasets and builds an inactive
+`prod_base_bakery_norm_recent_*` source run. The drop-in
+`/etc/systemd/system/forecast-production.service.d/direct-alpha.conf` runs
+`pipelines.forecast_publish.direct_alpha_production` as `ExecStartPost`; only
+that successful post-process activates the served
+`prod_direct_alpha_025_YYYYMMDD_h14` run (`model_version=direct_alpha_025_v1`).
+The source run is an implementation input, not the current production model.
+See `CURRENT_STATE.md` for the authoritative model description and live run.
 
 ## VibeCode / Blackhole
 
