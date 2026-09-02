@@ -108,6 +108,17 @@ with positive sales and no recorded production has no reconstructable opening
 inventory in the current event model; the publisher intentionally avoids
 subtracting an invented stock value.
 
+The pilot publisher's observable closing-stock formula is:
+
+```text
+max(produced + received - sent - sold - written_off, 0)
+```
+
+The inputs come directly from deduplicated `fct_production_release`,
+`fct_moves`, `fct_check_lines`, and `fct_write_offs` for the preceding date.
+This is not an authoritative opening-balance ledger: stock carried into that
+preceding date is unavailable in the current source contract.
+
 ## Check Blackhole Timers
 
 Use VibeCode `/v1/infra/servers/:id/exec?stream=false` with server id

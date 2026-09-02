@@ -33,6 +33,34 @@ Last updated: 2026-09-02
   Rollback backup:
   `/opt/backups/pilot_forecast_missing_stock_label_20260902_074854`.
 
+## Pilot closing-stock full-flow correction (2026-09-02)
+
+- The pilot publisher previously computed previous-day stock as only
+  `max(produced - sold, 0)`. It did not query transfers or write-offs, so sent
+  and written-off product could remain in the displayed stock and reduce the
+  production plan incorrectly.
+- The installed publisher now deduplicates `fct_moves` by `(move_id, line_id)`
+  and `fct_write_offs` by `(write_off_doc_num, line_id)` using `argMax` over
+  `_updated_at`. Closing stock is calculated as
+  `max(produced + received - sent - sold - written_off, 0)` for the preceding
+  date. Positive sales with neither production nor receipts still render as
+  `нет данных по остатку` instead of a fabricated zero.
+- Controlled 2026-09-02 dry-run: 55 bakeries, 3,216 rows, forecast 48,496.1,
+  closing stock 33,448, production plan 26,117; one bakery / 52 rows remain
+  explicitly marked as unavailable. SKU concentration remains healthy: no
+  bakery has a top-SKU share at or above 20%.
+- The corrected workbook was published at 12:46 MSK: text message `8258485`,
+  file message `8258487`, chat file `1678283`.
+- Installed publisher SHA-256:
+  `9576467284351e49f124f03db7fab4dc18a232c3c8f0ddcfa2fa46727185ea19`.
+  Rollback backup:
+  `/opt/backups/pilot_forecast_stock_flow_full_20260902_manual`.
+- Remaining source limitation: there is no authoritative opening-inventory
+  snapshot in the publisher input. The corrected figure includes every
+  observable previous-day flow but cannot reconstruct stock carried into that
+  day from an earlier date. Do not describe it as a warehouse/accounting stock
+  snapshot until such a source is integrated.
+
 ## AUTHORITATIVE ACTIVE MODEL — READ THIS FIRST
 
 Production has switched from the legacy hourly/category SKU allocation to the
