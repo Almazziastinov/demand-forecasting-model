@@ -77,6 +77,11 @@ MISSING_KRATNOST_LABEL = "нет данных по кратности"
 MISSING_STOCK_LABEL = "нет данных по остатку"
 
 
+def _numeric_event_column(frame: pd.DataFrame, column: str) -> pd.Series:
+    values = frame[column] if column in frame.columns else pd.Series(0.0, index=frame.index)
+    return pd.to_numeric(values, errors="coerce").fillna(0.0)
+
+
 def _find_bakeries_with_unavailable_stock(stock_events: pd.DataFrame) -> set[int]:
     """Return bakeries where yesterday's closing stock cannot be reconstructed.
 
@@ -87,11 +92,33 @@ def _find_bakeries_with_unavailable_stock(stock_events: pd.DataFrame) -> set[int
     if stock_events.empty:
         return set()
     frame = stock_events.copy()
-    frame["qty_produced"] = pd.to_numeric(frame.get("qty_produced", 0), errors="coerce").fillna(0.0)
-    frame["qty_sold"] = pd.to_numeric(frame.get("qty_sold", 0), errors="coerce").fillna(0.0)
-    totals = frame.groupby("bakery_id", as_index=False)[["qty_produced", "qty_sold"]].sum()
-    missing = totals[(totals["qty_sold"] > 0) & (totals["qty_produced"] <= 0)]
+    frame["qty_produced"] = _numeric_event_column(frame, "qty_produced")
+    frame["qty_received"] = _numeric_event_column(frame, "qty_received")
+    frame["qty_sold"] = _numeric_event_column(frame, "qty_sold")
+    totals = frame.groupby("bakery_id", as_index=False)[["qty_produced", "qty_received", "qty_sold"]].sum()
+    missing = totals[(totals["qty_sold"] > 0) & ((totals["qty_produced"] + totals["qty_received"]) <= 0)]
     return {int(value) for value in missing["bakery_id"].tolist()}
+
+
+def _compute_closing_stock(stock_events: pd.DataFrame) -> pd.DataFrame:
+    """Compute previous-day closing stock from all observable inventory flows."""
+    frame = stock_events.copy()
+    for column in [
+        "qty_produced",
+        "qty_received",
+        "qty_sent",
+        "qty_sold",
+        "qty_written_off",
+    ]:
+        frame[column] = _numeric_event_column(frame, column)
+    frame["stock_balance"] = (
+        frame["qty_produced"]
+        + frame["qty_received"]
+        - frame["qty_sent"]
+        - frame["qty_sold"]
+        - frame["qty_written_off"]
+    ).clip(lower=0.0)
+    return frame
 
 
 def _load_env(env_file: str) -> None:
@@ -369,16 +396,92 @@ def _build_report(
         """,
         parameters={"previous_date": previous_date, "bids": pilot_bakery_ids},
     )
+    _fct_moves_yesterday = client.query_df(
+        """
+        select
+            bakery_id,
+            product_id,
+            sum(qty_received) as qty_received,
+            sum(qty_sent) as qty_sent
+        from (
+            select
+                toInt64OrZero(toString(receiver)) as bakery_id,
+                toInt64OrZero(toString(pid)) as product_id,
+                qty as qty_received,
+                0.0 as qty_sent
+            from (
+                select
+                    argMax(receiver_id, _updated_at) as receiver,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from Svezhar.fct_moves
+                where move_date = toDate(%(previous_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(receiver)) in %(bids)s
+
+            union all
+
+            select
+                toInt64OrZero(toString(sender)) as bakery_id,
+                toInt64OrZero(toString(pid)) as product_id,
+                0.0 as qty_received,
+                qty as qty_sent
+            from (
+                select
+                    argMax(sender_id, _updated_at) as sender,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from Svezhar.fct_moves
+                where move_date = toDate(%(previous_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(sender)) in %(bids)s
+        )
+        group by bakery_id, product_id
+        """,
+        parameters={"previous_date": previous_date, "bids": pilot_bakery_ids},
+    )
+    _fct_written_off_yesterday = client.query_df(
+        """
+        select
+            toInt64OrZero(toString(bid)) as bakery_id,
+            toInt64OrZero(toString(pid)) as product_id,
+            sum(qty) as qty_written_off
+        from (
+            select
+                argMax(bakery_id, _updated_at) as bid,
+                argMax(write_off_product_id, _updated_at) as pid,
+                toFloat64(argMax(write_off_qty, _updated_at)) as qty,
+                argMax(is_deleted, _updated_at) as deleted
+            from Svezhar.fct_write_offs
+            where write_off_date = toDate(%(previous_date)s)
+              and toInt64OrZero(toString(bakery_id)) in %(bids)s
+            group by write_off_doc_num, line_id
+            having deleted not in ('1', 'true', 'Да')
+        )
+        group by bakery_id, product_id
+        """,
+        parameters={"previous_date": previous_date, "bids": pilot_bakery_ids},
+    )
     _stock_cols = ["bakery_id", "product_id"]
     if _fct_sold_yesterday.empty or "bakery_id" not in _fct_sold_yesterday.columns:
         _fct_sold_yesterday = pd.DataFrame(columns=_stock_cols + ["qty_sold"])
     if _fct_produced_yesterday.empty or "bakery_id" not in _fct_produced_yesterday.columns:
         _fct_produced_yesterday = pd.DataFrame(columns=_stock_cols + ["qty_produced"])
+    if _fct_moves_yesterday.empty or "bakery_id" not in _fct_moves_yesterday.columns:
+        _fct_moves_yesterday = pd.DataFrame(columns=_stock_cols + ["qty_received", "qty_sent"])
+    if _fct_written_off_yesterday.empty or "bakery_id" not in _fct_written_off_yesterday.columns:
+        _fct_written_off_yesterday = pd.DataFrame(columns=_stock_cols + ["qty_written_off"])
     _stock_merged = _fct_produced_yesterday.merge(_fct_sold_yesterday, on=_stock_cols, how="outer")
-    _stock_merged["qty_produced"] = pd.to_numeric(_stock_merged.get("qty_produced", 0), errors="coerce").fillna(0.0)
-    _stock_merged["qty_sold"] = pd.to_numeric(_stock_merged.get("qty_sold", 0), errors="coerce").fillna(0.0)
+    _stock_merged = _stock_merged.merge(_fct_moves_yesterday, on=_stock_cols, how="outer")
+    _stock_merged = _stock_merged.merge(_fct_written_off_yesterday, on=_stock_cols, how="outer")
     unavailable_stock_bakeries = _find_bakeries_with_unavailable_stock(_stock_merged)
-    _stock_merged["stock_balance"] = (_stock_merged["qty_produced"] - _stock_merged["qty_sold"]).clip(lower=0.0)
+    _stock_merged = _compute_closing_stock(_stock_merged)
     stock_df = _stock_merged[_stock_merged["stock_balance"] > 0][_stock_cols + ["stock_balance"]]
     yesterday_stock: dict[tuple[int, int], float] = {}
     for row in stock_df.to_dict("records"):

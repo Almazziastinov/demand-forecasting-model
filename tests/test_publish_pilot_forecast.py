@@ -9,6 +9,7 @@ from scripts.publish_pilot_forecast import (
     PILOT_BAKERY_IDS,
     PRODUCT_NAME_OVERRIDES,
     _build_excel,
+    _compute_closing_stock,
     _enrich_forecast_product_metadata,
     _find_bakeries_with_unavailable_stock,
     _round_up_kratnost,
@@ -45,6 +46,26 @@ def test_sales_without_recorded_production_marks_stock_unavailable() -> None:
     )
 
     assert _find_bakeries_with_unavailable_stock(events) == {229}
+
+
+def test_closing_stock_includes_moves_and_writeoffs() -> None:
+    events = pd.DataFrame(
+        [
+            {
+                "bakery_id": 23,
+                "product_id": 1071,
+                "qty_produced": 100,
+                "qty_received": 10,
+                "qty_sent": 20,
+                "qty_sold": 60,
+                "qty_written_off": 5,
+            }
+        ]
+    )
+
+    result = _compute_closing_stock(events)
+
+    assert result.loc[0, "stock_balance"] == 25
 
 
 def test_missing_kratnost_keeps_sku_with_explicit_label() -> None:
