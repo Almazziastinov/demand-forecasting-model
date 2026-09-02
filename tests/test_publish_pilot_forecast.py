@@ -5,10 +5,12 @@ from openpyxl import load_workbook
 
 from scripts.publish_pilot_forecast import (
     MISSING_KRATNOST_LABEL,
+    MISSING_STOCK_LABEL,
     PILOT_BAKERY_IDS,
     PRODUCT_NAME_OVERRIDES,
     _build_excel,
     _enrich_forecast_product_metadata,
+    _find_bakeries_with_unavailable_stock,
     _round_up_kratnost,
     _production_plan_with_optional_kratnost,
 )
@@ -31,6 +33,18 @@ def test_round_up_kratnost_after_stock_subtraction() -> None:
 
 def test_stock_can_cover_full_forecast() -> None:
     assert _round_up_kratnost(max(5.0 - 7.0, 0.0), 10) == 0
+
+
+def test_sales_without_recorded_production_marks_stock_unavailable() -> None:
+    events = pd.DataFrame(
+        [
+            {"bakery_id": 229, "product_id": 1071, "qty_produced": 0, "qty_sold": 18},
+            {"bakery_id": 229, "product_id": 36, "qty_produced": 0, "qty_sold": 5},
+            {"bakery_id": 23, "product_id": 1071, "qty_produced": 30, "qty_sold": 20},
+        ]
+    )
+
+    assert _find_bakeries_with_unavailable_stock(events) == {229}
 
 
 def test_missing_kratnost_keeps_sku_with_explicit_label() -> None:
@@ -159,3 +173,24 @@ def test_excel_renders_missing_kratnost_as_text() -> None:
 
     assert sheet.cell(row=3, column=7).value == 16
     assert sheet.cell(row=3, column=9).value == "нет данных по кратности"
+
+
+def test_excel_renders_unavailable_stock_as_text() -> None:
+    rows = [
+        {
+            "bakery_id": 229,
+            "bakery_name": "Лукина 5 Чебоксары",
+            "category": "Выпечка сытная",
+            "product_name": "Треугольник курица безд",
+            "forecast": 12.0,
+            "yesterday_stock": MISSING_STOCK_LABEL,
+            "net_need": 12.0,
+            "production_plan": 20,
+            "total_for_sale": 20.0,
+            "kratnost": 20,
+        }
+    ]
+
+    workbook = load_workbook(BytesIO(_build_excel(rows, "2026-09-02")), data_only=True)
+
+    assert workbook["Прогноз"].cell(row=3, column=5).value == "нет данных по остатку"

@@ -1,6 +1,37 @@
 # Current Project State
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
+
+## Direct nightly freshness-guard incident and stock-data warning (2026-09-02)
+
+- The 2026-09-01 and first 2026-09-02 nightly attempts were stopped by the
+  legacy hourly SKU-profile freshness guard (`data_through=2026-08-23`,
+  `max_age_days=8`). Direct alpha=.25 does not use that profile for its daily
+  SKU allocation. Production now explicitly sets
+  `FORECAST_PROFILE_MAX_AGE_DAYS=-1`; the guard reports `status=disabled` while
+  the legacy source stage remains an inactive implementation input.
+- A manual recovery run completed successfully. The active run is
+  `prod_direct_alpha_025_20260902_h14`, sourced from
+  `prod_base_bakery_norm_recent_20260902_h14`, with history through 2026-09-01
+  and horizon 2026-09-02..2026-09-15. It contains 2,492 bakery-day, 150,192
+  SKU-day and 2,501,412 SKU-hour snapshot rows. `scripts.verify_prod_deploy`
+  returned `VERIFY OK`; `forecast-production.timer` remains enabled and active
+  for 03:30 UTC daily.
+- Rollback for the environment change is the production VM backup matching
+  `.env.bak_20260902_*_before_direct_profile_guard_bypass`.
+- The pilot workbook complaint for `Лукина 5 Чебоксары` was confirmed as an
+  upstream completeness problem, not a Direct-allocation defect. For
+  2026-09-01 the event source has 145 sales but zero recorded production and
+  zero transfers, so an exact closing stock cannot be reconstructed. The
+  publisher no longer displays a fabricated numeric zero when a bakery has
+  positive sales and no recorded production: it displays
+  `нет данных по остатку`, while production need is conservatively calculated
+  without subtracting an unknown stock value.
+- Publisher dry-run for 2026-09-02 retained 3,216 rows and marked all 56
+  `Лукина 5` rows with the explicit missing-stock label. Installed publisher
+  SHA-256: `870d504c4c5905dcdbbfbd2d23eff56057a3369f87ce0bd6e0c0c9ae2aac69c5`.
+  Rollback backup:
+  `/opt/backups/pilot_forecast_missing_stock_label_20260902_074854`.
 
 ## AUTHORITATIVE ACTIVE MODEL — READ THIS FIRST
 
@@ -42,6 +73,33 @@ Live verification on 2026-09-01 returned `VERIFY OK`; the production timer is
 enabled and active. Rollback is activation of the corresponding verified
 `prod_base_bakery_norm_recent_*` source run plus removal of the Direct systemd
 drop-in, only as described in the runbook.
+
+## Pilot management statistics refresh (2026-09-01)
+
+- The stale static report on Blackhole was replaced by an automated build and
+  publish job on the production forecast VM.
+- `pilot-management-report.timer` is enabled and active on `201.51.7.24`; it
+  runs daily at `05:00 UTC` (`08:00 MSK`), after the forecast writer and the
+  pilot workbook publisher. The timer is deliberately non-persistent so
+  enabling it after the scheduled time cannot trigger an unexpected catch-up.
+- `pilot-management-report.service` runs as `forecast`, builds the event-aware
+  pilot scope from `2026-07-23` through Moscow yesterday, requires complete
+  daily coverage, and refuses to publish an empty last-day scope.
+- Publication uses the VibeCode credential already required by the forecast
+  publisher. The Blackhole app remains read-only with respect to ClickHouse:
+  the VM builds the CSVs and atomically replaces
+  `/opt/reports/pilot_management_summary`, preserving the previous directory
+  in `/opt/backups` before the swap.
+- Manual end-to-end run on 2026-09-01 succeeded: report range
+  `2026-07-23..2026-08-31` (40 days), 55 bakeries on the last day,
+  `forecast_source=snapshot_fallback`. Blackhole report files were written at
+  `2026-09-01 09:11 UTC`; `app.service` and `/health` remained healthy.
+- Installed entry point:
+  `/opt/demand-forecasting-model/scripts/run_pilot_management_report_job.py`.
+- The first two installation smoke attempts failed before publication because
+  the VM still had the old fixed-38 builder. The event-aware report-only
+  builder modules were then synchronized; no forecast run or served report was
+  changed by those failed attempts.
 
 ## Baking SKU metadata template sync and no-silent-drop fallback (2026-09-01)
 

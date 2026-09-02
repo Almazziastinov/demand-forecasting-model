@@ -74,6 +74,24 @@ PRODUCT_NAME_OVERRIDES = {
 }
 
 MISSING_KRATNOST_LABEL = "нет данных по кратности"
+MISSING_STOCK_LABEL = "нет данных по остатку"
+
+
+def _find_bakeries_with_unavailable_stock(stock_events: pd.DataFrame) -> set[int]:
+    """Return bakeries where yesterday's closing stock cannot be reconstructed.
+
+    Positive sales with no recorded production is a valid operational pattern
+    when a bakery sells carried stock, but the event stream has no opening
+    inventory balance. Reporting a numeric zero in that case is misleading.
+    """
+    if stock_events.empty:
+        return set()
+    frame = stock_events.copy()
+    frame["qty_produced"] = pd.to_numeric(frame.get("qty_produced", 0), errors="coerce").fillna(0.0)
+    frame["qty_sold"] = pd.to_numeric(frame.get("qty_sold", 0), errors="coerce").fillna(0.0)
+    totals = frame.groupby("bakery_id", as_index=False)[["qty_produced", "qty_sold"]].sum()
+    missing = totals[(totals["qty_sold"] > 0) & (totals["qty_produced"] <= 0)]
+    return {int(value) for value in missing["bakery_id"].tolist()}
 
 
 def _load_env(env_file: str) -> None:
@@ -359,6 +377,7 @@ def _build_report(
     _stock_merged = _fct_produced_yesterday.merge(_fct_sold_yesterday, on=_stock_cols, how="outer")
     _stock_merged["qty_produced"] = pd.to_numeric(_stock_merged.get("qty_produced", 0), errors="coerce").fillna(0.0)
     _stock_merged["qty_sold"] = pd.to_numeric(_stock_merged.get("qty_sold", 0), errors="coerce").fillna(0.0)
+    unavailable_stock_bakeries = _find_bakeries_with_unavailable_stock(_stock_merged)
     _stock_merged["stock_balance"] = (_stock_merged["qty_produced"] - _stock_merged["qty_sold"]).clip(lower=0.0)
     stock_df = _stock_merged[_stock_merged["stock_balance"] > 0][_stock_cols + ["stock_balance"]]
     yesterday_stock: dict[tuple[int, int], float] = {}
@@ -772,6 +791,7 @@ def _build_report(
             (bid, pid_int),
             float(rec.get("forecast_qty") or 0),
         )
+        stock_is_unavailable = bid in unavailable_stock_bakeries
         stock_qty = yesterday_stock.get((bid, pid_int), 0.0)
         net_need = max(forecast_qty - stock_qty, 0.0)
         production_plan, kratnost_display = _production_plan_with_optional_kratnost(
@@ -788,7 +808,7 @@ def _build_report(
                 pid_int, str(rec.get("product_name") or "")
             ),
             "forecast": round(forecast_qty, 1),
-            "yesterday_stock": round(stock_qty, 1),
+            "yesterday_stock": MISSING_STOCK_LABEL if stock_is_unavailable else round(stock_qty, 1),
             "net_need": round(net_need, 1),
             "production_plan": production_plan,
             "total_for_sale": round(production_plan + stock_qty, 1),
@@ -803,6 +823,13 @@ def _build_report(
             "  WARNING: "
             f"{missing_kratnost_rows} forecast rows have no baking_sku_meta; "
             "kept with unit rounding"
+        )
+
+    if unavailable_stock_bakeries:
+        print(
+            "  WARNING: yesterday stock is unavailable for "
+            f"{len(unavailable_stock_bakeries)} bakeries with sales but no recorded production; "
+            f"rendered as '{MISSING_STOCK_LABEL}'"
         )
 
     rows.sort(key=lambda r: (r["bakery_id"], r["category"], r["product_name"]))

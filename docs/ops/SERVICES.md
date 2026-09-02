@@ -1,12 +1,13 @@
 # Services
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 
 ## Service Ownership Matrix
 
 | Service | Environment | Role | May write forecast runs? | Status |
 | --- | --- | --- | --- | --- |
 | Production forecast VM | `201.51.7.24` | Generates and publishes forecasts | Yes | Active |
+| Pilot management report job | Production forecast VM | Builds validated CSV statistics and publishes them atomically to Blackhole | No | Active; daily 05:00 UTC |
 | ClickHouse | External database | Serving tables and snapshots | N/A | Active |
 | VibeCode/Blackhole app | `bakery-forecast-embedded` | Embedded read-only API/UI | No | Active |
 | Baking plan package | In-process, mounted on Blackhole app | Generates per-bakery baking-window Excel plan | No | Active — MILP-based, deployed 2026-07-21 (HTTP 200 smoke-tested, see `CURRENT_STATE.md`) |
@@ -33,6 +34,23 @@ that successful post-process activates the served
 `prod_direct_alpha_025_YYYYMMDD_h14` run (`model_version=direct_alpha_025_v1`).
 The source run is an implementation input, not the current production model.
 See `CURRENT_STATE.md` for the authoritative model description and live run.
+
+For Direct production, `.env` sets `FORECAST_PROFILE_MAX_AGE_DAYS=-1`. This
+disables only the retired hourly SKU-profile age check; assortment freshness,
+dataset refresh, Direct post-processing, activation, and final verification
+remain required.
+
+### Pilot management report job
+
+- Timer: `pilot-management-report.timer`, daily at `05:00 UTC` (`08:00 MSK`).
+- Service: `pilot-management-report.service`, user/group `forecast`.
+- Entry point:
+  `/opt/demand-forecasting-model/scripts/run_pilot_management_report_job.py`.
+- Source interval: fixed pilot start `2026-07-23` through Moscow yesterday.
+- Destination: Blackhole `/opt/reports/pilot_management_summary`.
+- The job reads ClickHouse and publishes report files only. It does not create
+  or activate forecast runs. Deployment is validated and atomic, with a
+  pre-swap backup under `/opt/backups`.
 
 ## VibeCode / Blackhole
 

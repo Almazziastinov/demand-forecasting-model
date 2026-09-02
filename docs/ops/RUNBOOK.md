@@ -26,6 +26,40 @@ Do not identify `base_norm_recent` as the current model merely because it is
 shown in the refresh summary. It is the inactive bakery-volume/source stage;
 the active Direct run is the served forecast.
 
+## Check Pilot Management Statistics Refresh
+
+Run on the production VM:
+
+```bash
+systemctl status pilot-management-report.timer --no-pager -l
+systemctl status pilot-management-report.service --no-pager -l
+systemctl list-timers --all --no-pager | grep pilot-management-report
+journalctl -u pilot-management-report.service -n 120 --no-pager -o short-iso
+```
+
+Expected: the timer is enabled/active with the next trigger at `05:00 UTC`.
+The service is normally `inactive (dead)` after a successful oneshot and its
+last result is `status=0/SUCCESS`.
+
+Manual refresh:
+
+```bash
+systemctl start pilot-management-report.service
+journalctl -u pilot-management-report.service -n 80 --no-pager
+```
+
+The builder validates every date from `2026-07-23` through Moscow yesterday
+before upload. Blackhole repeats date validation before atomically replacing
+`/opt/reports/pilot_management_summary`; if validation or upload fails, the
+currently served report remains unchanged. A successful swap keeps a backup
+named `/opt/backups/pilot_management_summary_before_YYYYMMDD_HHMMSS`.
+
+To stop only statistics refresh without changing forecast generation:
+
+```bash
+systemctl disable --now pilot-management-report.timer
+```
+
 ## Activate A Known Good Run
 
 Use this only when the intended run id is known and verified:
@@ -54,6 +88,25 @@ systemctl status forecast-production.timer --no-pager -l
 systemctl status forecast-production.service --no-pager -l
 journalctl -u forecast-production.service -n 120 --no-pager -o short-iso
 ```
+
+For the active Direct alpha=.25 architecture, the inactive legacy SKU source
+stage must not block the nightly run on hourly-profile age. Verify the
+production environment contains:
+
+```bash
+grep '^FORECAST_PROFILE_MAX_AGE_DAYS=' .env
+```
+
+Expected: `FORECAST_PROFILE_MAX_AGE_DAYS=-1`. This setting is valid only while
+the served model is Direct and the legacy SKU allocation remains an inactive
+source-stage artifact. The assortment freshness and coverage guards remain
+enabled.
+
+If a pilot workbook shows `нет данных по остатку`, check the preceding day's
+production-event completeness before treating the value as zero. A bakery
+with positive sales and no recorded production has no reconstructable opening
+inventory in the current event model; the publisher intentionally avoids
+subtracting an invented stock value.
 
 ## Check Blackhole Timers
 
