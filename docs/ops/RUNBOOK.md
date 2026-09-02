@@ -1,6 +1,36 @@
 # Runbook
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
+
+## Recover From Incomplete Sales ETL
+
+Current emergency state is documented at the top of `CURRENT_STATE.md`.
+While sales facts are incomplete:
+
+- keep `forecast-production.timer` disabled/inactive;
+- serve `prod_direct_alpha_025_20260831_h14`;
+- keep `pilot-forecast-publish.timer` enabled/active;
+- keep the publisher service drop-in
+  `/etc/systemd/system/pilot-forecast-publish.service.d/emergency-etl.conf`,
+  which pins the run and disables stock subtraction.
+
+Before recovery, verify that each affected date has network-level bakery
+coverage, plausible check/quantity volume, and a last check near normal close
+of business. Verify the reported control case: bakery 1 / product 1071 / 1
+September must reconcile to the upstream source.
+
+After a complete backfill:
+
+1. Run one manual production forecast and verify the new Direct run.
+2. Run the pilot publisher with `--dry-run` and confirm numeric stock is based
+   on complete production, sales, move and write-off facts.
+3. Remove only `emergency-etl.conf`, run `systemctl daemon-reload`, and confirm
+   the publisher uses the newly verified active run.
+4. Enable and start `forecast-production.timer`, confirming its next trigger
+   is in the future.
+
+Do not restart the persistent pilot publisher timer during recovery; doing so
+after its scheduled slot can publish an unintended catch-up file.
 
 ## Verify Production State
 

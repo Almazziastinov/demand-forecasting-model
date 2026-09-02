@@ -2,6 +2,40 @@
 
 Last updated: 2026-09-02
 
+## SALES ETL EMERGENCY MODE — ACTIVE (2026-09-02)
+
+- `Svezhar.fct_check_lines` is incomplete. The deduplicated 2026-09-01 data
+  contains 74,505.5 units / 27,207 checks and stops at 11:34:38 MSK, versus
+  roughly 176k units for the previous three Tuesdays. No 2026-09-02 sales
+  rows were present at the incident check. The ETL process resumed writing at
+  08:25:35 MSK but continued replaying incomplete 2026-09-01 data rather than
+  advancing the business watermark.
+- The run generated from that incomplete day,
+  `prod_direct_alpha_025_20260902_h14`, is no longer served. The known-good
+  Direct run `prod_direct_alpha_025_20260831_h14` (history through 2026-08-30,
+  horizon through 2026-09-13) was reactivated for all forecast consumers.
+  Snapshot scope: 2,478 bakery-day, 149,526 SKU-day and 2,484,338 SKU-hour.
+- `forecast-production.timer` on the production VM is deliberately
+  **disabled/inactive** so incomplete facts cannot create or activate another
+  run. Do not re-enable it until 2026-09-01 and 2026-09-02 have been backfilled
+  and completeness checks pass.
+- Daily pilot files continue at 04:00 UTC. The publisher is pinned to
+  `prod_direct_alpha_025_20260831_h14` and sets
+  `PILOT_DISABLE_STOCK_SUBTRACTION=1`; every stock cell renders
+  `нет данных по остатку`, no stock is subtracted, and the chat text explicitly
+  identifies emergency mode.
+- Controlled 2026-09-03 dry-run: 55 bakeries, 3,213 rows, forecast 52,625.9,
+  production plan 62,014, and every stock cell marked unavailable. Publisher
+  SHA-256:
+  `dd257eb367b30380f523c7ba4ff5c87f9e1ff50f08e94372c325bb10df60f4f6`.
+  Rollback backup:
+  `/opt/backups/pilot_forecast_emergency_etl_20260902_142909`.
+- `scripts.verify_prod_deploy` confirms the reactivated run's active status,
+  model and snapshot counts, but exits non-zero on the expected bookkeeping
+  mismatch because the latest local refresh summary still names the rejected
+  2026-09-02 source run. Do not treat that summary as the served run during
+  this incident.
+
 ## Direct nightly freshness-guard incident and stock-data warning (2026-09-02)
 
 - The 2026-09-01 and first 2026-09-02 nightly attempts were stopped by the
@@ -68,8 +102,9 @@ Production has switched from the legacy hourly/category SKU allocation to the
 the default meaning of “current model” in future work.
 
 - Active `model_version`: `direct_alpha_025_v1`.
-- Active run verified on 2026-09-01:
-  `prod_direct_alpha_025_20260831_h14`, horizon 2026-08-31..2026-09-13.
+- Emergency active run:
+  `prod_direct_alpha_025_20260831_h14`, horizon 2026-08-31..2026-09-13. It was
+  reactivated on 2026-09-02 because the next run used incomplete sales facts.
 - Nightly run pattern: `prod_direct_alpha_025_YYYYMMDD_h14`.
 - The bakery-day LightGBM forecast remains the volume source. Direct then
   allocates each bakery-day total directly across mature SKUs. It does **not**

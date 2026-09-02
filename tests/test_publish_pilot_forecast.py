@@ -10,11 +10,20 @@ from scripts.publish_pilot_forecast import (
     PRODUCT_NAME_OVERRIDES,
     _build_excel,
     _compute_closing_stock,
+    _env_flag,
     _enrich_forecast_product_metadata,
     _find_bakeries_with_unavailable_stock,
     _round_up_kratnost,
     _production_plan_with_optional_kratnost,
 )
+
+
+def test_env_flag_parses_emergency_toggle(monkeypatch) -> None:
+    monkeypatch.setenv("PILOT_DISABLE_STOCK_SUBTRACTION", "true")
+    assert _env_flag("PILOT_DISABLE_STOCK_SUBTRACTION") is True
+
+    monkeypatch.setenv("PILOT_DISABLE_STOCK_SUBTRACTION", "0")
+    assert _env_flag("PILOT_DISABLE_STOCK_SUBTRACTION") is False
 
 
 def test_base_pilot_contains_ten_bakeries_without_kulagina() -> None:

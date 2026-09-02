@@ -6,7 +6,7 @@ Last updated: 2026-09-02
 
 | Service | Environment | Role | May write forecast runs? | Status |
 | --- | --- | --- | --- | --- |
-| Production forecast VM | `201.51.7.24` | Generates and publishes forecasts | Yes | Active |
+| Production forecast VM | `201.51.7.24` | Generates and publishes forecasts | Yes | Writer timer paused for sales ETL incident |
 | Pilot management report job | Production forecast VM | Builds validated CSV statistics and publishes them atomically to Blackhole | No | Active; daily 05:00 UTC |
 | ClickHouse | External database | Serving tables and snapshots | N/A | Active |
 | VibeCode/Blackhole app | `bakery-forecast-embedded` | Embedded read-only API/UI | No | Active |
@@ -34,6 +34,11 @@ that successful post-process activates the served
 `prod_direct_alpha_025_YYYYMMDD_h14` run (`model_version=direct_alpha_025_v1`).
 The source run is an implementation input, not the current production model.
 See `CURRENT_STATE.md` for the authoritative model description and live run.
+
+During the 2026-09-02 sales ETL incident, `forecast-production.timer` is
+disabled/inactive and the known-good `prod_direct_alpha_025_20260831_h14` run
+is served. The independent Blackhole pilot publisher remains enabled and
+publishes that pinned run daily without subtracting previous-day stock.
 
 For Direct production, `.env` sets `FORECAST_PROFILE_MAX_AGE_DAYS=-1`. This
 disables only the retired hourly SKU-profile age check; assortment freshness,

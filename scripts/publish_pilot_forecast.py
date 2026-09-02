@@ -131,6 +131,13 @@ def _load_env(env_file: str) -> None:
             os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _round_up_kratnost(value: float, kratnost: int) -> int:
     """Always round UP to the nearest kratnost multiple (same as MILP)."""
     if value <= 0 or kratnost <= 0:
@@ -242,6 +249,8 @@ def _build_report(
     sku_correction_registry: str | Path | None = None,
     enable_new_sku_cold_start: bool = True,
     forecast_override: str | Path | None = None,
+    forecast_run_id: str | None = None,
+    disable_stock_subtraction: bool = False,
 ) -> list[dict]:
     """Build daily pilot rows with previous-day stock and production plan."""
     from app.db import get_client
@@ -250,14 +259,22 @@ def _build_report(
     client = get_client()
     pilot_bakery_ids = _load_pilot_bakery_ids(client)
 
+    run_filter = "run_id = %(run_id)s" if forecast_run_id else "status = 'active'"
     run_df = client.query_df(
         f"select run_id, model_version from "
         f"{table_name('forecast_runs_embedded')} "
-        "where status = 'active' limit 1"
+        f"where {run_filter} limit 1",
+        parameters={"run_id": forecast_run_id} if forecast_run_id else None,
     )
     if run_df.empty:
+        if forecast_run_id:
+            raise RuntimeError(f"Forecast run not found: {forecast_run_id}")
         raise RuntimeError("No active forecast run")
     run_id = str(run_df.iloc[0]["run_id"])
+    print(
+        f"  INFO: forecast run {run_id}"
+        + (" (emergency override)" if forecast_run_id else " (active)")
+    )
     active_model_version = str(run_df.iloc[0].get("model_version") or "")
     direct_handles_cold_start = (
         active_model_version == "direct_alpha_025_v1"
@@ -490,6 +507,13 @@ def _build_report(
             yesterday_stock[key] = max(float(row.get("stock_balance") or 0), 0.0)
         except (TypeError, ValueError):
             continue
+    if disable_stock_subtraction:
+        unavailable_stock_bakeries = set(pilot_bakery_ids)
+        yesterday_stock = {}
+        print(
+            "  WARNING: emergency mode — previous-day stock subtraction is disabled; "
+            "all stock values will be marked unavailable"
+        )
 
     # SKU meta (kratnost) — base + bakery overrides
     # baking_sku_meta.product_id is zero-padded string ("000001234")
@@ -1118,6 +1142,8 @@ def _send_to_chat(file_bytes: bytes, filename: str, forecast_date: str) -> None:
 
     # Step 3: send short text message first via VibeCode
     msg_text = f"Прогноз — {d.strftime('%d.%m.%Y')} ({weekday_name})"
+    if _env_flag("PILOT_DISABLE_STOCK_SUBTRACTION"):
+        msg_text += "\nАварийный режим: остатки за предыдущий день не учтены из-за неполных данных ETL."
     msg_body = json.dumps({"message": msg_text}).encode("utf-8")
     req = urllib.request.Request(
         f"{VIBECODE_API_BASE}/chats/{PILOT_CHAT_DIALOG_ID}/messages",
@@ -1160,6 +1186,16 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Build Excel but do not send to Bitrix24")
     parser.add_argument("--out-dir", default="output/pilot_forecast")
     parser.add_argument(
+        "--forecast-run-id",
+        default=None,
+        help="Explicit forecast run to publish instead of the active run.",
+    )
+    parser.add_argument(
+        "--disable-stock-subtraction",
+        action="store_true",
+        help="Do not subtract previous-day stock and render it as unavailable.",
+    )
+    parser.add_argument(
         "--forecast-override",
         default=None,
         help="Optional read-only CSV replacement for forecast rows; intended for controlled dry-runs.",
@@ -1192,6 +1228,15 @@ def main() -> None:
         forecast_date,
         sku_correction_registry=registry_path,
         forecast_override=args.forecast_override,
+        forecast_run_id=(
+            args.forecast_run_id
+            or os.environ.get("PILOT_FORECAST_RUN_ID")
+            or None
+        ),
+        disable_stock_subtraction=(
+            args.disable_stock_subtraction
+            or _env_flag("PILOT_DISABLE_STOCK_SUBTRACTION")
+        ),
     )
     if not rows:
         print("No data found — aborting.")
