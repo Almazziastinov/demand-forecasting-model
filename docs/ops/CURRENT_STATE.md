@@ -32,6 +32,16 @@ Last updated: 2026-09-03
   of the check. This is expected before close of business and is not evidence
   of another ETL outage. Do not remove the stock guard on partial current-day
   data.
+- The corrected 2026-09-03 workbook was rebuilt from the recovered active run
+  with complete 2026-09-02 stock flows and republished. Final chat text message
+  `8268887`, file message `8268889`, disk file `1681315`; 55 bakeries, 3,246
+  SKU rows, forecast 59,270.6, observable closing stock 3,812 and production
+  plan 65,024. One bakery remains explicitly marked with unavailable stock.
+  The `Кратность` column was widened so the missing-multiple label is fully
+  visible. Installed publisher SHA-256:
+  `6065dcefd20129bdc9fb23b527095a8e51a4b1ab015b0717f2fa9ab7a054a372`;
+  rollback backup:
+  `/opt/backups/pilot_forecast_stock_flow_full_20260903_072548`.
 
 ## SALES ETL EMERGENCY MODE — INCIDENT HISTORY (2026-09-02)
 

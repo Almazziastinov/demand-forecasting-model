@@ -997,7 +997,7 @@ def _build_excel(rows: list[dict], forecast_date: str) -> bytes:
         "Итого на продажу",
         "Кратность",
     ]
-    col_widths = [35, 20, 40, 12, 24, 20, 16, 18, 12]
+    col_widths = [35, 20, 40, 12, 24, 20, 16, 18, 24]
 
     for col_idx, (h, w) in enumerate(zip(headers, col_widths), start=1):
         cell = ws.cell(row=2, column=col_idx, value=h)
