@@ -1,8 +1,39 @@
 # Current Project State
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
-## SALES ETL EMERGENCY MODE — ACTIVE (2026-09-02)
+## SALES ETL RECOVERED; STOCK GUARD TEMPORARILY RETAINED (2026-09-03)
+
+- The 2026-09-01 and 2026-09-02 fact backfill is complete. Deduplicated sales
+  are now 203,108.4 units / 78,039 checks / 176 bakeries for 1 September and
+  184,646.6 units / 75,196 checks / 176 bakeries for 2 September, with last
+  checks at 23:32 and 23:45. The bakery 1 / SKU 1071 control reconciles to the
+  upstream value of 77 units.
+- Production releases, transfers and write-offs for both dates have normal
+  network coverage and volume. The recovered 2 September flows are 147,105.2
+  produced units, 8,227.1 transferred units and 7,177.8 written-off units.
+- A manual full refresh built and activated
+  `prod_direct_alpha_025_20260903_h14`, sourced from
+  `prod_base_bakery_norm_recent_20260903_h14`, with history through 2026-09-02
+  and horizon 2026-09-03..2026-09-16. Snapshot scope: 2,478 bakery-day,
+  150,626 SKU-day and 2,507,620 SKU-hour. `scripts.verify_prod_deploy` returned
+  `VERIFY OK`.
+- `forecast-production.timer` is enabled/active again. Its persistent timer
+  stamp was advanced after the successful manual run to prevent a duplicate
+  same-day catch-up; next trigger is 2026-09-04 03:30 UTC.
+- The pilot publisher is no longer pinned to the 2026-08-31 fallback and will
+  consume the active Direct run. `PILOT_DISABLE_STOCK_SUBTRACTION=1` remains
+  temporarily set because a 2026-09-04 workbook depends on still-in-progress
+  2026-09-03 stock events. The daily 04:00 UTC publication remains active and
+  will therefore publish the fresh forecast conservatively without subtracting
+  stock until the completed 3 September flows are verified.
+- An early normal-mode dry-run for 2026-09-04 correctly selected the new run,
+  but 46 of 55 bakeries lacked complete same-day production inputs at the time
+  of the check. This is expected before close of business and is not evidence
+  of another ETL outage. Do not remove the stock guard on partial current-day
+  data.
+
+## SALES ETL EMERGENCY MODE — INCIDENT HISTORY (2026-09-02)
 
 - `Svezhar.fct_check_lines` is incomplete. The deduplicated 2026-09-01 data
   contains 74,505.5 units / 27,207 checks and stops at 11:34:38 MSK, versus
@@ -15,14 +46,13 @@ Last updated: 2026-09-02
   Direct run `prod_direct_alpha_025_20260831_h14` (history through 2026-08-30,
   horizon through 2026-09-13) was reactivated for all forecast consumers.
   Snapshot scope: 2,478 bakery-day, 149,526 SKU-day and 2,484,338 SKU-hour.
-- `forecast-production.timer` on the production VM is deliberately
-  **disabled/inactive** so incomplete facts cannot create or activate another
-  run. Do not re-enable it until 2026-09-01 and 2026-09-02 have been backfilled
-  and completeness checks pass.
-- Daily pilot files continue at 04:00 UTC. The publisher is pinned to
+- During the incident, `forecast-production.timer` on the production VM was
+  deliberately disabled/inactive so incomplete facts could not create or
+  activate another run. It was restored after the 2026-09-03 backfill checks.
+- During the incident, daily pilot files continued at 04:00 UTC. The publisher was pinned to
   `prod_direct_alpha_025_20260831_h14` and sets
   `PILOT_DISABLE_STOCK_SUBTRACTION=1`; every stock cell renders
-  `нет данных по остатку`, no stock is subtracted, and the chat text explicitly
+  `нет данных по остатку`, no stock was subtracted, and the chat text explicitly
   identifies emergency mode.
 - Controlled 2026-09-03 dry-run: 55 bakeries, 3,213 rows, forecast 52,625.9,
   production plan 62,014, and every stock cell marked unavailable. Publisher
@@ -102,9 +132,9 @@ Production has switched from the legacy hourly/category SKU allocation to the
 the default meaning of “current model” in future work.
 
 - Active `model_version`: `direct_alpha_025_v1`.
-- Emergency active run:
-  `prod_direct_alpha_025_20260831_h14`, horizon 2026-08-31..2026-09-13. It was
-  reactivated on 2026-09-02 because the next run used incomplete sales facts.
+- Active run after ETL recovery:
+  `prod_direct_alpha_025_20260903_h14`, horizon 2026-09-03..2026-09-16,
+  trained/refreshed through complete 2026-09-02 facts.
 - Nightly run pattern: `prod_direct_alpha_025_YYYYMMDD_h14`.
 - The bakery-day LightGBM forecast remains the volume source. Direct then
   allocates each bakery-day total directly across mature SKUs. It does **not**
