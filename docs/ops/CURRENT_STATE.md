@@ -1,7 +1,39 @@
 # Current Project State
 
-Last updated: 2026-09-03
+Last updated: 2026-09-21
 
+## Pilot chat publisher uses raw weighted-weekday demand plan (2026-09-21)
+
+- At the operator's request, the Blackhole daily pilot chat publisher was
+  switched from the active Direct forecast quantities to a raw weighted
+  same-weekday demand heuristic for the partner-facing Excel workbook. The
+  active ClickHouse forecast run remains Direct alpha=.25; no forecast run,
+  snapshot table, or forecast writer timer was changed.
+- The installed Blackhole script is
+  `/opt/scripts/publish_weighted_weekday_forecast.py`, with SHA-256
+  `f066a455793d29131b1ffa7f232df2be6d87374e36e866e5038af491cdb627e4`.
+  `pilot-forecast-publish.service` has a systemd drop-in
+  `/etc/systemd/system/pilot-forecast-publish.service.d/weighted-weekday.conf`
+  overriding `ExecStart` to call this script.
+- The script uses the active run only as the current publishable
+  bakery/SKU assortment for the requested date, then sets each SKU forecast to
+  the weighted average of restored demand from previous same weekdays for the
+  same bakery and SKU. It deliberately does not apply the prior
+  bakery-total/network normalization layer.
+- Blackhole dry-run for 2026-09-22 completed successfully: active assortment
+  source `prod_direct_alpha_025_20260921_h14`, 4,049 override rows, 3,896
+  publisher rows, forecast total `59,140.0`, production-plan total `63,539.0`.
+- Rollback backups:
+  `/opt/backups/weighted_weekday_publisher_20260921_162244` for the installed
+  script step and
+  `/opt/backups/weighted_weekday_service_dropin_20260921_162337` for the
+  service drop-in. To rollback, remove the weighted-weekday drop-in, run
+  `systemctl daemon-reload`, and verify `systemctl cat
+  pilot-forecast-publish.service` points back to
+  `/opt/scripts/publish_pilot_forecast.py`.
+- `pilot-forecast-publish.timer` remains enabled/active for 04:00 UTC.
+  Forbidden Blackhole forecast-writer timers remain disabled/inactive:
+  `forecast-production.timer` and `bakery-forecast-nightly.timer`.
 ## SALES ETL RECOVERED; STOCK GUARD TEMPORARILY RETAINED (2026-09-03)
 
 - The 2026-09-01 and 2026-09-02 fact backfill is complete. Deduplicated sales
