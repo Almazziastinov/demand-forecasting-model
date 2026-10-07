@@ -141,6 +141,22 @@ def test_inventory_equation_mismatch_is_explicit() -> None:
     assert not row.eligible_lost_demand
 
 
+def test_available_balance_is_floored_when_sent_exceeds_local_supply() -> None:
+    row = build_performance_rows(
+        [
+            record(
+                produced_qty=2,
+                received_qty=1,
+                sent_qty=5,
+                available_to_sell_qty=0,
+            )
+        ],
+        contract=CONTRACT,
+    )[0]
+
+    assert DataQualityFlag.AVAILABLE_BALANCE_MISMATCH not in row.dq_flags
+
+
 def test_duplicate_and_invalid_business_keys_are_rejected() -> None:
     with pytest.raises(ValueError, match="duplicate"):
         build_performance_rows([record(), record()], contract=CONTRACT)

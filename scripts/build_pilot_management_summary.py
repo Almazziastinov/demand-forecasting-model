@@ -51,6 +51,10 @@ SCOPE_CATEGORIES = (
     "Выпечка сытная",
     "Выпечка сладкая",
     "Фастфуд",
+    "Хлеб",
+    "Пирожные",
+    "Маффин Печенье Донатс",
+    "Торты Рулеты",
 )
 SCOPE_VERSION = "pilot_38_v1"
 DYNAMIC_SCOPE_VERSION = "expanded_pilot_38_events_v1"
@@ -366,7 +370,9 @@ def build_detail(
     for run_id, run_group in merged.groupby("source_run_id"):
         inputs = []
         for row in run_group.itertuples(index=False):
-            available = float(row.qty_produced)
+            received = float(row.qty_received)
+            sent = float(row.qty_sent)
+            available = max(float(row.qty_produced) + received - sent, 0.0)
             inputs.append(
                 PerformanceInput(
                     business_date=row.date,
@@ -392,11 +398,11 @@ def build_detail(
                     if pd.notna(row.last_sale_time)
                     else None,
                     opening_stock_qty=0.0,
-                    received_qty=0.0,
-                    sent_qty=0.0,
+                    received_qty=received,
+                    sent_qty=sent,
                     transfers_complete=True,
                     available_to_sell_qty=available,
-                    available_to_sell_basis="fct_tables_v1",
+                    available_to_sell_basis="observable_flows_v2",
                 )
             )
         contract = PerformanceContract(
@@ -1482,10 +1488,27 @@ def extract_clickhouse(
         from Svezhar.sku_forecast_day_snapshots
         where forecast_date between %(date_from)s and %(date_to)s
           {bakery_filter}
-          and category_name in %(categories)s
         """,
         parameters=params,
     )
+    # Direct snapshots created during the 2026-08-31 rollout contain mojibake
+    # in their denormalized names.  Scope and labels must therefore come from
+    # the authoritative product dimension, not from snapshot display text.
+    _fct_names = client.query_df(
+        """
+        select
+            toInt64OrZero(toString(product_id)) as product_id,
+            argMax(product_name, _updated_at) as product_name,
+            argMax(category_name, _updated_at) as fact_category_name
+        from Svezhar.dim_products
+        group by product_id
+        having fact_category_name in %(categories)s
+        """,
+        parameters=params,
+    )
+    if not _fct_names.empty:
+        pilot_product_ids = set(_fct_names["product_id"].dropna().astype(int))
+        forecast = forecast[forecast["product_id"].isin(pilot_product_ids)].copy()
     # mart_zero_sales_60d ETL stopped updating ~2026-08-10; use fct tables instead.
     # sold: fct_check_lines with DISTINCT dedup (matches nightly pipeline)
     _fct_sold = client.query_df(
@@ -1514,6 +1537,16 @@ def extract_clickhouse(
         if bakery_ids is not None
         else ""
     )
+    _move_receiver_filter = (
+        "where toInt64OrZero(toString(receiver)) in %(bakery_ids)s"
+        if bakery_ids is not None
+        else ""
+    )
+    _move_sender_filter = (
+        "where toInt64OrZero(toString(sender)) in %(bakery_ids)s"
+        if bakery_ids is not None
+        else ""
+    )
     _fct_produced = client.query_df(
         f"""
         select
@@ -1538,28 +1571,112 @@ def extract_clickhouse(
         """,
         parameters=params,
     )
-    # product_name / fact_category_name from forecast snapshots (mart had these denormalized)
-    _fct_names = client.query_df(
-        """
+    # Transfers: fct_moves with argMax(_updated_at) dedup per (move_id, line_id).
+    # A pilot bakery can occur on either side of the same move, so incoming and
+    # outgoing quantities are normalized into one bakery/product/day frame.
+    _fct_moves = client.query_df(
+        f"""
         select
-            toInt64(product_id) as product_id,
-            any(product_name)   as product_name,
-            any(category_name)  as fact_category_name
-        from Svezhar.sku_forecast_day_snapshots
-        where forecast_date between %(date_from)s and %(date_to)s
-          and category_name in %(categories)s
-        group by product_id
+            date,
+            bakery_id,
+            product_id,
+            sum(qty_received) as qty_received,
+            sum(qty_sent) as qty_sent
+        from (
+            select
+                move_day as date,
+                toInt64OrZero(toString(receiver)) as bakery_id,
+                toInt64OrZero(toString(pid)) as product_id,
+                qty as qty_received,
+                0.0 as qty_sent
+            from (
+                select
+                    argMax(move_date, _updated_at) as move_day,
+                    argMax(receiver_id, _updated_at) as receiver,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from Svezhar.fct_moves
+                where move_date between %(date_from)s and %(date_to)s
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            {_move_receiver_filter}
+
+            union all
+
+            select
+                move_day as date,
+                toInt64OrZero(toString(sender)) as bakery_id,
+                toInt64OrZero(toString(pid)) as product_id,
+                0.0 as qty_received,
+                qty as qty_sent
+            from (
+                select
+                    argMax(move_date, _updated_at) as move_day,
+                    argMax(sender_id, _updated_at) as sender,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from Svezhar.fct_moves
+                where move_date between %(date_from)s and %(date_to)s
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            {_move_sender_filter}
+        )
+        group by date, bakery_id, product_id
         """,
         parameters=params,
     )
-    # Merge sold + produced; compute stock_balance as closing fresh stock (produced - sold, ≥ 0)
+    # Write-offs use the latest state of each document line.
+    _fct_written_off = client.query_df(
+        f"""
+        select
+            toDate(write_off_day) as date,
+            toInt64OrZero(toString(bid)) as bakery_id,
+            toInt64OrZero(toString(pid)) as product_id,
+            sum(qty) as qty_written_off
+        from (
+            select
+                argMax(write_off_date, _updated_at) as write_off_day,
+                argMax(bakery_id, _updated_at) as bid,
+                argMax(write_off_product_id, _updated_at) as pid,
+                toFloat64(argMax(write_off_qty, _updated_at)) as qty,
+                argMax(is_deleted, _updated_at) as deleted
+            from Svezhar.fct_write_offs
+            where write_off_date between %(date_from)s and %(date_to)s
+              {_fct_bakery_filter}
+            group by write_off_doc_num, line_id
+            having deleted not in ('1', 'true', 'Да')
+        )
+        group by date, bakery_id, product_id
+        """,
+        parameters=params,
+    )
+    # Observable closing balance.  No authoritative opening-inventory snapshot
+    # exists, so this deliberately matches the downstream publisher contract.
     _merge_keys = ["date", "bakery_id", "product_id"]
     facts = _fct_sold.merge(_fct_produced, on=_merge_keys, how="outer")
-    facts["qty_sold"] = pd.to_numeric(facts.get("qty_sold", 0), errors="coerce").fillna(0.0)
-    facts["qty_produced"] = pd.to_numeric(facts.get("qty_produced", 0), errors="coerce").fillna(0.0)
-    facts["stock_balance"] = (facts["qty_produced"] - facts["qty_sold"]).clip(lower=0.0)
-    facts["qty_received"] = 0.0
-    facts["qty_sent"] = 0.0
+    facts = facts.merge(_fct_moves, on=_merge_keys, how="outer")
+    facts = facts.merge(_fct_written_off, on=_merge_keys, how="outer")
+    for column in (
+        "qty_sold",
+        "qty_produced",
+        "qty_received",
+        "qty_sent",
+        "qty_written_off",
+    ):
+        facts[column] = pd.to_numeric(
+            facts.get(column, 0.0), errors="coerce"
+        ).fillna(0.0)
+    facts["stock_balance"] = (
+        facts["qty_produced"]
+        + facts["qty_received"]
+        - facts["qty_sent"]
+        - facts["qty_sold"]
+        - facts["qty_written_off"]
+    ).clip(lower=0.0)
     facts = facts.merge(_fct_names, on="product_id", how="left")
     # Filter to pilot categories (fct tables have no category column; use product_id allowlist)
     if not _fct_names.empty:

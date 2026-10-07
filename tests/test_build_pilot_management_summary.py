@@ -119,6 +119,21 @@ def test_build_detail_uses_selected_scope_version() -> None:
     assert set(detail["scope_version"]) == {"expanded_pilot_38_events_v1"}
 
 
+def test_build_detail_uses_actual_transfers_in_available_balance() -> None:
+    fact_frame = facts()
+    fact_frame.loc[fact_frame["product_id"].eq(1), "qty_received"] = 4.0
+    fact_frame.loc[fact_frame["product_id"].eq(1), "qty_sent"] = 1.0
+
+    detail, _ = build_detail(forecasts(), fact_frame, scope_bakery_ids=(20,))
+
+    row = detail[detail["product_id"].eq(1)].iloc[0]
+    assert row["received_qty"] == pytest.approx(4.0)
+    assert row["sent_qty"] == pytest.approx(1.0)
+    assert row["available_to_sell_qty"] == pytest.approx(13.0)
+    assert row["available_to_sell_basis"] == "observable_flows_v2"
+    assert "available_balance_mismatch" not in str(row["dq_flags"])
+
+
 def test_tied_latest_runs_are_excluded() -> None:
     frame = forecasts().iloc[[1, 2]].copy()
     frame.loc[frame.index[1], "source_run_id"] = "other"

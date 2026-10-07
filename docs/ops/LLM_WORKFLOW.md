@@ -1,6 +1,6 @@
 # LLM Workflow
 
-Last updated: 2026-09-01
+Last updated: 2026-09-28
 
 These rules are for Codex, Claude, and other code agents working in this repo.
 
@@ -15,11 +15,14 @@ Before changing code or production state:
 5. If the task touches production, verify live state before acting.
 
 Unless live verification records an explicit rollback, “current model” means
-Direct alpha=.25 (`model_version=direct_alpha_025_v1`, active run pattern
-`prod_direct_alpha_025_YYYYMMDD_h14`). `base_norm_recent` is the inactive
-bakery-volume/source stage and must not be presented as the current SKU
-allocation model. Keep forecast allocation separate from downstream stock and
-kratnost-based production-plan conversion in analysis and reporting.
+weighted weekday calculated demand (`model_version=weighted_weekday_calculated_demand_v1`,
+active run pattern `prod_weighted_weekday_YYYYMMDD_h14`). `base_norm_recent`
+is the inactive bakery-volume/scope source and must not be presented as the
+current served model. Direct alpha=.25 may remain in ClickHouse as draft or
+archived historical runs, but it is not the active production model while the
+weighted-weekday service drop-in is effective. Keep forecast allocation
+separate from downstream stock and kratnost-based production-plan conversion
+in analysis and reporting.
 
 ## Treat Handoffs As History
 

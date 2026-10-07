@@ -108,8 +108,17 @@ def build_bakery_share_reference(
         .mean()
         .rename(columns={"sku_share": "mean_share_product"})
     )
-    reference = primary.merge(hour_fallback, on=[*KEYS, "hour"], how="left")
+    # Materialize every weekday/hour slot for each bakery/SKU pair before
+    # attaching fallbacks.  Merging the fallbacks onto ``primary`` directly
+    # cannot recover a weekday that has no clean reference rows at all.
+    pairs = work[KEYS].drop_duplicates()
+    hours = work[["hour"]].drop_duplicates()
+    weekdays = pd.DataFrame({"dow": range(7)})
+    reference = pairs.merge(weekdays, how="cross").merge(hours, how="cross")
+    reference = reference.merge(primary, on=PROFILE_KEYS, how="left")
+    reference = reference.merge(hour_fallback, on=[*KEYS, "hour"], how="left")
     reference = reference.merge(product_fallback, on=KEYS, how="left")
+    reference["reference_days"] = reference["reference_days"].fillna(0).astype(int)
     reference["mean_sku_share"] = np.where(
         reference["reference_days"] >= min_days,
         reference["mean_share_primary"],

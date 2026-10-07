@@ -2,8 +2,10 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import logging
+import os
 from datetime import date as date_type
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -14,10 +16,19 @@ from app.auth import AuthContext, get_auth_context
 from app.services import bakery as bakery_service
 from app.services import runs as run_service
 from app.settings import get_settings
+from src.partner_forecast_economics_service import PartnerForecastEconomicsService
 
 router = APIRouter(tags=["ui"])
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+partner_economics_service = PartnerForecastEconomicsService(
+    os.getenv(
+        "PARTNER_ECONOMICS_REPORT_DIR",
+        str(_REPO_ROOT / "reports" / "partner_forecast_economics_3w_dev"),
+    )
+)
 
 WEEKDAYS_RU = {
     0: "Понедельник",
@@ -305,10 +316,15 @@ def index(
             day_key = str(row.get("forecast_date", ""))[:10]
             if day_key in cat_totals:
                 row["forecast_final"] = cat_totals[day_key]["forecast_final"]
+                row["production_qty"] = cat_totals[day_key].get("production_qty")
                 row["actual_qty"] = cat_totals[day_key]["actual_qty"]
                 row["actual_revenue"] = cat_totals[day_key]["actual_revenue"]
     week_rows = _prepare_week_rows(raw_week_rows, week)
     weekly = bakery_service.get_weekly_analytics(selected_bakery_id, auth, weeks=4)[-3:] if selected_bakery_id else []
+    partner_economics = partner_economics_service.get_bakery_summary(
+        selected_bakery_id,
+        valid_group,
+    )
 
     logger.warning(
         "embedded index request_id=%s user_id=%s email=%s portal_id=%s role=%s is_admin=%s week_start=%s bakeries=%s selected_bakery_id=%s",
@@ -336,6 +352,7 @@ def index(
             "category_group": valid_group,
             "category_groups": bakery_service.CATEGORY_GROUPS,
             "weekly": weekly,
+            "partner_economics": partner_economics,
         },
     )
 

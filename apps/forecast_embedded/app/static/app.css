@@ -399,6 +399,11 @@ a {
   background: var(--blue);
 }
 
+.legend-dot.production,
+.bar.production {
+  background: #f59e0b;
+}
+
 .week-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(190px, 1fr));
@@ -861,7 +866,7 @@ a {
 
 .sku-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 110px 120px;
+  grid-template-columns: minmax(220px, 1fr) 110px 110px 110px;
   gap: 12px;
   align-items: center;
   min-height: 54px;

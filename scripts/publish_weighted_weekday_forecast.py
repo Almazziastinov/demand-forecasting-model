@@ -1,9 +1,9 @@
 """Generate and publish the daily pilot workbook using raw weighted weekday demand.
 
 This publisher is intentionally read-only with respect to ClickHouse forecast
-runs.  It uses the active run only as the current publishable bakery/SKU
-assortment, then replaces the SKU forecast quantity with a weighted average of
-restored demand from previous same-weekday observations.
+runs. It uses the current bakery/SKU assortment table as the publishable scope,
+then sets the SKU forecast quantity to a weighted average of restored demand
+from previous same-weekday observations.
 """
 
 from __future__ import annotations
@@ -32,20 +32,24 @@ sys.path.insert(0, str(ROOT / "apps" / "forecast_embedded"))
 
 from app.db import get_client  # noqa: E402
 from app.table_names import table_name  # noqa: E402
+from scripts.purchased_product_metadata import (  # noqa: E402
+    MISSING_KRATNOST_LABEL,
+    MISSING_SHELF_LIFE_LABEL,
+    PURCHASED_CATEGORIES,
+    get_purchased_product_metadata,
+)
 
 
 WEIGHTS = [1.0, 1.15, 1.35, 1.65, 2.0]
-PUBLISHABLE_PATTERN = "пирог|выпеч|фастфуд|хлеб"
+PUBLISHABLE_PATTERN = "пирог|выпеч|фастфуд|хлеб|пирожн|маффин|печенье|донат|торт|рулет"
 WEEKDAY_RU = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 BAKEABLE_CATEGORIES = {"Пироги сытные", "Пироги сладкие", "Выпечка сытная", "Выпечка сладкая", "Фастфуд"}
-PURCHASED_BREAD_CATEGORIES = {"Хлеб"}
-PUBLISHABLE_CATEGORIES = BAKEABLE_CATEGORIES | PURCHASED_BREAD_CATEGORIES
+PUBLISHABLE_CATEGORIES = BAKEABLE_CATEGORIES | PURCHASED_CATEGORIES
 PRODUCT_NAME_OVERRIDES = {
     11615: "Плетенка кленовая",
     11616: "Плетенка с черникой",
     11617: "Плетенка с земляникой",
 }
-MISSING_KRATNOST_LABEL = "нет данных по кратности"
 MISSING_STOCK_LABEL = "нет данных по остатку"
 _PILOT_SCOPE_NAME = "expanded_pilot_38"
 _SEED_PILOT_IDS = [
@@ -128,28 +132,45 @@ def fetch_active_scope(client, forecast_date: str, pilot_bakery_ids: list[int]) 
         raise RuntimeError("No active forecast run")
     run_id = str(run_df.iloc[0]["run_id"])
     scope = client.query_df(
-        f"""
+        """
+        with latest as (
+            select toInt64(bakery_id) as bakery_id, max(valid_from) as latest_valid_from
+            from Svezhar.bakery_product_assortment_embedded final
+            where valid_from <= toDate(%(forecast_date)s)
+              and toInt64(bakery_id) in %(bids)s
+            group by bakery_id
+        ),
+        products as (
+            select
+                toInt64OrZero(toString(product_id)) as product_id,
+                argMax(product_name, _updated_at) as product_name,
+                argMax(category_name, _updated_at) as category_name
+            from Svezhar.dim_products
+            group by product_id
+        )
         select
-            toInt64(bakery_id) as bakery_id,
-            toInt64(product_id) as product_id,
-            any(product_name) as product_name,
-            any(category_name) as category_name,
-            sum(forecast_qty) as active_forecast_qty
-        from {table_name('sku_forecast_day_embedded')}
-        where run_id = %(run_id)s
-          and forecast_date = toDate(%(forecast_date)s)
-          and toInt64(bakery_id) in %(bids)s
+            toInt64(a.bakery_id) as bakery_id,
+            toInt64OrZero(toString(a.product_id)) as product_id,
+            any(p.product_name) as product_name,
+            any(p.category_name) as category_name,
+            0.0 as active_forecast_qty
+        from Svezhar.bakery_product_assortment_embedded as a final
+        inner join latest l
+          on toInt64(a.bakery_id) = l.bakery_id
+         and a.valid_from = l.latest_valid_from
+        inner join products p
+          on p.product_id = toInt64OrZero(toString(a.product_id))
         group by bakery_id, product_id
         """,
-        parameters={"run_id": run_id, "forecast_date": forecast_date, "bids": pilot_bakery_ids},
+        parameters={"forecast_date": forecast_date, "bids": pilot_bakery_ids},
     )
     if scope.empty:
-        raise RuntimeError(f"No active SKU forecast rows for {forecast_date}, run={run_id}")
+        raise RuntimeError(f"No publishable assortment rows for {forecast_date}, active_run={run_id}")
     scope["category_name"] = scope["category_name"].fillna("")
     scope = scope[scope["category_name"].str.lower().str.contains(PUBLISHABLE_PATTERN, regex=True, na=False)].copy()
     if scope.empty:
-        raise RuntimeError(f"No publishable active SKU forecast rows for {forecast_date}, run={run_id}")
-    return run_id, scope
+        raise RuntimeError(f"No publishable assortment rows after category filter for {forecast_date}, active_run={run_id}")
+    return f"assortment_table; active_run={run_id}", scope
 
 
 def fetch_history_demand(client, history_dates: list[str], pilot_bakery_ids: list[int]) -> pd.DataFrame:
@@ -488,10 +509,11 @@ def build_rows(client, forecast_date: str, forecast: pd.DataFrame, pilot_bakery_
         if category not in PUBLISHABLE_CATEGORIES or pid in frozen_pids:
             continue
         forecast_qty = max(float(rec.get("forecast_qty") or 0.0), 0.0)
-        if category in PURCHASED_BREAD_CATEGORIES:
+        metadata = get_purchased_product_metadata(rec.get("product_name"))
+        if category in PURCHASED_CATEGORIES:
             stock_qty = 0.0
-            stock_unavailable = False
-            kratnost: int | None = 1
+            stock_unavailable = metadata.shelf_life is None and category != "Хлеб"
+            kratnost: int | None = metadata.kratnost
         else:
             stock_qty = max(stock_lookup.get((bid, pid), 0.0), 0.0)
             stock_unavailable = bid in unavailable
@@ -505,7 +527,13 @@ def build_rows(client, forecast_date: str, forecast: pd.DataFrame, pilot_bakery_
                 "category": category,
                 "product_name": PRODUCT_NAME_OVERRIDES.get(pid, str(rec.get("product_name") or "")),
                 "forecast": round(forecast_qty, 1),
-                "yesterday_stock": MISSING_STOCK_LABEL if stock_unavailable else round(stock_qty, 1),
+                "yesterday_stock": (
+                    MISSING_SHELF_LIFE_LABEL
+                    if category in PURCHASED_CATEGORIES and stock_unavailable
+                    else MISSING_STOCK_LABEL
+                    if stock_unavailable
+                    else round(stock_qty, 1)
+                ),
                 "net_need": round(net_need, 1),
                 "production_plan": production_plan,
                 "total_for_sale": round(production_plan + stock_qty, 1),

@@ -130,10 +130,11 @@ class PilotManagementService:
         if product_id is not None and "product_id" in df.columns:
             df = df[df["product_id"] == int(product_id)]
         if (date_from or date_to) and "business_date" in df.columns:
-            dates = pd.to_datetime(df["business_date"], errors="coerce")
             if date_from:
+                dates = pd.to_datetime(df["business_date"], errors="coerce")
                 df = df[dates >= pd.Timestamp(date_from)]
             if date_to:
+                dates = pd.to_datetime(df["business_date"], errors="coerce")
                 df = df[dates <= pd.Timestamp(date_to)]
         return df
 
@@ -210,9 +211,13 @@ class PilotManagementService:
     def _kpi_block(self, df: pd.DataFrame) -> dict:
         """Compute 3-value KPI block: Plan AI / Production / Sales + derived metrics.
 
-        Plan AI  = issued_total_for_sale (kratnost-adjusted baking plan)
+        Plan AI  = forecast_qty (raw model forecast, before stock and kratnost)
         Produced = produced_qty (actual baked)
-        Sold     = sold_qty (actual sold)
+        Sold     = sold_qty (actual checkout sales)
+
+        Every KPI in this block uses the same raw forecast denominator. The
+        downstream stock subtraction and kratnost rounding are production-plan
+        mechanics and must not change the model KPI shown to partners.
         """
         out: dict = {
             "plan_qty": None,
@@ -226,47 +231,48 @@ class PilotManagementService:
         if df.empty:
             return out
 
-        has_issued = (
-            "issued_total_for_sale" in df.columns
-            and df["issued_total_for_sale"].notna().any()
-        )
-        if not has_issued or "eligible_forecast_summary" not in df.columns or "produced_qty" not in df.columns:
+        if (
+            "forecast_qty" not in df.columns
+            or not df["forecast_qty"].notna().any()
+            or "eligible_forecast_summary" not in df.columns
+            or "produced_qty" not in df.columns
+        ):
             return out
 
-        krat = df[
-            df["issued_total_for_sale"].notna()
+        comparable = df[
+            df["forecast_qty"].notna()
             & df["eligible_forecast_summary"].astype(bool)
             & df["produced_qty"].notna()
         ]
-        if not krat.empty:
-            plan = float(krat["issued_total_for_sale"].sum())
-            produced = float(krat["produced_qty"].sum())
-            # Total sold = fresh produced + yesterday stock - unsold closing stock
-            # (sold_qty covers only same-day fresh sales; this includes discounted carryover)
-            ys = krat["issued_yesterday_stock"].fillna(0) if "issued_yesterday_stock" in krat.columns else 0
-            cs = krat["closing_stock_qty"].fillna(0) if "closing_stock_qty" in krat.columns else 0
-            sold = float((krat["produced_qty"] + ys - cs).clip(lower=0).sum())
-            out["plan_qty"] = plan
+        if not comparable.empty:
+            forecast = float(comparable["forecast_qty"].sum())
+            produced = float(comparable["produced_qty"].sum())
+            sold = float(comparable["sold_qty"].clip(lower=0).sum())
+            out["plan_qty"] = forecast
             out["produced_qty"] = produced
             out["sold_qty"] = sold
-            out["execution_rate"] = produced / plan if plan > 0 else None
-            out["sellthrough_rate"] = sold / plan if plan > 0 else None
+            out["execution_rate"] = (
+                produced / forecast if forecast > 0 else None
+            )
+            out["sellthrough_rate"] = (
+                sold / forecast if forecast > 0 else None
+            )
 
-        krat_elig = df[
-            df["issued_total_for_sale"].notna()
+        forecast_eligible = df[
+            df["forecast_qty"].notna()
             & df["eligible_forecast_summary"].astype(bool)
         ]
         if (
-            "eligible_lost_demand" in krat_elig.columns
-            and "lost_demand_recognized_qty" in krat_elig.columns
-            and "sold_qty" in krat_elig.columns
+            "eligible_lost_demand" in forecast_eligible.columns
+            and "lost_demand_recognized_qty" in forecast_eligible.columns
+            and "sold_qty" in forecast_eligible.columns
         ):
-            ld = krat_elig[
-                krat_elig["eligible_lost_demand"].astype(bool)
-                & (krat_elig["issued_total_for_sale"] > krat_elig["sold_qty"])
+            ld = forecast_eligible[
+                forecast_eligible["eligible_lost_demand"].astype(bool)
+                & (forecast_eligible["forecast_qty"] > forecast_eligible["sold_qty"])
             ]
             if not ld.empty:
-                capped = (ld["issued_total_for_sale"] - ld["sold_qty"]).clip(
+                capped = (ld["forecast_qty"] - ld["sold_qty"]).clip(
                     upper=ld["lost_demand_recognized_qty"]
                 )
                 out["recognized_lost_qty"] = float(capped.sum())
@@ -344,6 +350,13 @@ class PilotManagementService:
         kpi: dict = company_kpi.iloc[0].to_dict() if not company_kpi.empty else {}
 
         week_kpi = self._load("week_kpi")
+        if not week_kpi.empty and "week_start" in week_kpi.columns and (date_from or date_to):
+            week_start = pd.to_datetime(week_kpi["week_start"], errors="coerce")
+            if date_from:
+                week_kpi = week_kpi[(week_start + pd.Timedelta(days=6)) >= pd.Timestamp(date_from)]
+                week_start = pd.to_datetime(week_kpi["week_start"], errors="coerce")
+            if date_to:
+                week_kpi = week_kpi[week_start <= pd.Timestamp(date_to)]
         has_partial = (
             bool(week_kpi["partial_period"].any())
             if not week_kpi.empty and "partial_period" in week_kpi.columns
@@ -497,8 +510,8 @@ class PilotManagementService:
 
         sold_sum = float(detail["sold_qty"].clip(lower=0).sum()) if not detail.empty and "sold_qty" in detail.columns else 0.0
         return {
-            "date_from": summary_json.get("date_from"),
-            "date_to": summary_json.get("date_to"),
+            "date_from": date_from or summary_json.get("date_from"),
+            "date_to": date_to or summary_json.get("date_to"),
             "scope_version": summary_json.get("scope_version"),
             "metric_version": summary_json.get("metric_version"),
             "forecast_source": summary_json.get("forecast_source"),

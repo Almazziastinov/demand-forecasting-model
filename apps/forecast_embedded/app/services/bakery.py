@@ -17,6 +17,7 @@ SKU_HOUR_SNAPSHOT_TABLE = table_name("sku_forecast_hour_snapshots")
 SALES_LINE_TABLE = "mart_sales_60d"
 RAW_SALES_LINE_TABLE = "Svezhar.fct_check_lines"
 PRODUCTION_RELEASE_TABLE = "Svezhar.fct_production_release"
+MOVES_TABLE = "Svezhar.fct_moves"
 SALES_EVENT_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
 ACCESS_TABLE = table_name("bitrix_user_bakery_access_embedded")
 BAKERIES_DIM_TABLE = "dim_bakeries"
@@ -93,10 +94,13 @@ def _access_filter(auth: AuthContext, bakery_expr: str) -> tuple[str, dict]:
 
 def _open_bakery_filter(bakery_expr: str) -> str:
     return f"""
-          and {bakery_expr} in (
-            select distinct toInt64OrNull(toString(bakery_id))
-            from {BAKERIES_DIM_TABLE}
-            where toInt64OrNull(toString(bakery_id)) is not null
+          and (
+            {bakery_expr} >= 100000
+            or {bakery_expr} in (
+              select distinct toInt64OrNull(toString(bakery_id))
+              from {BAKERIES_DIM_TABLE}
+              where toInt64OrNull(toString(bakery_id)) is not null
+            )
           )
         """
 
@@ -380,13 +384,101 @@ def get_bakery_week(
     access_sql, access_params = _access_filter(auth, "b.bakery_id")
     open_bakery_sql = _open_bakery_filter("b.bakery_id")
     query = """
-        with sales as (
+        with sku_scope as (
+            select distinct d.forecast_date, d.bakery_id, d.product_id
+            from {sku_source} d
+            where d.forecast_date between %(start_date)s and %(end_date)s
+              and d.bakery_id = %(bakery_id)s
+        ), production_latest as (
+            select
+                release_date as forecast_date,
+                release_id,
+                line_id,
+                toInt64OrNull(argMax(toString(bakery_id), _updated_at)) as production_bakery_id,
+                toInt64OrNull(argMax(toString(product_id), _updated_at)) as production_product_id,
+                argMax(toFloat64(quantity), _updated_at) as production_qty,
+                argMax(is_deleted, _updated_at) as is_deleted
+            from {production_table}
+            where release_date between toDate(%(start_date)s) and toDate(%(end_date)s)
+              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+            group by forecast_date, release_id, line_id
+        ), production as (
+            select
+                latest.forecast_date,
+                latest.production_bakery_id as bakery_id,
+                sum(latest.production_qty) as production_qty
+            from production_latest latest
+            inner join sku_scope scope
+              on scope.forecast_date = latest.forecast_date
+             and scope.bakery_id = latest.production_bakery_id
+             and scope.product_id = latest.production_product_id
+            where latest.is_deleted not in ('1', 'true', 'Да')
+            group by latest.forecast_date, bakery_id
+        ), moves_raw as (
+            select
+                move_day as forecast_date,
+                toInt64OrZero(toString(receiver)) as bakery_id,
+                toInt64OrZero(toString(pid)) as product_id,
+                qty as received_qty,
+                0.0 as sent_qty
+            from (
+                select
+                    argMax(move_date, _updated_at) as move_day,
+                    argMax(receiver_id, _updated_at) as receiver,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from {moves_table}
+                where move_date between toDate(%(start_date)s) and toDate(%(end_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(receiver)) = %(bakery_id)s
+
+            union all
+
+            select
+                move_day as forecast_date,
+                toInt64OrZero(toString(sender)) as bakery_id,
+                toInt64OrZero(toString(pid)) as product_id,
+                0.0 as received_qty,
+                qty as sent_qty
+            from (
+                select
+                    argMax(move_date, _updated_at) as move_day,
+                    argMax(sender_id, _updated_at) as sender,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from {moves_table}
+                where move_date between toDate(%(start_date)s) and toDate(%(end_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(sender)) = %(bakery_id)s
+        ), moves as (
+            select
+                raw.forecast_date,
+                raw.bakery_id,
+                sum(raw.received_qty) as received_qty,
+                sum(raw.sent_qty) as sent_qty
+            from moves_raw raw
+            inner join sku_scope scope
+              on scope.forecast_date = raw.forecast_date
+             and scope.bakery_id = raw.bakery_id
+             and scope.product_id = raw.product_id
+            group by raw.forecast_date, raw.bakery_id
+        ), sales as (
             select
                 fcl.check_date as forecast_date,
                 toInt64OrNull(toString(fcl.bakery_id)) as sales_bakery_id,
                 sum(toFloat64(fcl.quantity)) as actual_qty,
                 sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
             from {sales_source} fcl
+            inner join sku_scope scope
+              on scope.forecast_date = fcl.check_date
+             and scope.bakery_id = toInt64OrNull(toString(fcl.bakery_id))
+             and scope.product_id = toInt64OrNull(toString(fcl.product_id))
             group by forecast_date, sales_bakery_id
         )
         select
@@ -396,6 +488,11 @@ def get_bakery_week(
             b.forecast_date as forecast_date,
             b.forecast_base as forecast_base,
             coalesce(sku.forecast_sku_total, b.forecast_final) as forecast_final,
+            if(
+                production.production_qty is null and moves.received_qty is null and moves.sent_qty is null,
+                null,
+                ifNull(production.production_qty, 0) + ifNull(moves.received_qty, 0) - ifNull(moves.sent_qty, 0)
+            ) as production_qty,
             sales.actual_qty as actual_qty,
             sales.actual_revenue as actual_revenue,
             c.temp_mean as temp_mean,
@@ -420,15 +517,24 @@ def get_bakery_week(
         left join sales
           on sales.forecast_date = b.forecast_date
          and sales.sales_bakery_id = b.bakery_id
+        left join production
+          on production.forecast_date = b.forecast_date
+         and production.bakery_id = b.bakery_id
+        left join moves
+          on moves.forecast_date = b.forecast_date
+         and moves.bakery_id = b.bakery_id
         where b.forecast_date between %(start_date)s and %(end_date)s
           and b.bakery_id = %(bakery_id)s
           {open_bakery_sql}
           {access_sql}
         order by b.forecast_date
         """.format(
-        source=_bakery_day_source("forecast_date between %(start_date)s and %(end_date)s", snapshot_scenario_like=scenario_like),
-        sku_total_source=_sku_bakery_total_source("forecast_date between %(start_date)s and %(end_date)s", snapshot_scenario_like=scenario_like),
-        sales_source=_raw_sales_source("fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s)"),
+            source=_bakery_day_source("forecast_date between %(start_date)s and %(end_date)s", snapshot_scenario_like=scenario_like),
+            sku_total_source=_sku_bakery_total_source("forecast_date between %(start_date)s and %(end_date)s", snapshot_scenario_like=scenario_like),
+            sku_source=_sku_day_source("forecast_date between %(start_date)s and %(end_date)s", snapshot_scenario_like=scenario_like),
+            sales_source=_raw_sales_source("fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s)"),
+            production_table=PRODUCTION_RELEASE_TABLE,
+            moves_table=MOVES_TABLE,
         context_table=CONTEXT_TABLE,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -488,14 +594,86 @@ def get_category_week_totals(
                 sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as revenue
             from {sales_source} fcl
             group by forecast_date, product_id
+        ),
+        production_latest as (
+            select
+                release_date as forecast_date,
+                release_id,
+                line_id,
+                toInt64OrNull(argMax(toString(product_id), _updated_at)) as product_id,
+                argMax(toFloat64(quantity), _updated_at) as qty,
+                argMax(is_deleted, _updated_at) as is_deleted
+            from {production_table}
+            where release_date between toDate(%(start_date)s) and toDate(%(end_date)s)
+              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+            group by forecast_date, release_id, line_id
+        ),
+        production as (
+            select forecast_date, product_id, sum(qty) as qty
+            from production_latest
+            where is_deleted not in ('1', 'true', 'Да')
+            group by forecast_date, product_id
+        ),
+        moves_raw as (
+            select
+                move_day as forecast_date,
+                toInt64OrZero(toString(pid)) as product_id,
+                qty as received_qty,
+                0.0 as sent_qty
+            from (
+                select
+                    argMax(move_date, _updated_at) as move_day,
+                    argMax(receiver_id, _updated_at) as receiver,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from {moves_table}
+                where move_date between toDate(%(start_date)s) and toDate(%(end_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(receiver)) = %(bakery_id)s
+
+            union all
+
+            select
+                move_day as forecast_date,
+                toInt64OrZero(toString(pid)) as product_id,
+                0.0 as received_qty,
+                qty as sent_qty
+            from (
+                select
+                    argMax(move_date, _updated_at) as move_day,
+                    argMax(sender_id, _updated_at) as sender,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from {moves_table}
+                where move_date between toDate(%(start_date)s) and toDate(%(end_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(sender)) = %(bakery_id)s
+        ),
+        moves as (
+            select forecast_date, product_id, sum(received_qty) as received_qty, sum(sent_qty) as sent_qty
+            from moves_raw
+            group by forecast_date, product_id
         )
         select
-            sku.forecast_date,
+            sku.forecast_date as forecast_date,
             sum(sku.forecast_qty) as forecast_final,
+            sum(ifNull(production.qty, 0) + ifNull(moves.received_qty, 0) - ifNull(moves.sent_qty, 0)) as production_qty,
             sum(ifNull(sales.qty, 0)) as actual_qty,
             sum(ifNull(sales.revenue, 0)) as actual_revenue
         from sku
         left join sales on sales.forecast_date = sku.forecast_date and sales.product_id = sku.product_id
+        left join production
+          on production.forecast_date = sku.forecast_date
+         and production.product_id = sku.product_id
+        left join moves
+          on moves.forecast_date = sku.forecast_date
+         and moves.product_id = sku.product_id
         group by sku.forecast_date
         order by sku.forecast_date
         """.format(
@@ -504,6 +682,8 @@ def get_category_week_totals(
             "fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s) "
             "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s"
         ),
+        production_table=PRODUCTION_RELEASE_TABLE,
+        moves_table=MOVES_TABLE,
         group_where=group_where,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -536,12 +716,19 @@ def get_bakery_day(
     access_sql, access_params = _access_filter(auth, "b.bakery_id")
     open_bakery_sql = _open_bakery_filter("b.bakery_id")
     query = """
-        with sales as (
+        with sku_scope as (
+            select distinct d.product_id
+            from {sku_source} d
+            where d.forecast_date = %(forecast_date)s
+              and d.bakery_id = %(bakery_id)s
+        ), sales as (
             select
                 toInt64OrNull(toString(fcl.bakery_id)) as sales_bakery_id,
                 sum(toFloat64(fcl.quantity)) as actual_qty,
                 sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
             from {sales_source} fcl
+            inner join sku_scope scope
+              on scope.product_id = toInt64OrNull(toString(fcl.product_id))
             group by sales_bakery_id
         )
         select b.bakery_id as bakery_id, b.bakery_name as bakery_name, b.city as city,
@@ -560,9 +747,10 @@ def get_bakery_day(
           {access_sql}
         limit 1
         """.format(
-        source=_bakery_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
-        sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
-        sales_source=_raw_sales_source("fcl.check_date = toDate(%(forecast_date)s)"),
+            source=_bakery_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+            sku_total_source=_sku_bakery_total_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+            sku_source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+            sales_source=_raw_sales_source("fcl.check_date = toDate(%(forecast_date)s)"),
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
     )
@@ -646,15 +834,83 @@ def get_top_sku(
                 sum(ifNull(toFloat64(fcl.line_amount), 0.0)) as actual_revenue
             from {sales_source} fcl
             group by sales_product_id
+        ), production_latest as (
+            select
+                release_id,
+                line_id,
+                toInt64OrNull(argMax(toString(product_id), _updated_at)) as production_product_id,
+                argMax(toFloat64(quantity), _updated_at) as production_qty,
+                argMax(is_deleted, _updated_at) as is_deleted
+            from {production_table}
+            where release_date = toDate(%(forecast_date)s)
+              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+            group by release_id, line_id
+        ), production as (
+            select
+                production_product_id,
+                sum(production_qty) as production_qty
+            from production_latest
+            where is_deleted not in ('1', 'true', 'Да')
+            group by production_product_id
+        ), moves_raw as (
+            select
+                toInt64OrZero(toString(pid)) as product_id,
+                qty as received_qty,
+                0.0 as sent_qty
+            from (
+                select
+                    argMax(receiver_id, _updated_at) as receiver,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from {moves_table}
+                where move_date = toDate(%(forecast_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(receiver)) = %(bakery_id)s
+
+            union all
+
+            select
+                toInt64OrZero(toString(pid)) as product_id,
+                0.0 as received_qty,
+                qty as sent_qty
+            from (
+                select
+                    argMax(sender_id, _updated_at) as sender,
+                    argMax(product_id, _updated_at) as pid,
+                    toFloat64(argMax(quantity, _updated_at)) as qty,
+                    argMax(is_deleted, _updated_at) as deleted
+                from {moves_table}
+                where move_date = toDate(%(forecast_date)s)
+                group by move_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+            where toInt64OrZero(toString(sender)) = %(bakery_id)s
+        ), moves as (
+            select
+                product_id,
+                sum(received_qty) as received_qty,
+                sum(sent_qty) as sent_qty
+            from moves_raw
+            group by product_id
         )
         select d.product_id as product_id,
                d.product_name as product_name,
                d.category_name as category_name,
                d.forecast_qty as forecast_qty,
+               if(
+                   production.production_qty is null and moves.received_qty is null and moves.sent_qty is null,
+                   null,
+                   ifNull(production.production_qty, 0) + ifNull(moves.received_qty, 0) - ifNull(moves.sent_qty, 0)
+               ) as production_qty,
                sales.actual_qty as actual_qty,
                sales.actual_revenue as actual_revenue
         from {source} d
         left join sales on sales.sales_product_id = d.product_id
+        left join production on production.production_product_id = d.product_id
+        left join moves on moves.product_id = d.product_id
         where d.forecast_date = %(forecast_date)s
           and d.bakery_id = %(bakery_id)s
           {category_sql}
@@ -668,6 +924,8 @@ def get_top_sku(
             "fcl.check_date = toDate(%(forecast_date)s) "
             "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s"
         ),
+        production_table=PRODUCTION_RELEASE_TABLE,
+        moves_table=MOVES_TABLE,
         category_sql=category_sql,
         open_bakery_sql=open_bakery_sql,
         access_sql=access_sql,
@@ -786,7 +1044,12 @@ def get_hourly_total(
         access_sql, access_params = _access_filter(auth, "bakery_id")
         open_bakery_sql = _open_bakery_filter("bakery_id")
         query = """
-            with forecast as (
+            with sku_scope as (
+                select distinct d.product_id
+                from {day_source} d
+                where d.forecast_date = %(forecast_date)s
+                  and d.bakery_id = %(bakery_id)s
+            ), forecast as (
                 select hour, sum(forecast_qty) as forecast_qty
                 from {source}
                 where forecast_date = %(forecast_date)s
@@ -800,6 +1063,8 @@ def get_hourly_total(
                     toHour(fcl.check_datetime) as hour,
                     sum(toFloat64(fcl.quantity)) as actual_qty
                 from {sales_source} fcl
+                inner join sku_scope scope
+                  on scope.product_id = toInt64OrNull(toString(fcl.product_id))
                 group by hour
             )
             select
@@ -811,6 +1076,7 @@ def get_hourly_total(
             order by hour
             """.format(
             source=_sku_hour_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
+            day_source=_sku_day_source("forecast_date = %(forecast_date)s", snapshot_scenario_like=scenario_like),
             sales_source=_raw_sales_source(
                 "fcl.check_date = toDate(%(forecast_date)s) "
                 "and toInt64OrNull(toString(fcl.bakery_id)) = %(bakery_id)s"
@@ -1030,7 +1296,12 @@ def get_hour_discrepancy_contributors(
     request_access_sql, request_access_params = _access_filter(auth, "toInt64(%(bakery_id)s)")
     request_open_bakery_sql = _open_bakery_filter("toInt64(%(bakery_id)s)")
     query = """
-        with forecast as (
+        with sku_scope as (
+            select distinct d.product_id
+            from {day_source} d
+            where d.forecast_date = %(forecast_date)s
+              and d.bakery_id = %(bakery_id)s
+        ), forecast as (
             select
                 h.product_id as product_id,
                 any(d.product_name) as product_name,
@@ -1054,6 +1325,8 @@ def get_hour_discrepancy_contributors(
                 toInt64OrNull(toString(fcl.product_id)) as product_id,
                 sum(toFloat64(fcl.quantity)) as actual_qty
             from {sales_source} fcl
+            inner join sku_scope scope
+              on scope.product_id = toInt64OrNull(toString(fcl.product_id))
             group by product_id
         )
         select
@@ -1166,17 +1439,18 @@ def get_production_qty(
     run_id: str | None = None,
     category_group: str | None = None,
 ) -> float | None:
-    """Returns total produced qty from fct_production_release for a bakery/date.
+    """Returns net released qty for a bakery/date.
 
-    The table is an append-only changelog — each line can appear many times.
-    We deduplicate per (release_id, line_id) via argMax(_updated_at).
+    The displayed business "Выпуск" is:
+    production release - outgoing transfers + incoming transfers.
+    Changelog sources are deduplicated per document line via argMax(_updated_at).
     When run_id + category_group are given, production is filtered to product_ids
     that belong to the selected category group (via SKU day source).
     """
     client = get_client()
     extra_params: dict = {}
     category_filter = ""
-    if run_id and category_group and category_group in CATEGORY_GROUP_NAMES:
+    if run_id:
         group_where = _group_where(category_group, "d.category_name")
         sku_src = _sku_day_source("forecast_date = %(forecast_date)s")
         category_filter = f"""
@@ -1190,17 +1464,75 @@ def get_production_qty(
         """
         extra_params["run_id"] = run_id
     query = """
-        select sum(q) as production_qty
-        from (
-            select argMax(toFloat64(quantity), _updated_at) as q
-            from {table}
-            where release_date = toDate(%(forecast_date)s)
-              and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
-              and is_deleted != '1'
-              {category_filter}
-            group by release_id, line_id
+        with production as (
+            select sum(q) as production_qty
+            from (
+                select
+                    argMax(toFloat64(quantity), _updated_at) as q,
+                    argMax(is_deleted, _updated_at) as deleted
+                from {production_table}
+                where release_date = toDate(%(forecast_date)s)
+                  and toInt64OrNull(toString(bakery_id)) = %(bakery_id)s
+                  {category_filter}
+                group by release_id, line_id
+                having deleted not in ('1', 'true', 'Да')
+            )
+        ),
+        moves as (
+            select sum(qty_received) as received_qty, sum(qty_sent) as sent_qty
+            from (
+                select
+                    toInt64OrZero(toString(pid)) as product_id,
+                    qty as qty_received,
+                    0.0 as qty_sent
+                from (
+                    select
+                        argMax(receiver_id, _updated_at) as receiver,
+                        argMax(product_id, _updated_at) as pid,
+                        toFloat64(argMax(quantity, _updated_at)) as qty,
+                        argMax(is_deleted, _updated_at) as deleted
+                    from {moves_table}
+                    where move_date = toDate(%(forecast_date)s)
+                    group by move_id, line_id
+                    having deleted not in ('1', 'true', 'Да')
+                )
+                where toInt64OrZero(toString(receiver)) = %(bakery_id)s
+                  {category_filter}
+
+                union all
+
+                select
+                    toInt64OrZero(toString(pid)) as product_id,
+                    0.0 as qty_received,
+                    qty as qty_sent
+                from (
+                    select
+                        argMax(sender_id, _updated_at) as sender,
+                        argMax(product_id, _updated_at) as pid,
+                        toFloat64(argMax(quantity, _updated_at)) as qty,
+                        argMax(is_deleted, _updated_at) as deleted
+                    from {moves_table}
+                    where move_date = toDate(%(forecast_date)s)
+                    group by move_id, line_id
+                    having deleted not in ('1', 'true', 'Да')
+                )
+                where toInt64OrZero(toString(sender)) = %(bakery_id)s
+                  {category_filter}
+            )
         )
-        """.format(table=PRODUCTION_RELEASE_TABLE, category_filter=category_filter)
+        select
+            if(
+                production.production_qty is null and moves.received_qty is null and moves.sent_qty is null,
+                null,
+                ifNull(production.production_qty, 0) + ifNull(moves.received_qty, 0) - ifNull(moves.sent_qty, 0)
+            ) as production_qty
+        from production
+        cross join moves
+        """.format(
+        production_table=PRODUCTION_RELEASE_TABLE,
+        moves_table=MOVES_TABLE,
+        category_filter=category_filter,
+    )
     df = client.query_df(
         query,
         parameters={

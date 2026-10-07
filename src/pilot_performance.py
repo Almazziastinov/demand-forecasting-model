@@ -158,11 +158,12 @@ def _inventory_flags(
         elif not _valid_nonnegative(record.available_to_sell_qty):
             flags.append(DataQualityFlag.INVALID_PRODUCTION)
         elif _valid_nonnegative(record.produced_qty):
-            expected = (
+            expected = max(
                 record.opening_stock_qty
                 + record.produced_qty
                 + record.received_qty
-                - record.sent_qty
+                - record.sent_qty,
+                0.0,
             )
             if (
                 abs(record.available_to_sell_qty - expected)

@@ -119,9 +119,26 @@ def predict_artifacts(test: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.nd
     return direct_raw, probability, conditional
 
 
-def build_input(forecast_date: pd.Timestamp, output: Path) -> tuple[Path, dict]:
+def build_input(
+    forecast_date: pd.Timestamp,
+    output: Path,
+    source_run_id: str | None = None,
+) -> tuple[Path, dict]:
     client = get_client()
-    run_id, generated_at = active_run(client)
+    if source_run_id is None:
+        run_id, generated_at = active_run(client)
+    else:
+        run = client.query_df(
+            """
+            select run_id, generated_at from forecast_runs_embedded
+            where run_id = %(run_id)s order by generated_at desc limit 1
+            """,
+            parameters={"run_id": source_run_id},
+        )
+        if run.empty:
+            raise RuntimeError(f"Source run not found: {source_run_id}")
+        run_id = source_run_id
+        generated_at = pd.Timestamp(run.iloc[0]["generated_at"])
     history_through = generated_at.normalize() - pd.Timedelta(days=1)
     universe = load_universe(client, run_id, forecast_date)
     if universe.empty:
@@ -269,11 +286,20 @@ def export_publish_files(output: Path, source_run_id: str) -> dict[str, object]:
 
 
 def main() -> None:
+    global ARTIFACT_DIR, LABELS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--forecast-date", type=pd.Timestamp, required=True)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--artifact-dir", type=Path, default=ARTIFACT_DIR)
+    parser.add_argument("--source-run-id", default=None)
     args = parser.parse_args()
-    input_path, metadata = build_input(args.forecast_date.normalize(), args.output_dir)
+    ARTIFACT_DIR = args.artifact_dir
+    LABELS = ARTIFACT_DIR / "floor_history.parquet"
+    if not LABELS.exists():
+        LABELS = ARTIFACT_DIR / "floor_history.csv.gz"
+    input_path, metadata = build_input(
+        args.forecast_date.normalize(), args.output_dir, args.source_run_id
+    )
     summary = run_shadow(input_path, args.output_dir)
     summary["source"] = metadata
     summary["publish_files"] = export_publish_files(

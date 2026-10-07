@@ -36,6 +36,29 @@ def test_flat_assortment_uses_each_bakery_recent_sales() -> None:
     ]
 
 
+def test_flat_assortment_business_scope_includes_purchased_categories() -> None:
+    sales = pd.DataFrame(
+        {
+            "bakery_id": [1, 1, 1, 1],
+            "product_id": [10, 20, 30, 40],
+            "category_name": [
+                "Выпечка сладкая",
+                "Хлеб",
+                "Пирожные",
+                "Напитки горячие",
+            ],
+        }
+    )
+
+    result = build_assortment_from_sales(sales, valid_from="2026-09-18")
+
+    assert result[["bakery_id", "product_id"]].values.tolist() == [
+        [1, "000000010"],
+        [1, "000000020"],
+        [1, "000000030"],
+    ]
+
+
 def test_zero_sales_bakery_carries_only_its_previous_snapshot() -> None:
     current = pd.DataFrame(
         {
@@ -64,6 +87,70 @@ def test_zero_sales_bakery_carries_only_its_previous_snapshot() -> None:
         [1, "000000010"],
         [2, "000000020"],
         [2, "000000030"],
+    ]
+
+
+def test_sparse_recent_sales_carry_previous_snapshot_and_keep_new_sku() -> None:
+    current = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 999],
+            "valid_from": [pd.Timestamp("2026-08-27").date()] * 2,
+            "loaded_at": [pd.Timestamp("2026-08-27")] * 2,
+        }
+    )
+    previous = pd.DataFrame(
+        {
+            "bakery_id": [1] * 5,
+            "product_id": [10, 20, 30, 40, 50],
+        }
+    )
+
+    result, carried = carry_forward_bakeries_without_recent_sales(
+        current,
+        previous,
+        required_bakery_ids=[1],
+        valid_from="2026-08-27",
+    )
+
+    assert carried == [1]
+    assert result[["bakery_id", "product_id"]].values.tolist() == [
+        [1, "000000010"],
+        [1, "000000020"],
+        [1, "000000030"],
+        [1, "000000040"],
+        [1, "000000050"],
+        [1, "000000999"],
+    ]
+
+
+def test_normal_recent_coverage_does_not_carry_previous_snapshot() -> None:
+    current = pd.DataFrame(
+        {
+            "bakery_id": [1, 1],
+            "product_id": [10, 20],
+            "valid_from": [pd.Timestamp("2026-08-27").date()] * 2,
+            "loaded_at": [pd.Timestamp("2026-08-27")] * 2,
+        }
+    )
+    previous = pd.DataFrame(
+        {
+            "bakery_id": [1] * 5,
+            "product_id": [10, 20, 30, 40, 50],
+        }
+    )
+
+    result, carried = carry_forward_bakeries_without_recent_sales(
+        current,
+        previous,
+        required_bakery_ids=[1],
+        valid_from="2026-08-27",
+    )
+
+    assert carried == []
+    assert result[["bakery_id", "product_id"]].values.tolist() == [
+        [1, "000000010"],
+        [1, "000000020"],
     ]
 
 

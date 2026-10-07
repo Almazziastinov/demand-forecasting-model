@@ -152,8 +152,9 @@
     <div class="sku-list">
       <div class="sku-row" style="pointer-events:none;opacity:0.55;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;border-bottom:2px solid var(--border,#e5e7eb);padding-bottom:0.35rem;margin-bottom:0.25rem;">
         <span>Наименование</span>
-        <span style="text-align:right;">Факт, шт.</span>
         <span style="text-align:right;">Прогноз, шт.</span>
+        <span style="text-align:right;">Выпуск, шт.</span>
+        <span style="text-align:right;">Факт, шт.</span>
       </div>
       {% for row in top_sku %}
       <a class="sku-row" href="/bakery/{{ bakery.bakery_id }}/sku/{{ row.product_id }}?date={{ selected_date }}&week_start={{ week_start }}{% if category_group %}&category_group={{ category_group|urlencode }}{% endif %}{{ run_query }}">
@@ -161,8 +162,9 @@
           <strong>{{ row.product_name or "SKU без названия" }}</strong>
           <small>{{ row.category_name or "Без группы" }}</small>
         </span>
-        <span style="text-align:right;">{% if row.actual_qty is not none %}{{ "%.0f"|format(row.actual_qty) }}{% else %}-{% endif %}</span>
         <span style="text-align:right;">{{ "%.0f"|format(row.forecast_qty) }}</span>
+        <span style="text-align:right;">{% if row.production_qty is not none %}{{ "%.0f"|format(row.production_qty) }}{% else %}-{% endif %}</span>
+        <span style="text-align:right;">{% if row.actual_qty is not none %}{{ "%.0f"|format(row.actual_qty) }}{% else %}-{% endif %}</span>
       </a>
       {% else %}
       <div class="empty-note">Нет SKU для выбранной группы.</div>

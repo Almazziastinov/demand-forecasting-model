@@ -120,3 +120,6 @@ tests/_tmp_smooth_profiles/
 tmp_assortment_work/
 tmp_remote_keys/
 codex_tmp/
+.codex_tmp/
+tmp/
+lightning_logs/

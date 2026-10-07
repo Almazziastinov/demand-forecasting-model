@@ -41,6 +41,12 @@ from src.experiments_v2.sku_cold_start import (  # noqa: E402
     build_cold_start_registry,
 )
 from src.pilot_scope import BASE_PILOT_10  # noqa: E402
+from scripts.purchased_product_metadata import (  # noqa: E402
+    MISSING_KRATNOST_LABEL,
+    MISSING_SHELF_LIFE_LABEL,
+    PURCHASED_CATEGORIES,
+    get_purchased_product_metadata,
+)
 
 # Compatibility/exported analytical scope. Runtime publishing uses the dynamic
 # pilot_scope_events membership loaded by _load_pilot_bakery_ids().
@@ -66,6 +72,7 @@ BAKEABLE_CATEGORIES = {
     "Выпечка сладкая",
     "Фастфуд",
 }
+PUBLISHABLE_CATEGORIES = BAKEABLE_CATEGORIES | PURCHASED_CATEGORIES
 
 PRODUCT_NAME_OVERRIDES = {
     11615: "Плетенка кленовая",
@@ -73,7 +80,6 @@ PRODUCT_NAME_OVERRIDES = {
     11617: "Плетенка с земляникой",
 }
 
-MISSING_KRATNOST_LABEL = "нет данных по кратности"
 MISSING_STOCK_LABEL = "нет данных по остатку"
 
 
@@ -153,6 +159,34 @@ def _production_plan_with_optional_kratnost(
     if kratnost is None:
         return max(0, int(math.ceil(net_need - 1e-9))), MISSING_KRATNOST_LABEL
     return _round_up_kratnost(net_need, kratnost), kratnost
+
+
+def _prepare_plan_quantities(
+    *,
+    category: str,
+    forecast_qty: float,
+    observed_stock_qty: float,
+    stock_is_unavailable: bool,
+    kratnost: int | None,
+) -> tuple[float, bool, float, int, int | str]:
+    """Apply category-specific stock and rounding policy for publication."""
+    if category in PURCHASED_CATEGORIES:
+        stock_qty = 0.0
+        stock_is_unavailable = False
+    else:
+        stock_qty = max(float(observed_stock_qty), 0.0)
+    net_need = max(float(forecast_qty) - stock_qty, 0.0)
+    production_plan, kratnost_display = _production_plan_with_optional_kratnost(
+        net_need,
+        kratnost,
+    )
+    return (
+        stock_qty,
+        stock_is_unavailable,
+        net_need,
+        production_plan,
+        kratnost_display,
+    )
 
 
 def _enrich_forecast_product_metadata(
@@ -564,7 +598,7 @@ def _build_report(
         )
         eligible = eligible[
             eligible["bakery_id"].isin(pilot_bakery_ids)
-            & eligible["category_name"].isin(BAKEABLE_CATEGORIES)
+            & eligible["category_name"].isin(PUBLISHABLE_CATEGORIES)
             & ~eligible["product_id"].isin(frozen_pids)
         ].copy()
         eligible["date"] = pd.Timestamp(forecast_date)
@@ -671,7 +705,7 @@ def _build_report(
                 validate="many_to_one",
             )
             candidates = candidates[
-                candidates["category_name"].isin(BAKEABLE_CATEGORIES)
+                candidates["category_name"].isin(PUBLISHABLE_CATEGORIES)
                 & ~candidates["product_id"].isin(frozen_pids)
             ]
             candidates = candidates[
@@ -909,21 +943,40 @@ def _build_report(
         if bid not in pilot_bakery_ids:
             continue
         category = str(rec.get("category_name") or "")
-        if category not in BAKEABLE_CATEGORIES:
+        if category not in PUBLISHABLE_CATEGORIES:
             continue
         if pid_int in frozen_pids:
             continue
-        kratnost = bakery_kratnost.get((pid_int, bid)) or base_kratnost.get(pid_int)
+        product_name = PRODUCT_NAME_OVERRIDES.get(
+            pid_int, str(rec.get("product_name") or "")
+        )
+        metadata = get_purchased_product_metadata(product_name)
+        if category in PURCHASED_CATEGORIES:
+            kratnost = metadata.kratnost
+            stock_label_override = (
+                MISSING_SHELF_LIFE_LABEL
+                if metadata.shelf_life is None and category != "Хлеб"
+                else None
+            )
+        else:
+            kratnost = bakery_kratnost.get((pid_int, bid)) or base_kratnost.get(pid_int)
+            stock_label_override = None
         forecast_qty = corrected_forecast.get(
             (bid, pid_int),
             float(rec.get("forecast_qty") or 0),
         )
-        stock_is_unavailable = bid in unavailable_stock_bakeries
-        stock_qty = yesterday_stock.get((bid, pid_int), 0.0)
-        net_need = max(forecast_qty - stock_qty, 0.0)
-        production_plan, kratnost_display = _production_plan_with_optional_kratnost(
+        (
+            stock_qty,
+            stock_is_unavailable,
             net_need,
-            kratnost,
+            production_plan,
+            kratnost_display,
+        ) = _prepare_plan_quantities(
+            category=category,
+            forecast_qty=forecast_qty,
+            observed_stock_qty=yesterday_stock.get((bid, pid_int), 0.0),
+            stock_is_unavailable=bid in unavailable_stock_bakeries,
+            kratnost=kratnost,
         )
 
         bname = bakery_info.get(bid, {}).get("name") or str(bid)
@@ -931,11 +984,15 @@ def _build_report(
             "bakery_id": bid,
             "bakery_name": bname,
             "category": category,
-            "product_name": PRODUCT_NAME_OVERRIDES.get(
-                pid_int, str(rec.get("product_name") or "")
-            ),
+            "product_name": product_name,
             "forecast": round(forecast_qty, 1),
-            "yesterday_stock": MISSING_STOCK_LABEL if stock_is_unavailable else round(stock_qty, 1),
+            "yesterday_stock": (
+                stock_label_override
+                if stock_label_override is not None
+                else MISSING_STOCK_LABEL
+                if stock_is_unavailable
+                else round(stock_qty, 1)
+            ),
             "net_need": round(net_need, 1),
             "production_plan": production_plan,
             "total_for_sale": round(production_plan + stock_qty, 1),

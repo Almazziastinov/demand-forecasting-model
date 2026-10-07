@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import joblib
@@ -24,12 +25,16 @@ from src.experiments_v2.direct_alpha_allocation import (
     DirectAlphaAllocationConfig,
     build_selected_direct_plan,
 )
+from pipelines.forecast_publish.allocation_mass_contract import (
+    normalize_preferences_to_bakery_total,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ARTIFACT_DIR = ROOT / "models" / "direct_alpha_025_v1"
 DEFAULT_HOUR_PROFILE = ROOT / "data" / "processed" / "bakery_hour_profile.csv"
 SALE_HEX = "D09FD180D0BED0B4D0B0D0B6D0B0"
+ASSORTMENT_TABLE = "bakery_product_assortment_embedded"
 
 
 def _reindex_sum(
@@ -54,6 +59,21 @@ def _reindex_sum(
 def _normalized(values: pd.Series, groups: list[pd.Series]) -> pd.Series:
     total = values.groupby(groups).transform("sum")
     return (values / total.replace(0.0, np.nan)).fillna(0.0)
+
+
+def normalize_mature_to_bakery_day(
+    features: pd.DataFrame,
+    source_totals: pd.Series,
+    *,
+    raw_column: str = "direct_raw_demand",
+) -> pd.Series:
+    """Preserve each source bakery-day total across retained mature SKUs."""
+    raw_total = features.groupby(DAY_KEYS)[raw_column].transform("sum")
+    index = pd.MultiIndex.from_frame(features[DAY_KEYS])
+    target = pd.Series(source_totals.reindex(index).to_numpy(), index=features.index)
+    if target.isna().any() or raw_total.le(0.0).any():
+        raise RuntimeError("Cannot normalize mature Direct bakery-day totals")
+    return features[raw_column] / raw_total * target
 
 
 def build_day_features(day: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
@@ -157,7 +177,7 @@ def _add_floor_reference(rows: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFra
 
 def _load_source(
     client, source_run_id: str
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp, pd.Timestamp]:
     run = client.query_df(
         """
         select max(generated_at) generated_at
@@ -168,9 +188,8 @@ def _load_source(
     )
     if run.empty or pd.isna(run.iloc[0]["generated_at"]):
         raise RuntimeError(f"Source run not found: {source_run_id}")
-    history_through = pd.Timestamp(
-        run.iloc[0]["generated_at"]
-    ).normalize() - pd.Timedelta(1, "D")
+    generated_at = pd.Timestamp(run.iloc[0]["generated_at"])
+    history_through = generated_at.normalize() - pd.Timedelta(1, "D")
     universe = client.query_df(
         """
         select forecast_date date, bakery_id, product_id,
@@ -184,7 +203,8 @@ def _load_source(
     )
     bakery = client.query_df(
         """
-        select forecast_date date,bakery_id,any(bakery_name) bakery_name,any(city) city
+        select forecast_date date,bakery_id,any(bakery_name) bakery_name,any(city) city,
+               any(toFloat64(forecast_final)) parent_bakery_total
         from bakery_forecast_day_embedded where run_id=%(run_id)s
         group by date,bakery_id
         """,
@@ -195,7 +215,123 @@ def _load_source(
     for frame in (universe, bakery):
         frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
     universe["product_id"] = universe["product_id"].astype("int64")
-    return universe, bakery, history_through
+    return universe, bakery, history_through, generated_at
+
+
+def _load_effective_assortment(
+    client,
+    universe: pd.DataFrame,
+    *,
+    generated_at: pd.Timestamp,
+    table: str = ASSORTMENT_TABLE,
+) -> pd.DataFrame:
+    """Load the last bakery assortment visible when the source run was built."""
+    bakery_ids = tuple(sorted(universe["bakery_id"].astype(int).unique()))
+    outputs: list[pd.DataFrame] = []
+    for date in sorted(pd.to_datetime(universe["date"]).dt.normalize().unique()):
+        outputs.append(
+            client.query_df(
+                f"""
+                select toDate(%(forecast_date)s) date,
+                       toInt64(a.bakery_id) bakery_id,
+                       toInt64OrZero(toString(a.product_id)) product_id,
+                       any(p.product_name) product_name,
+                       any(p.category_name) category
+                from {table} a final
+                inner join (
+                    select bakery_id, max(valid_from) latest_valid_from
+                    from {table} final
+                    where bakery_id in %(bakery_ids)s
+                      and valid_from <= toDate(%(forecast_date)s)
+                      and loaded_at <= %(generated_at)s
+                    group by bakery_id
+                ) latest on a.bakery_id=latest.bakery_id
+                        and a.valid_from=latest.latest_valid_from
+                left join Svezhar.dim_products p
+                  on toString(p.product_id)=toString(a.product_id)
+                where a.loaded_at <= %(generated_at)s
+                group by date,bakery_id,product_id
+                """,
+                parameters={
+                    "forecast_date": str(pd.Timestamp(date).date()),
+                    "generated_at": generated_at.to_pydatetime(),
+                    "bakery_ids": bakery_ids,
+                },
+            )
+        )
+    if not outputs:
+        return pd.DataFrame(
+            columns=["date", "bakery_id", "product_id", "product_name", "category"]
+        )
+    result = pd.concat(outputs, ignore_index=True)
+    result["date"] = pd.to_datetime(result["date"]).dt.normalize()
+    result["product_id"] = result["product_id"].astype("int64")
+    return result.drop_duplicates(["date", "bakery_id", "product_id"])
+
+
+def reconcile_assortment_scope(
+    universe: pd.DataFrame,
+    assortment: pd.DataFrame,
+    history: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Apply the allowlist and route source-missing SKUs to cold start."""
+    keys = ["date", "bakery_id", "product_id"]
+    source = universe.copy()
+    allowed = assortment.copy()
+    source_keys = source[keys].drop_duplicates().assign(in_source=True)
+    allowed_keys = allowed[keys].drop_duplicates().assign(in_assortment=True)
+    diagnostic = source_keys.merge(allowed_keys, on=keys, how="outer")
+    for column in ["in_source", "in_assortment"]:
+        diagnostic[column] = diagnostic[column].eq(True)
+    diagnostic["scope_status"] = np.select(
+        [
+            diagnostic["in_source"] & diagnostic["in_assortment"],
+            ~diagnostic["in_source"] & diagnostic["in_assortment"],
+        ],
+        ["covered", "added_cold_start"],
+        default="excluded_not_assorted",
+    )
+
+    kept = source.merge(allowed[keys], on=keys, how="inner", validate="one_to_one")
+    additions = allowed.merge(source_keys[keys], on=keys, how="left", indicator=True)
+    additions = additions[additions["_merge"].eq("left_only")].drop(columns="_merge")
+    if not additions.empty:
+        additions["incumbent_sku_forecast"] = 0.0
+        additions = additions.reindex(columns=source.columns)
+        kept = pd.concat([kept, additions], ignore_index=True)
+
+    history_work = history.copy()
+    history_work["date"] = pd.to_datetime(history_work["date"]).dt.normalize()
+    cold_rows: list[dict[str, object]] = []
+    for row in additions.itertuples(index=False):
+        prior = history_work[
+            history_work["bakery_id"].eq(row.bakery_id)
+            & history_work["product_id"].eq(row.product_id)
+            & history_work["date"].lt(pd.Timestamp(row.date))
+            & history_work["sold"].gt(0.0)
+        ].sort_values("date")
+        floor = 0.0
+        if not prior.empty:
+            floor = float(prior["sold"].ewm(alpha=0.90, adjust=False).mean().iloc[-1])
+        cold_rows.append(
+            {
+                "date": row.date,
+                "bakery_id": row.bakery_id,
+                "product_id": row.product_id,
+                "cold_start_floor": max(floor, 0.0),
+                "cold_start_source": (
+                    "own_sales_ewma" if floor > 0.0 else "zero_no_history"
+                ),
+            }
+        )
+    cold = pd.DataFrame(cold_rows)
+    if cold.empty:
+        cold = pd.DataFrame(columns=keys + ["cold_start_floor", "cold_start_source"])
+    if kept.duplicated(keys).any():
+        raise RuntimeError(
+            "Duplicate bakery/date/SKU rows after assortment reconciliation"
+        )
+    return kept, cold, diagnostic
 
 
 def _load_sales(
@@ -232,21 +368,17 @@ def _load_cold_start_registry(
     as_of_date: pd.Timestamp,
     labels: pd.DataFrame,
 ) -> pd.DataFrame:
-    product_ids = tuple(sorted(universe["product_id"].astype(int).unique()))
-    first_sales = client.query_df(
-        f"""
-        select toInt64OrZero(toString(product_id)) product_id,
-               min(check_date) first_sale
-        from (select distinct check_datetime,check_date,bakery_id,product_id,
-              quantity,price,line_amount,cash_event_type
-              from Svezhar.fct_check_lines
-              where hex(cash_event_type)='{SALE_HEX}' and quantity>0
-                and toInt64OrZero(toString(product_id)) in %(product_ids)s)
-        group by product_id
-        """,
-        parameters={"product_ids": product_ids},
+    product_ids = set(universe["product_id"].astype(int).unique())
+    causal_labels = labels.copy()
+    causal_labels["date"] = pd.to_datetime(causal_labels["date"]).dt.normalize()
+    causal_labels = causal_labels[
+        causal_labels["date"].lt(as_of_date)
+        & causal_labels["product_id"].astype(int).isin(product_ids)
+        & pd.to_numeric(causal_labels["demand_lower_bound"], errors="coerce").gt(0)
+    ]
+    first_sales = causal_labels.groupby("product_id", as_index=False).agg(
+        first_sale=("date", "min")
     )
-    first_sales["first_sale"] = pd.to_datetime(first_sales["first_sale"])
     age = as_of_date - first_sales["first_sale"]
     cold_ids = set(first_sales.loc[age.dt.days.le(14), "product_id"].astype(int))
     sold = history[history["product_id"].isin(cold_ids)].copy()
@@ -329,8 +461,48 @@ def run_direct_alpha_production(
     direct = joblib.load(artifacts / "direct_model.joblib")
     classifier = joblib.load(artifacts / "stockout_classifier.joblib")
     severity = joblib.load(artifacts / "lost_severity_model.joblib")
-    universe, bakery, history_through = _load_source(client, source_run_id)
+    universe, bakery, history_through, generated_at = _load_source(
+        client, source_run_id
+    )
+    parent_targets = bakery[DAY_KEYS + ["parent_bakery_total"]].rename(
+        columns={"parent_bakery_total": "bakery_total"}
+    )
+    if parent_targets["bakery_total"].isna().any():
+        raise RuntimeError("Source bakery snapshot contains missing parent targets")
+    source_day_index = pd.MultiIndex.from_frame(
+        universe[DAY_KEYS].drop_duplicates()
+    )
     history = _load_sales(client, universe, history_through)
+    restored_allocation = os.getenv(
+        "FORECAST_RESTORED_ALLOCATION", "0"
+    ).lower() in {"1", "true", "yes", "on"}
+    effective_assortment = _load_effective_assortment(
+        client,
+        universe,
+        generated_at=generated_at,
+    )
+    if effective_assortment.empty:
+        raise RuntimeError("No causally effective bakery assortment rows found")
+    universe, assortment_cold, assortment_diagnostic = reconcile_assortment_scope(
+        universe,
+        effective_assortment,
+        history,
+    )
+    # Preserve only the mass of retained source rows.  The base pipeline has
+    # assortment renormalization disabled, so removed SKU mass must not be
+    # stretched across the remaining assortment.
+    source_totals = universe.groupby(DAY_KEYS)["incumbent_sku_forecast"].sum()
+    covered_days = assortment_diagnostic.loc[
+        assortment_diagnostic["scope_status"].eq("covered"), DAY_KEYS
+    ].drop_duplicates()
+    expected_days = source_day_index
+    covered_day_index = pd.MultiIndex.from_frame(covered_days)
+    missing_mature_days = expected_days[~expected_days.isin(covered_day_index)]
+    if len(missing_mature_days):
+        raise RuntimeError(
+            "Effective assortment removed the complete mature pool for "
+            f"{len(missing_mature_days)} bakery-days"
+        )
     first_forecast_date = pd.Timestamp(universe["date"].min()).normalize()
     floor_csv = artifacts / "floor_history.csv.gz"
     if floor_csv.exists():
@@ -350,6 +522,20 @@ def run_direct_alpha_production(
     cold_registry = cold_registry[
         ~cold_registry["bakery_id"].isin(cold_bakery_ids)
     ].copy()
+    if not assortment_cold.empty:
+        added_registry = assortment_cold[
+            ["bakery_id", "product_id", "cold_start_floor"]
+        ].drop_duplicates(["bakery_id", "product_id"], keep="last")
+        added_keys = pd.MultiIndex.from_frame(
+            added_registry[["bakery_id", "product_id"]]
+        )
+        registry_keys = pd.MultiIndex.from_frame(
+            cold_registry[["bakery_id", "product_id"]]
+        )
+        cold_registry = pd.concat(
+            [cold_registry.loc[~registry_keys.isin(added_keys)], added_registry],
+            ignore_index=True,
+        )
     if cold_registry.empty:
         cold_registry = pd.DataFrame(
             columns=["bakery_id", "product_id", "cold_start_floor"]
@@ -387,15 +573,8 @@ def run_direct_alpha_production(
         )
     columns = metadata["features"]
     features["direct_raw_demand"] = np.maximum(direct.predict(features[columns]), 1e-9)
-    raw_total = features.groupby(DAY_KEYS)["direct_raw_demand"].transform("sum")
-    source_totals = universe.groupby(DAY_KEYS)["incumbent_sku_forecast"].sum()
-    mature_index = pd.MultiIndex.from_frame(features[DAY_KEYS])
-    bakery_total = pd.Series(
-        source_totals.reindex(mature_index).to_numpy(),
-        index=features.index,
-    )
-    features["direct_forecast"] = (
-        features["direct_raw_demand"] / raw_total * bakery_total
+    features["direct_forecast"] = normalize_mature_to_bakery_day(
+        features, source_totals
     )
     factors = {int(key): value for key, value in metadata["p50_factors"].items()}
     features["p50_factor"] = (
@@ -428,6 +607,28 @@ def run_direct_alpha_production(
     sku_day = selected[
         ["date", "bakery_id", "product_id", "selected_sku_forecast"]
     ].rename(columns={"selected_sku_forecast": "sku_day_forecast"})
+    restored_target_mode = "legacy"
+    if restored_allocation:
+        restored_target_mode = os.getenv(
+            "FORECAST_RESTORED_BAKERY_TARGET", "p50_loss"
+        ).strip().lower()
+        if restored_target_mode == "p50_loss":
+            restored_targets = (
+                sku_day.groupby(DAY_KEYS, as_index=False)["sku_day_forecast"]
+                .sum()
+                .rename(columns={"sku_day_forecast": "bakery_total"})
+            )
+        elif restored_target_mode == "raw_parent":
+            restored_targets = parent_targets
+        else:
+            raise RuntimeError(
+                "Unsupported FORECAST_RESTORED_BAKERY_TARGET: "
+                f"{restored_target_mode}"
+            )
+        sku_day = normalize_preferences_to_bakery_total(
+            sku_day.rename(columns={"sku_day_forecast": "sku_preference"}),
+            restored_targets,
+        )[["date", "bakery_id", "product_id", "sku_day_forecast"]]
     totals = (
         sku_day.groupby(DAY_KEYS, as_index=False)["sku_day_forecast"]
         .sum()
@@ -478,7 +679,14 @@ def run_direct_alpha_production(
         "history_through": str(history_through.date()),
         "loaded_rows": loaded,
         "activated": activate,
+        "restored_target_mode": restored_target_mode,
         "cold_start_pairs": int(len(cold_registry)),
+        "assortment_added_rows": int(
+            assortment_diagnostic["scope_status"].eq("added_cold_start").sum()
+        ),
+        "assortment_excluded_rows": int(
+            assortment_diagnostic["scope_status"].eq("excluded_not_assorted").sum()
+        ),
         "cold_bakery_ids": sorted(cold_bakery_ids),
     }
 

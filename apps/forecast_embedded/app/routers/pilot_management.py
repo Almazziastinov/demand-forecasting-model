@@ -344,3 +344,4 @@ def pilot_sku(request: Request, bakery_id: int, product_id: int) -> HTMLResponse
             "pct": _pct,
         },
     )
+

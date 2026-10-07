@@ -116,6 +116,35 @@ def test_bakery_share_reference_scales_with_current_bakery_traffic() -> None:
     assert target.loc[target["hour"] == 16, "sold_demand"].item() > 0
 
 
+def test_bakery_share_reference_fills_completely_missing_weekday() -> None:
+    hourly = _hourly()
+    production = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp(day),
+                "bakery_id": 20,
+                "product_id": 100,
+                "produced": 20,
+            }
+            for day in ["2026-05-04", "2026-05-11"]
+        ]
+    )
+    marked = mark_stockout_days(hourly, production)
+    train = marked[marked["date"] < pd.Timestamp("2026-05-18")]
+
+    reference = build_bakery_share_reference(train, min_days=2)
+    missing_weekday = reference[
+        (reference["bakery_id"] == 20)
+        & (reference["product_id"] == 100)
+        & (reference["dow"] == 1)
+        & (reference["hour"] == 15)
+    ]
+
+    assert len(missing_weekday) == 1
+    assert missing_weekday["reference_days"].item() == 0
+    assert missing_weekday["mean_sku_share"].item() == (3 / 8 + 4 / 9) / 2
+
+
 def test_inventory_balance_accounts_for_stock_and_moves() -> None:
     daily = pd.DataFrame(
         [

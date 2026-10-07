@@ -19,6 +19,9 @@ from scripts.build_demand_adjusted_stockout_history import (  # noqa: E402
     reconstruct_cases,
 )
 from scripts.export_clickhouse_checks import create_client  # noqa: E402
+from src.model_tournament.demand_target_contract import (  # noqa: E402
+    validate_demand_target_contract,
+)
 
 DEFAULT_STOCKOUTS = (
     ROOT / "reports/pilot_stockout_responsibility/stockout_cases_classified.csv"
@@ -190,10 +193,13 @@ def build_demand_dataset(
         "is_case_cap_binding",
     ]
     ordered += [column for column in available_source if column not in ordered]
-    return result[ordered].sort_values(KEYS).reset_index(drop=True)
+    dataset = result[ordered].sort_values(KEYS).reset_index(drop=True)
+    validate_demand_target_contract(dataset)
+    return dataset
 
 
 def summarize_dataset(dataset: pd.DataFrame) -> dict[str, object]:
+    validate_demand_target_contract(dataset)
     stockouts = dataset[dataset["is_clear_stockout"]]
     adjusted = stockouts[stockouts["imputed_demand"].gt(0)]
     duplicate_rows = int(dataset.duplicated(KEYS).sum())
@@ -314,6 +320,7 @@ def main() -> None:
         max_case_uplift_units=args.max_case_uplift_units,
     )
     dataset = build_demand_dataset(hourly, audit, stockouts)
+    validate_demand_target_contract(dataset, require_global_uplift=True)
     summary = summarize_dataset(dataset)
     summary["reconstruction_parameters"] = {
         "lookback_days": args.lookback_days,

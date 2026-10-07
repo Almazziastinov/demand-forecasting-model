@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-09-02
+Last updated: 2026-09-28
 
 ## Recover From Incomplete Sales ETL
 
@@ -48,13 +48,25 @@ Expected:
 
 - timer is `enabled`;
 - timer is `active`;
-- verify command ends with `VERIFY OK`.
-- exactly one active run has pattern `prod_direct_alpha_025_*` and its notes
-  identify the inactive `prod_base_bakery_norm_recent_*` source run.
+- the active run has pattern `prod_weighted_weekday_*`, model version
+  `weighted_weekday_calculated_demand_v1`, and notes identifying the inactive
+  `prod_base_bakery_norm_recent_*` scope source.
 
 Do not identify `base_norm_recent` as the current model merely because it is
 shown in the refresh summary. It is the inactive bakery-volume/source stage;
-the active Direct run is the served forecast.
+the active weighted-weekday run is the served forecast.
+
+Additional live check:
+
+```bash
+systemctl show forecast-production.service -p ExecStartPost --no-pager
+```
+
+Expected: the effective post-process is
+`pipelines.forecast_publish.weighted_weekday_production --scope-source
+latest-base --activate`. If the Direct post-process is effective instead,
+inspect `/etc/systemd/system/forecast-production.service.d/weighted-weekday.conf`
+and run `systemctl daemon-reload` after any correction.
 
 ## Check Pilot Management Statistics Refresh
 
@@ -170,6 +182,36 @@ Expected:
 - `forecast-production.timer`: `disabled`, `inactive`
 - `forecast-production.service`: `inactive`
 - `bakery-forecast-nightly.timer`: `disabled`, `inactive`
+
+## Verify That Experimental Pilot Old-Stock Credit Is Disabled
+
+The experimental x2.5 yesterday-stock credit rule was rolled back before its
+first scheduled use. Verify that the Blackhole publisher has no such drop-in:
+
+```bash
+systemctl cat pilot-forecast-publish.service
+systemctl show pilot-forecast-publish.service -p Environment
+sha256sum /opt/scripts/publish_pilot_forecast.py
+systemctl is-enabled pilot-forecast-publish.timer
+systemctl is-active pilot-forecast-publish.timer
+```
+
+Expected: `systemctl cat` has no `old-stock-credit.conf`, the effective
+environment contains no `PILOT_OLD_STOCK_CREDIT_*` variables, and the installed
+publisher SHA-256 is the value recorded in `CURRENT_STATE.md`.
+
+If the experimental drop-in is unexpectedly present, remove it only while the
+publisher service is inactive:
+
+```bash
+test "$(systemctl is-active pilot-forecast-publish.service 2>/dev/null || true)" != active
+rm /etc/systemd/system/pilot-forecast-publish.service.d/old-stock-credit.conf
+systemctl daemon-reload
+systemctl show pilot-forecast-publish.service -p Environment
+```
+
+Restore the timestamped `/opt/backups/pilot_forecast_old_stock_x2_5_*`
+publisher file only if the code itself must also be rolled back.
 
 The separate read-only `pilot-forecast-publish.timer` is expected to be
 enabled and active. When changing its schedule after the current day's old

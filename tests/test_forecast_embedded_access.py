@@ -122,12 +122,43 @@ def test_bakery_week_reads_actuals_from_mart_sales(monkeypatch):
     query, params = fake.queries[0]
     assert "mart_sales_60d" in query
     assert "Svezhar.fct_check_lines" not in query
+    assert "with sku_scope as" in query
+    assert "inner join sku_scope scope" in query
+    assert "scope.product_id = toInt64OrNull(toString(fcl.product_id))" in query
+    assert "fct_production_release" in query
+    assert "fct_moves" in query
+    assert "ifNull(production.production_qty, 0) + ifNull(moves.received_qty, 0) - ifNull(moves.sent_qty, 0)" in query
     assert "hex(fcl.cash_event_type) = %(sales_event_hex)s" in query
     assert (
         "fcl.check_date between toDate(%(start_date)s) and toDate(%(end_date)s)"
         in query
     )
     assert params["sales_event_hex"] == "D09FD180D0BED0B4D0B0D0B6D0B0"
+
+
+def test_bakery_day_limits_actuals_to_forecast_sku_scope(monkeypatch):
+    fake = _FakeClient()
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+    auth = AuthContext(user_id="1", portal_id="portal", role="admin")
+
+    bakery_service.get_bakery_day("active_run", "2026-06-11", 79, auth)
+
+    query, _ = fake.queries[0]
+    assert "with sku_scope as" in query
+    assert "inner join sku_scope scope" in query
+    assert "scope.product_id = toInt64OrNull(toString(fcl.product_id))" in query
+
+
+def test_hourly_total_limits_actuals_to_forecast_sku_scope(monkeypatch):
+    fake = _FakeClient()
+    monkeypatch.setattr(bakery_service, "get_client", lambda: fake)
+    auth = AuthContext(user_id="1", portal_id="portal", role="admin")
+
+    bakery_service.get_hourly_total("active_run", "2026-06-11", 79, auth)
+
+    query, _ = fake.queries[0]
+    assert "with sku_scope as" in query
+    assert "inner join sku_scope scope" in query
 
 
 def test_sku_hour_reads_lead_one_snapshots(monkeypatch):

@@ -1,5 +1,15 @@
 # Experiments V2 — Plan
 
+> **Target-alignment audit (2026-10-05):** the demand-series results below are
+> scored against a calculated `Спрос` proxy, not observed true demand. They
+> are not interchangeable with sales-target WMAPE. The original cumulative
+> profile builder pooled all available dates before the downstream train/test
+> split, so point-in-time profile and demand-lag validity is not established
+> for a fixed-horizon forecast. The historical numbers remain recorded, but
+> their demand-model ranking needs a frozen per-origin reconstruction and an
+> independent evaluation contract. See
+> `docs/research_target_alignment_audit_20261005.md`.
+
 Baseline: **01_baseline_8m** (MAE 2.29, WMAPE 25.9%, R2 0.918)
 Data: 3.5M rows, 207 days, 199 bakeries, 610 products, 27 categories
 

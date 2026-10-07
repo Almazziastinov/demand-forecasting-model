@@ -47,6 +47,16 @@ from scripts.build_city_assortment_from_sales import (  # noqa: E402
 
 TARGET_TABLE_BASE = "bakery_product_assortment_embedded"
 BAKERY_DIMENSION_TABLE = "dim_bakeries"
+DEFAULT_PUBLISHABLE_CATEGORY_PATTERNS: list[str] = [
+    *DEFAULT_BAKEABLE_CATEGORY_PATTERNS,
+    "хлеб",
+    "пирожн",
+    "маффин",
+    "печенье",
+    "донат",
+    "торт",
+    "рулет",
+]
 
 CREATE_DDL = """
 CREATE TABLE IF NOT EXISTS {table} (
@@ -164,7 +174,7 @@ def build_assortment_from_sales(
     *,
     valid_from: str,
     overrides: pd.DataFrame | None = None,
-    category_patterns: list[str] = DEFAULT_BAKEABLE_CATEGORY_PATTERNS,
+    category_patterns: list[str] = DEFAULT_PUBLISHABLE_CATEGORY_PATTERNS,
 ) -> pd.DataFrame:
     """Return effective bakery/SKU pairs sold in the prior seven-day window."""
     filtered = _apply_category_filter(sales, category_patterns)
@@ -227,23 +237,64 @@ def carry_forward_bakeries_without_recent_sales(
     *,
     required_bakery_ids: list[int],
     valid_from: str,
+    min_recent_coverage: float = 0.20,
 ) -> tuple[pd.DataFrame, list[int]]:
-    """Carry the prior snapshot only when a required bakery has zero current rows."""
-    present = set(current["bakery_id"].astype(int)) if not current.empty else set()
-    missing = sorted(set(map(int, required_bakery_ids)) - present)
-    if not missing or previous.empty:
-        return current, []
-    carried = previous[previous["bakery_id"].astype(int).isin(missing)].copy()
-    carried_ids = sorted(carried["bakery_id"].astype(int).unique().tolist())
+    """Carry the prior snapshot when recent sales cover at most 20% of it."""
+    if not 0.0 <= min_recent_coverage <= 1.0:
+        raise ValueError("min_recent_coverage must be between 0 and 1")
+    normalized_current = current.copy()
+    if not normalized_current.empty:
+        normalized_current["bakery_id"] = normalized_current["bakery_id"].astype(
+            "int64"
+        )
+        normalized_current["product_id"] = (
+            normalized_current["product_id"].astype(str).str.zfill(9)
+        )
+    if previous.empty:
+        return normalized_current, []
+
+    current_pairs = normalized_current[["bakery_id", "product_id"]].copy()
+    previous_pairs = previous[["bakery_id", "product_id"]].copy()
+    for frame in (current_pairs, previous_pairs):
+        frame["bakery_id"] = frame["bakery_id"].astype(int)
+        frame["product_id"] = frame["product_id"].astype(str).str.zfill(9)
+
+    required = set(map(int, required_bakery_ids))
+    carried_ids: list[int] = []
+    for bakery_id, prior in previous_pairs.groupby("bakery_id"):
+        bakery_id = int(bakery_id)
+        if bakery_id not in required:
+            continue
+        prior_products = set(prior["product_id"])
+        if not prior_products:
+            continue
+        recent_products = set(
+            current_pairs.loc[
+                current_pairs["bakery_id"].eq(bakery_id), "product_id"
+            ]
+        )
+        coverage = len(prior_products & recent_products) / len(prior_products)
+        if coverage <= min_recent_coverage:
+            carried_ids.append(bakery_id)
+
+    if not carried_ids:
+        return normalized_current, []
+    carried = previous[
+        previous["bakery_id"].astype(int).isin(carried_ids)
+    ].copy()
     if carried.empty:
-        return current, []
+        return normalized_current, []
     carried["bakery_id"] = carried["bakery_id"].astype("int64")
     carried["product_id"] = carried["product_id"].astype(str).str.zfill(9)
     carried["valid_from"] = pd.to_datetime(valid_from).date()
     carried["loaded_at"] = pd.Timestamp.now()
-    result = pd.concat([current, carried[current.columns]], ignore_index=True)
+    result = pd.concat(
+        [normalized_current, carried[normalized_current.columns]],
+        ignore_index=True,
+    )
+    result = result.drop_duplicates(["bakery_id", "product_id"], keep="first")
     result = result.sort_values(["bakery_id", "product_id"]).reset_index(drop=True)
-    return result, carried_ids
+    return result, sorted(carried_ids)
 
 
 def add_city_core_for_cold_start_bakeries(
@@ -286,7 +337,7 @@ def build_cold_start_city_core(
     sales: pd.DataFrame,
     *,
     city_threshold: float = 0.8,
-    category_patterns: list[str] = DEFAULT_BAKEABLE_CATEGORY_PATTERNS,
+    category_patterns: list[str] = DEFAULT_PUBLISHABLE_CATEGORY_PATTERNS,
 ) -> pd.DataFrame:
     """Build a stable city core using only bakeries participating in the window."""
     filtered = _apply_category_filter(sales, category_patterns)
@@ -317,7 +368,7 @@ def build_cold_start_network_core(
     sales: pd.DataFrame,
     *,
     network_threshold: float = 0.8,
-    category_patterns: list[str] = DEFAULT_BAKEABLE_CATEGORY_PATTERNS,
+    category_patterns: list[str] = DEFAULT_PUBLISHABLE_CATEGORY_PATTERNS,
 ) -> pd.DataFrame:
     """Return the common network core for a city with no participating bakery."""
     filtered = _apply_category_filter(sales, category_patterns)

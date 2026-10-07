@@ -1,6 +1,6 @@
 # Services
 
-Last updated: 2026-09-03
+Last updated: 2026-09-28
 
 ## Service Ownership Matrix
 
@@ -27,13 +27,15 @@ Last updated: 2026-09-03
 ```
 
 The main systemd command refreshes datasets and builds an inactive
-`prod_base_bakery_norm_recent_*` source run. The drop-in
-`/etc/systemd/system/forecast-production.service.d/direct-alpha.conf` runs
-`pipelines.forecast_publish.direct_alpha_production` as `ExecStartPost`; only
-that successful post-process activates the served
-`prod_direct_alpha_025_YYYYMMDD_h14` run (`model_version=direct_alpha_025_v1`).
-The source run is an implementation input, not the current production model.
-See `CURRENT_STATE.md` for the authoritative model description and live run.
+`prod_base_bakery_norm_recent_*` source run. The effective post-process is
+defined by `/etc/systemd/system/forecast-production.service.d/weighted-weekday.conf`,
+which clears older `ExecStartPost` entries and runs
+`pipelines.forecast_publish.weighted_weekday_production --scope-source
+latest-base --activate`. This activates served runs named
+`prod_weighted_weekday_YYYYMMDD_h14`
+(`model_version=weighted_weekday_calculated_demand_v1`). The source
+`prod_base_bakery_norm_recent_*` run supplies the fresh bakery scope; it is not
+the served model. See `CURRENT_STATE.md` for the authoritative live run.
 
 During the 2026-09-02 sales ETL incident, `forecast-production.timer` was
 disabled and the known-good `prod_direct_alpha_025_20260831_h14` run was
@@ -42,10 +44,11 @@ served. After the verified backfill, the timer was restored and
 no longer pinned to the fallback, but its stock-subtraction guard remains
 temporarily enabled until completed 2026-09-03 inventory flows are verified.
 
-For Direct production, `.env` sets `FORECAST_PROFILE_MAX_AGE_DAYS=-1`. This
-disables only the retired hourly SKU-profile age check; assortment freshness,
-dataset refresh, Direct post-processing, activation, and final verification
-remain required.
+The older Direct drop-in may still exist as `direct-alpha.conf`, but the
+weighted-weekday drop-in resets `ExecStartPost`, so Direct is not the effective
+nightly activator while that drop-in is present. Rollback is to remove
+`weighted-weekday.conf`, run `systemctl daemon-reload`, and reactivate a
+verified Direct run if needed.
 
 ### Pilot management report job
 

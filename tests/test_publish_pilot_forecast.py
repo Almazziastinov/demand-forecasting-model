@@ -5,6 +5,7 @@ from openpyxl import load_workbook
 
 from scripts.publish_pilot_forecast import (
     MISSING_KRATNOST_LABEL,
+    MISSING_SHELF_LIFE_LABEL,
     MISSING_STOCK_LABEL,
     PILOT_BAKERY_IDS,
     PRODUCT_NAME_OVERRIDES,
@@ -13,9 +14,11 @@ from scripts.publish_pilot_forecast import (
     _env_flag,
     _enrich_forecast_product_metadata,
     _find_bakeries_with_unavailable_stock,
+    _prepare_plan_quantities,
     _round_up_kratnost,
     _production_plan_with_optional_kratnost,
 )
+from scripts.purchased_product_metadata import get_purchased_product_metadata
 
 
 def test_env_flag_parses_emergency_toggle(monkeypatch) -> None:
@@ -90,6 +93,60 @@ def test_known_kratnost_still_rounds_to_batch() -> None:
 
     assert production_plan == 20
     assert kratnost == 10
+
+
+def test_purchased_product_ignores_stock_and_keeps_missing_kratnost_label() -> None:
+    result = _prepare_plan_quantities(
+        category="Хлеб",
+        forecast_qty=15.2,
+        observed_stock_qty=8.0,
+        stock_is_unavailable=True,
+        kratnost=None,
+    )
+
+    assert result == (0.0, False, 15.2, 16, MISSING_KRATNOST_LABEL)
+
+
+def test_purchased_bread_without_metadata_keeps_zero_stock_display() -> None:
+    metadata = get_purchased_product_metadata("Неизвестный хлеб")
+    stock_label_override = (
+        MISSING_SHELF_LIFE_LABEL
+        if metadata.shelf_life is None and "Хлеб" != "Хлеб"
+        else None
+    )
+
+    assert metadata.kratnost is None
+    assert stock_label_override is None
+
+
+def test_known_purchased_bread_metadata_uses_price_list_multiple() -> None:
+    metadata = get_purchased_product_metadata("Булочка Бейгл 65г")
+    result = _prepare_plan_quantities(
+        category="Хлеб",
+        forecast_qty=15.2,
+        observed_stock_qty=8.0,
+        stock_is_unavailable=True,
+        kratnost=metadata.kratnost,
+    )
+
+    assert metadata.shelf_life == "1 день"
+    assert result == (0.0, False, 15.2, 18, 6)
+
+
+def test_missing_shelf_life_label_is_available_for_publishers() -> None:
+    assert MISSING_SHELF_LIFE_LABEL == "нет данных по сроку хранения"
+
+
+def test_bakeable_product_keeps_stock_and_configured_multiple() -> None:
+    result = _prepare_plan_quantities(
+        category="Выпечка сладкая",
+        forecast_qty=15.2,
+        observed_stock_qty=5.0,
+        stock_is_unavailable=False,
+        kratnost=10,
+    )
+
+    assert result == (5.0, False, 10.2, 20, 10)
 
 
 def test_temporary_pletenka_name_overrides() -> None:
@@ -182,15 +239,15 @@ def test_excel_contains_stock_and_production_plan_columns() -> None:
     ]
 
 
-def test_excel_renders_missing_kratnost_as_text() -> None:
+def test_excel_renders_missing_purchased_metadata_as_text() -> None:
     rows = [
         {
             "bakery_id": 16,
             "bakery_name": "Кулагина 4 Казань",
-            "category": "Выпечка сладкая",
+            "category": "Пирожные",
             "product_name": "Новая позиция",
             "forecast": 15.8,
-            "yesterday_stock": 0.0,
+            "yesterday_stock": MISSING_SHELF_LIFE_LABEL,
             "net_need": 15.8,
             "production_plan": 16,
             "total_for_sale": 16.0,
@@ -202,6 +259,7 @@ def test_excel_renders_missing_kratnost_as_text() -> None:
     sheet = workbook["Прогноз"]
 
     assert sheet.cell(row=3, column=7).value == 16
+    assert sheet.cell(row=3, column=5).value == "нет данных по сроку хранения"
     assert sheet.cell(row=3, column=9).value == "нет данных по кратности"
 
 

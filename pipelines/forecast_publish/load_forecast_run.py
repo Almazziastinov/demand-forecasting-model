@@ -203,7 +203,22 @@ def prepare_bakery_day(df: pd.DataFrame, run_id: str) -> pd.DataFrame:
 
 
 def prepare_sku_day(df: pd.DataFrame, lookup: pd.DataFrame, run_id: str) -> pd.DataFrame:
-    work = df.merge(lookup, on=["bakery_id", "product_id"], how="left", validate="many_to_one")
+    has_names = {"product_name", "category_name"}.issubset(df.columns)
+    if has_names:
+        work = df.merge(
+            lookup,
+            on=["bakery_id", "product_id"],
+            how="left",
+            validate="many_to_one",
+            suffixes=("", "_lookup"),
+        )
+        for column in ["product_name", "category_name"]:
+            lookup_column = f"{column}_lookup"
+            if lookup_column in work.columns:
+                work[column] = work[column].where(work[column].notna(), work[lookup_column])
+                work = work.drop(columns=[lookup_column])
+    else:
+        work = df.merge(lookup, on=["bakery_id", "product_id"], how="left", validate="many_to_one")
     work["run_id"] = run_id
     work["forecast_date"] = pd.to_datetime(work["date"], errors="coerce").dt.date
     work["forecast_qty"] = pd.to_numeric(work["sku_day_forecast"], errors="coerce")

@@ -139,92 +139,53 @@
     {% endfor %}
   </div>
 
-  {% if weekly %}
+  {% if partner_economics %}
+  {% set pe = partner_economics %}
   <section class="panel" style="margin-top:1.5rem;">
     <div class="panel-head">
       <div>
-        <span class="eyebrow">Аналитика</span>
-        <h2>Недельная динамика выручки</h2>
+        <span class="eyebrow">Упущенный потенциал исполнения</span>
+        <h2>Упущенный потенциал исполнения</h2>
       </div>
+      <span style="font-size:0.78rem;color:var(--muted,#9ca3af);">
+        бэктест выбранной пекарни · {{ pe.observed_days }} дней
+      </span>
     </div>
 
-    <table style="width:100%;border-collapse:collapse;font-size:0.9rem;margin-bottom:0.5rem;">
-      <thead>
-        <tr style="text-align:left;border-bottom:2px solid var(--border,#e5e7eb);">
-          <th style="padding:0.4rem 0.75rem 0.4rem 0;">Неделя с</th>
-          <th style="padding:0.4rem 0.75rem;text-align:right;">Выручка, ₽</th>
-          <th style="padding:0.4rem 0.75rem;text-align:right;">Кол-во, шт.</th>
-          <th style="padding:0.4rem 0.75rem;text-align:right;">Покрытие</th>
-          <th style="padding:0.4rem 0.75rem;text-align:right;">Упущенное, шт.</th>
-          <th style="padding:0.4rem 0 0.4rem 0.75rem;text-align:right;">Δ выручка</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in weekly %}
-        <tr style="border-bottom:1px solid var(--border,#f3f4f6);">
-          <td style="padding:0.35rem 0.75rem 0.35rem 0;white-space:nowrap;">
-            {{ row.week_start[:10] if row.week_start else "—" }}
-          </td>
-          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
-            {{ "%.0f"|format(row.actual_revenue or 0) }}
-          </td>
-          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
-            {{ "%.0f"|format(row.actual_qty or 0) }}
-          </td>
-          <td style="padding:0.35rem 0.75rem;text-align:right;">
-            {% if row.coverage is not none %}
-              {% set cov = row.coverage * 100 %}
-              <span style="color:{% if cov >= 90 %}var(--green,#16a34a){% elif cov >= 70 %}var(--orange,#d97706){% else %}var(--red,#dc2626){% endif %};font-weight:500;">
-                {{ "%.0f"|format(cov) }}%
-              </span>
-            {% else %}
-              <span style="color:var(--muted,#9ca3af);">—</span>
-            {% endif %}
-          </td>
-          <td style="padding:0.35rem 0.75rem;text-align:right;font-variant-numeric:tabular-nums;">
-            {% if row.lost_sales is not none and row.lost_sales > 0 %}
-              <span style="color:var(--red,#dc2626);">{{ "%.0f"|format(row.lost_sales) }}</span>
-            {% else %}
-              <span style="color:var(--muted,#9ca3af);">—</span>
-            {% endif %}
-          </td>
-          <td style="padding:0.35rem 0 0.35rem 0.75rem;text-align:right;">
-            {% if row.revenue_wow is not none %}
-              {% set pct = row.revenue_wow * 100 %}
-              <span style="color:{% if pct >= 0 %}var(--green,#16a34a){% else %}var(--red,#dc2626){% endif %};font-weight:500;">
-                {% if pct >= 0 %}+{% endif %}{{ "%.1f"|format(pct) }}%
-              </span>
-            {% else %}
-              <span style="color:var(--muted,#9ca3af);">—</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-    <p style="margin:0.5rem 0 0;font-size:0.78rem;color:var(--muted,#9ca3af);">
-      Покрытие = продажи / (продажи + признанное упущенное), где упущенное = сумма max(0, прогноз&minus;факт) по дням недели.
-    </p>
-
-    <div style="margin-top:1.25rem;overflow-x:auto;">
-      {% set max_rev = weekly | map(attribute='actual_revenue') | select | list | max %}
-      {% if max_rev and max_rev > 0 %}
-      <div style="display:flex;align-items:flex-end;gap:6px;height:100px;padding-bottom:1.25rem;min-width:300px;">
-        {% for row in weekly %}
-        {% set bar_h = (row.actual_revenue / max_rev * 100) | round | int %}
-        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
-          <div style="flex:1;display:flex;align-items:flex-end;width:100%;">
-            <div style="width:100%;height:{{ [bar_h, 2] | max }}%;background:var(--accent,#3b82f6);border-radius:3px 3px 0 0;opacity:0.8;"></div>
-          </div>
-          <span style="font-size:0.62rem;color:var(--muted,#9ca3af);white-space:nowrap;">
-            {{ row.week_start[5:10] if row.week_start else "" }}
-          </span>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem;margin-bottom:1rem;">
+      <div style="padding:0.85rem;border:1px solid var(--border,#e5e7eb);border-radius:8px;">
+        <small style="color:var(--muted,#9ca3af);">Фактическая маржа</small>
+        <div style="font-size:1.25rem;font-weight:700;">{{ "{:,.0f}".format(pe.actual_profit).replace(',', ' ') }} ₽</div>
+      </div>
+      <div style="padding:0.85rem;border:1px solid var(--border,#e5e7eb);border-radius:8px;">
+        <small style="color:var(--muted,#9ca3af);">Маржа при выполнении плана ИИ</small>
+        <div style="font-size:1.25rem;font-weight:700;">{{ "{:,.0f}".format(pe.model_profit).replace(',', ' ') }} ₽</div>
+      </div>
+      <div style="padding:0.85rem;border:1px solid var(--border,#e5e7eb);border-radius:8px;">
+        <small style="color:var(--muted,#9ca3af);">Упущенный потенциал</small>
+        <div style="font-size:1.25rem;font-weight:700;color:{{ 'var(--red,#dc2626)' if pe.profit_delta >= 0 else 'var(--green,#16a34a)' }};">
+          {{ "{:,.0f}".format(pe.profit_delta).replace(',', ' ') }} ₽
+          {% if pe.profit_delta_pct is not none %}<small>({{ "%.1f"|format(pe.profit_delta_pct * 100) }}%)</small>{% endif %}
         </div>
-        {% endfor %}
       </div>
-      {% endif %}
     </div>
+
+    <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem;">Динамика по неделям</h3>
+    <div style="overflow-x:auto;margin-bottom:1rem;">
+      <table style="width:100%;border-collapse:collapse;font-size:0.84rem;">
+        <thead><tr style="border-bottom:2px solid var(--border,#e5e7eb);"><th style="text-align:left;padding:0.4rem;">Период</th><th style="text-align:right;padding:0.4rem;">Дней</th><th style="text-align:right;padding:0.4rem;">Маржа факта</th><th style="text-align:right;padding:0.4rem;">Маржа плана ИИ</th><th style="text-align:right;padding:0.4rem;">Упущенный потенциал</th></tr></thead>
+        <tbody>{% for w in pe.weeks %}<tr style="border-bottom:1px solid var(--border,#f3f4f6);"><td style="padding:0.4rem;">{{ w.period }}</td><td style="padding:0.4rem;text-align:right;">{{ w.days }}</td><td style="padding:0.4rem;text-align:right;">{{ "{:,.0f}".format(w.actual_profit).replace(',', ' ') }} ₽</td><td style="padding:0.4rem;text-align:right;">{{ "{:,.0f}".format(w.model_profit).replace(',', ' ') }} ₽</td><td style="padding:0.4rem;text-align:right;color:{{ 'var(--red,#dc2626)' if w.profit_delta >= 0 else 'var(--green,#16a34a)' }};font-weight:600;">{{ "{:,.0f}".format(w.profit_delta).replace(',', ' ') }} ₽</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+
+    <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem;">Упущенный потенциал</h3>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:0.84rem;">
+        <thead><tr style="border-bottom:2px solid var(--border,#e5e7eb);"><th style="text-align:left;padding:0.4rem;">SKU</th><th style="text-align:right;padding:0.4rem;">Объём, шт.</th><th style="text-align:right;padding:0.4rem;">За 3 недели</th>{% for w in pe.weeks %}<th style="text-align:right;padding:0.4rem;">{{ w.period }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for sku in pe.top_sku %}<tr style="border-bottom:1px solid var(--border,#f3f4f6);"><td style="padding:0.4rem;font-weight:500;">{{ loop.index }}. {{ sku.product_name }}</td><td style="padding:0.4rem;text-align:right;">{{ "{:,.0f}".format(sku.actual_volume).replace(',', ' ') }}</td><td style="padding:0.4rem;text-align:right;color:{{ 'var(--red,#dc2626)' if sku.profit_delta >= 0 else 'var(--green,#16a34a)' }};font-weight:600;">{{ "{:,.0f}".format(sku.profit_delta).replace(',', ' ') }} ₽</td>{% for delta in sku.weekly_delta %}<td style="padding:0.4rem;text-align:right;color:{{ 'var(--red,#dc2626)' if delta >= 0 else 'var(--green,#16a34a)' }};">{{ "{:,.0f}".format(delta).replace(',', ' ') }} ₽</td>{% endfor %}</tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    <p style="margin:0.75rem 0 0;font-size:0.74rem;color:var(--muted,#9ca3af);">Оценка на причинном бэктесте с двухдневным FIFO и скидкой 30% на вчерашнюю продукцию. Перевыпуск не является оценкой партнёра; блок показывает упущенный потенциал исполнения.</p>
   </section>
   {% endif %}
 

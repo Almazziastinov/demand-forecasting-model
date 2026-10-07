@@ -2,6 +2,124 @@
 
 This file records durable project decisions. It is not a session log.
 
+## 2026-09-28 - Weighted Weekday Becomes The Served Production Forecast
+
+Decision:
+
+- Use weighted weekday calculated demand as the served production forecast
+  model. Active runs follow `prod_weighted_weekday_YYYYMMDD_h14` and use
+  `model_version=weighted_weekday_calculated_demand_v1`.
+- Keep `prod_base_bakery_norm_recent_*` as the inactive nightly refresh and
+  bakery-scope source. It is an input to the weighted-weekday post-process, not
+  the served model.
+- Keep Direct alpha=.25 available as historical/rollback architecture, but do
+  not treat it as the current model while the weighted-weekday service drop-in
+  is effective.
+
+Context:
+
+- The pilot workbook had already moved to weighted weekday on restored demand,
+  while the embedded active run remained Direct, creating a split between chat
+  publication, app/statistics and ClickHouse active run.
+- Weighted weekday is more interpretable and operationally aligned with the
+  current publication logic. The production implementation writes the normal
+  forecast serving contract: run metadata, bakery-day, SKU-day, SKU-hour and
+  snapshot tables.
+
+Implication:
+
+- The production VM remains the only forecast writer. Blackhole remains
+  read-only for serving and daily pilot publication.
+- Nightly `forecast-production.service` still runs the base refresh first, then
+  activates weighted weekday via
+  `pipelines.forecast_publish.weighted_weekday_production --scope-source
+  latest-base --activate`.
+- Statistics must select weighted-weekday lead-1 snapshots for fact comparison;
+  when switching intra-day, verify the pre-08:00 snapshot cutoff explicitly.
+
+## 2026-09-18 - Purchased Bread Joins The Publication Business Scope
+
+Decision:
+
+- Keep the two-stage assortment contract: recent positive sales determine the
+  factual city/bakery assortment, then the business scope determines which
+  categories may enter forecast allocation and publication.
+- Expand the second stage from the existing pastry, pie and fast-food scope to
+  include category `Хлеб`. Do not admit drinks, confectionery or the Swedish
+  line as part of this change.
+- Published bread uses no carry-over stock and a fixed order multiple of one;
+  its plan is the forecast rounded upward to a whole unit.
+
+Context:
+
+- Bread was present in recent sales and in the Direct model vocabulary, but
+  the bakery-level business filter removed it before both the base SKU source
+  and Direct. The publisher repeated the same exclusion.
+- The business confirmed a one-day shelf life for purchased bread, so supplier
+  receipt data and previous-day stock are not required to calculate tomorrow's
+  published quantity.
+
+Implication:
+
+- Bread assortment membership continues to follow the existing recent-sales
+  and 80% absence-guard mechanics.
+- Confectionery and Swedish-line products require their own later business-scope
+  decision and stock-life policy; they are not implicitly enabled by bread.
+
+## 2026-09-18 - Persisted Bakery Assortment Is The Direct Allocation Scope
+
+Decision:
+
+- `bakery_product_assortment_embedded` is the single SKU assortment source for
+  production Direct allocation. Direct must not independently reconstruct a
+  competing assortment from a seven-day sales window.
+- An ordinary SKU enters the assortment after at least one sale in the recent
+  seven-day window. When those recent SKUs cover at most 20% of a bakery's
+  prior assortment, carry the prior snapshot forward and union new sold SKUs.
+- Bakery activity or permanent closure is resolved upstream and remains
+  separate from SKU-level carry-forward.
+
+Context:
+
+- On 18 September the upstream persisted assortment correctly retained 50 and
+  45 SKUs for two temporarily inactive bakeries and 61 SKUs for a sparse-sales
+  bakery. The Direct runner ignored it, rebuilt its own raw sales assortment,
+  and failed on 42 bakery-days before activation.
+
+Implication:
+
+- Assortment membership is formed once upstream, persisted, and consumed by
+  every downstream allocation layer. The 80% absence guard protects temporary
+  repairs or data gaps without preventing newly sold SKUs from entering.
+- `raw_parent` continues to define the bakery-day volume; assortment changes
+  redistribute that volume across eligible SKUs rather than creating bakery
+  capacity.
+
+## 2026-09-13 - Keep Full Yesterday-Stock Credit In Production
+
+Decision:
+
+- Keep the existing downstream pilot production-plan policy: subtract the full
+  observable yesterday stock from forecast demand before kratnost rounding.
+- Do not transfer a stock-credit coefficient from the counterfactual economics
+  simulator into the production publisher without a separate validation of
+  that publisher contract and an explicit decision to change it.
+
+Context:
+
+- A fixed x2.5 rule improved simulated gross profit in causal July and the
+  exact Direct alpha 24-31 August test, but the simulator's endogenous carried
+  stock is not the same data contract as the publisher's observable closing
+  balance derived from production, movements, sales and write-offs.
+- The x2.5 publisher change was therefore judged premature and rolled back on
+  13 September before any scheduled production file used it.
+
+Implication:
+
+- Continue model research and production-plan research as separate layers.
+- The VM remains the only forecast writer. Blackhole continues to run the
+  existing daily plan publisher with no old-stock-credit drop-in.
+
 ## 2026-08-31 - Direct Alpha=.25 Replaced Legacy SKU Allocation In Production
 
 Decision:

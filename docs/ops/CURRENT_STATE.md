@@ -1,6 +1,404 @@
 # Current Project State
 
-Last updated: 2026-09-21
+Last updated: 2026-10-06
+
+## Blackhole weekly forecast production bar repaired (2026-10-06)
+
+- Symptom: weekly forecast cards showed numeric `Выпуск` values, but the
+  middle production bar was visually absent/transparent. Example checked in the
+  UI: `Кулагина 4 Казань`, week starting `2026-10-01/2026-10-02`.
+- Root cause: the deployed template and router already rendered
+  `bar production` and calculated `production_height`, but
+  `/opt/app/app/static/app.css` had no `.bar.production` /
+  `.legend-dot.production` color rule.
+- Fix: added a production color rule to
+  `apps/forecast_embedded/app/static/app.css`, deployed it to Blackhole,
+  bumped the stylesheet URL in `apps/forecast_embedded/app/templates/layout.html`
+  from `app.css?v=20260908a` to `app.css?v=20261006a` to bypass iframe/browser
+  cache, and restarted `app.service`. Backups before replacement:
+  `/opt/backups/app_css_production_bar_20261006_081825` and
+  `/opt/backups/app_layout_css_version_20261006_082026`. The production bar
+  color was then corrected from grey to the historical yellow `#f59e0b`;
+  yellow-color backup:
+  `/opt/backups/app_css_production_bar_yellow_20261006_082252`.
+- Verification: Blackhole `/health` returned OK after restart and the deployed
+  CSS contains both `.bar.production` and `.legend-dot.production` with
+  `#f59e0b`; deployed layout points to `/static/app.css?v=20261006a`.
+
+## Embedded forecast production quantity includes transfers (2026-10-06)
+
+- Business definition corrected: the displayed `Выпуск` in the embedded
+  forecast UI is now calculated as `production release - outgoing transfers +
+  incoming transfers`, not only raw production release.
+- Updated `apps/forecast_embedded/app/services/bakery.py` so weekly bakery
+  cards, category-filtered weekly cards, daily bakery total and daily SKU rows
+  use deduplicated `Svezhar.fct_moves` alongside
+  `Svezhar.fct_production_release`. Both production releases and transfers are
+  deduplicated by document line using `argMax(_updated_at)`, and the same
+  forecast SKU scope/category scope is used for forecast, sales and displayed
+  production.
+- Deployed to Blackhole and restarted `app.service`. Backup before replacement:
+  `/opt/backups/app_bakery_net_moves_production_20261006_083631`.
+- Verification after deploy: `/health` OK and control query for
+  `Кулагина 4 Казань`, active run `draft_normalized_demand_v1_20261006_h14`,
+  returned net production quantities `2026-10-02=1983.5`,
+  `2026-10-03=1278.0`, `2026-10-04=1063.0`,
+  `2026-10-05=1663.0`; daily `get_production_qty(2026-10-02, bakery 16)`
+  also returned `1983.5`.
+
+## Blackhole weekly forecast production display repaired (2026-10-06)
+
+- Symptom: the embedded weekly forecast cards showed `-` for `Выпуск` even
+  when production release facts existed in ClickHouse. Example checked:
+  `Кулагина 4 Казань`, week starting `2026-10-02`.
+- Root cause: the Blackhole runtime file
+  `/opt/app/app/services/bakery.py` had an older `get_bakery_week(...)`
+  implementation without the production-release CTE/join. The repository
+  version already contained the production join, but the deployed Blackhole
+  file was stale after earlier incremental patches.
+- Fix: redeployed the full current
+  `apps/forecast_embedded/app/services/bakery.py` to Blackhole and restarted
+  `app.service`. Backup before replacement:
+  `/opt/backups/app_bakery_service_before_production_week_fix_20261006_081144`.
+- Verification after restart: `/health` OK, no recent `500`/`Traceback` lines,
+  admin bakery list still returns `248` bakeries including `71` regional
+  offset-ID bakeries, and restricted user `1077` still sees only their 4
+  permitted bakeries. `get_bakery_week(...)` for `Кулагина 4` now returns
+  production quantities for closed days: `2026-10-02=1945.0`,
+  `2026-10-03=1246.0`, `2026-10-04=1037.0`, `2026-10-05=1629.0`.
+
+## New regions included in active embedded forecast (2026-10-02)
+
+- The embedded app forecast was expanded from the legacy 177-bakery scope to
+  include raw-table regional sources for Альметьевск, Иркутск and
+  Новокузнецк. Active embedded run:
+  `draft_normalized_regions_20261002_h14`, horizon `2026-10-02..2026-10-15`,
+  status `active`.
+- The regional integration currently bypasses the overlapping
+  `dim_bakery_mapping` / `dim_product_mapping` `global_id` ranges by assigning
+  stable runtime offset IDs in
+  `pipelines/forecast_publish/weighted_weekday_production.py`: `alm=100000`,
+  `irk=200000`, `nov=300000`. This is a serving-layer compatibility patch, not
+  a full mart rebuild.
+- Verification after activation: `bakery_forecast_day_embedded` contains
+  `248` bakeries and `sku_forecast_day_embedded` contains `714` products for
+  the active run. New-region bakery counts are `alm=30`, `irk=27`, `nov=14`.
+  Bakery-day/SKU-day conservation for the activated run is exact:
+  total `3,585,245.64`, delta `0.0`.
+- The Blackhole UI initially still showed `177` bakeries because
+  `apps/forecast_embedded/app/services/bakery.py` filtered all visible
+  `bakery_id`s through legacy `dim_bakeries`; regional offset IDs are not
+  present there. The runtime filter was patched to allow `bakery_id >= 100000`
+  in addition to legacy `dim_bakeries` IDs, then `app.service` was restarted.
+  Verification through the same `get_bakery_list(...)` service used by the UI
+  returned `248` bakeries for admin user scope, including `71` regional
+  offset-ID bakeries.
+- The production VM files updated were
+  `/opt/demand-forecasting-model/pipelines/forecast_publish/weighted_weekday_production.py`
+  and
+  `/opt/demand-forecasting-model/pipelines/forecast_publish/load_forecast_run.py`.
+  Forecast VM backup before deploy:
+  `/opt/backups/region_scope_patch_20261002_110216`.
+- Blackhole app backup before the UI filter patch:
+  `/opt/backups/app_bakery_region_filter_20261002_082259`.
+- Rollback: restore those two files from the backup directory, then reactivate
+  the previous verified run `draft_normalized_demand_v1_20261002_h14` if the
+  expanded regional scope causes a forecast issue. If only the UI filter patch
+  needs rollback, restore `/opt/app/app/services/bakery.py` from the Blackhole
+  app backup and restart `app.service`.
+
+## Lead-1 history backfilled with normalized-demand weighted weekday (2026-10-02)
+
+- Rebuilt production lead-1 snapshot history for `2026-09-25..2026-10-01`
+  using the normalized-demand weighted weekday logic. Replacement
+  `source_run_id`:
+  `backfill_normalized_demand_v1_lead1_20260925_20261001_pre08_h1`.
+- Snapshot `generated_at` was set to `07:56 MSK` on each business date so
+  the pilot-management pre-08 selector chooses the replacement rows. The
+  replacement covers all three snapshot layers:
+  `bakery_forecast_day_snapshots`, `sku_forecast_day_snapshots`, and
+  `sku_forecast_hour_snapshots`.
+- Verification after replacement: every date in `2026-09-25..2026-10-01`
+  has exactly one lead-1 `source_run_id`; bakery-day, SKU-day and SKU-hour
+  totals match per day; max day/hour delta is `0.0`. Daily SKU totals are:
+  `2026-09-25` 205,558.72, `2026-09-26` 171,156.83, `2026-09-27`
+  155,327.43, `2026-09-28` 188,291.15, `2026-09-29` 191,738.85,
+  `2026-09-30` 190,370.43, and `2026-10-01` 198,007.90.
+- Original rows were backed up before mutation:
+  `bakery_forecast_day_snapshots_backup_normalized_lead1_20261001_233844`,
+  `sku_forecast_day_snapshots_backup_normalized_lead1_20261001_233844`,
+  and `sku_forecast_hour_snapshots_backup_normalized_lead1_20261001_233844`.
+- `pilot-management-report.service` was rerun successfully after the snapshot
+  overwrite. It rebuilt and published Blackhole report
+  `/opt/reports/pilot_management_summary` through `date_to=2026-10-01`;
+  report backup:
+  `/opt/backups/pilot_management_summary_before_20261001_234702`.
+
+## Normalized-demand weighted weekday activated on production VM (2026-10-02)
+
+- The served ClickHouse forecast was switched from plain weighted weekday to
+  normalized-demand weighted weekday. Active embedded run:
+  `draft_normalized_demand_v1_20261002_h14`, model
+  `normalized_demand_v1_weighted_weekday`, profile `bakery_dow_timing_v1`,
+  horizon `2026-10-02..2026-10-15`, generated at
+  `2026-10-02 01:54 MSK`. It contains 177 bakeries, 255 products, 262,542
+  SKU-day rows, 4,381,074 SKU-hour rows and total SKU forecast
+  `2,672,428.29`.
+- The normalized demand layer uses a 98-day history window and keeps the same
+  active assortment/scope contract as the production weighted-weekday runner.
+  The regional policy is `alpha35` for `alm`, `alpha35` plus bakery-level
+  rolling calibration clipped to `0.85..1.60` for `irk`, and `0.90..1.80` for
+  `nov` when Novokuznetsk enters the active scope. The activation run's
+  normalization summary covered `alm=55`, `irk=26`, and default/Kazan `96`
+  bakeries; Novokuznetsk was present in `dim_bakery_mapping` but absent from
+  the active run scope on `2026-10-02`.
+- Production VM runner file
+  `/opt/demand-forecasting-model/pipelines/forecast_publish/weighted_weekday_production.py`
+  was updated to support `--demand-mode normalized-demand-v1`. The systemd
+  drop-in `/etc/systemd/system/forecast-production.service.d/weighted-weekday.conf`
+  now runs
+  `pipelines.forecast_publish.weighted_weekday_production --scope-source
+  latest-base --demand-mode normalized-demand-v1 --activate`.
+- Verification: active run query returns only
+  `draft_normalized_demand_v1_20261002_h14`; bakery-day, SKU-day and SKU-hour
+  totals are all `2,672,428.29`; max SKU day/hour conservation delta is
+  `1.14e-13`; `forecast-production.timer` is enabled/active with next trigger
+  `2026-10-02 03:30 UTC`. The standard `scripts.verify_prod_deploy` activated
+  the run but still reports `scenario base_norm_recent was not activated`,
+  which is not the serving post-processor state and should be interpreted
+  against the normalized weighted-weekday active-run checks above.
+- Rollback backups on the production VM:
+  `/opt/backups/normalized_demand_v1_/weighted_weekday_production.py` and
+  `/opt/backups/normalized_demand_v1_/systemd/weighted-weekday.conf.before_normalized`.
+  Rollback is to restore those two files, run `systemctl daemon-reload`, and
+  reactivate `prod_weighted_weekday_20261001_h14` or another verified run.
+
+## Bakery admin access corrected for Irina Sergeeva (2026-09-28)
+
+- Corrected `bitrix_user_bakery_access_embedded` for Irina Sergeeva
+  (`bitrix_user_id=26263`, `i.sergeeva@svezhar.ru`) after business
+  confirmation from the administrator.
+- Removed the previous manual bakery-admin access row for
+  `268 — Новогородская 40 Чебоксары` (`partner_name=Данилова Кристина`).
+- Inserted three manual bakery-admin access rows with
+  `partner_name='Данилова Екатерина'`,
+  `match_method='manual_verified_partner_scope'`, and
+  `source='manual_bakery_admin_access'`:
+  `83 — Карла Маркса 19 Чебоксары`,
+  `90 — Привокзальная 1Д Чебоксары`,
+  `277 — Ленина 49 Чебоксары`.
+- Original row backup:
+  `bitrix_user_bakery_access_embedded_backup_irina_sergeeva_20260928_164602`.
+- Operational note: local/VM DNS/VPN path to ClickHouse was returning TLS
+  handshake timeouts. The change was applied through the ClickHouse HTTPS API
+  using the VM-resolved IP `51.250.98.185` with SNI/`curl --resolve`.
+
+## Lead-1 forecast history overwritten with weighted weekday (2026-09-28)
+
+- For statistics/UI inspection, lead-1 snapshot history for completed dates
+  `2026-09-15..2026-09-27` was overwritten in all three snapshot layers:
+  `bakery_forecast_day_snapshots`, `sku_forecast_day_snapshots`, and
+  `sku_forecast_hour_snapshots`.
+- Replacement rows use
+  `source_run_id='prod_weighted_weekday_lead1_20260915_20260927_pre08_h1'`
+  and `generated_at=07:55 MSK` for each target date, so the pilot-management
+  report's pre-08 selector chooses weighted weekday. The active
+  `2026-09-28` snapshot remains `prod_weighted_weekday_20260928_h14`, also
+  at `07:55 MSK`.
+- Original lead-1 rows were backed up before mutation:
+  `bakery_forecast_day_snapshots_backup_weighted_lead1_20260928_081029`,
+  `sku_forecast_day_snapshots_backup_weighted_lead1_20260928_081029`, and
+  `sku_forecast_hour_snapshots_backup_weighted_lead1_20260928_081029`.
+  A second backup set with suffix `_081242` contains the intermediate
+  timestamp-correction pass and should not be treated as the original
+  pre-overwrite state.
+- Verification after overwrite: every date from `2026-09-15` through
+  `2026-09-27` has exactly one lead-1 `source_run_id` in each snapshot table;
+  daily SKU totals equal hourly totals; `2026-09-28` pre-08 selector chooses
+  `prod_weighted_weekday_20260928_h14`.
+- `pilot-management-report.service` was rerun successfully after the history
+  overwrite. It rebuilt and published Blackhole report
+  `/opt/reports/pilot_management_summary` for `2026-07-23..2026-09-27`;
+  report backup:
+  `/opt/backups/pilot_management_summary_before_20260928_081641`.
+
+## Weighted weekday is the active production forecast model (2026-09-28)
+
+- The served ClickHouse forecast was switched from Direct alpha=.25 to
+  weighted weekday calculated demand. Active embedded run:
+  `prod_weighted_weekday_20260928_h14`, model
+  `weighted_weekday_calculated_demand_v1`, profile
+  `bakery_dow_timing_v1`, horizon `2026-09-28..2026-10-11`, generated at
+  `2026-09-28 10:48 MSK`. It contains 177 bakeries, 254 products, 259,980
+  SKU-day rows, 4,338,200 SKU-hour rows and total SKU forecast
+  `2,708,451.67`.
+- The run scope is derived from the fresh inactive bakery source run
+  `prod_base_bakery_norm_recent_20260928_h14`, then each bakery/SKU/day
+  forecast is the weighted average of restored demand from previous same
+  weekdays. SKU-day quantities are split to hours with the existing
+  bakery-day-of-week timing profile and conserve daily totals exactly.
+- Production VM service now keeps the base refresh as `ExecStart`, but the
+  effective `ExecStartPost` is
+  `pipelines.forecast_publish.weighted_weekday_production --scope-source
+  latest-base --activate`. The drop-in is
+  `/etc/systemd/system/forecast-production.service.d/weighted-weekday.conf`;
+  it resets the older Direct `ExecStartPost` without deleting
+  `direct-alpha.conf`. Rollback is to remove `weighted-weekday.conf`, run
+  `systemctl daemon-reload`, and reactivate a verified Direct run if needed.
+- The previous Direct run remains available in ClickHouse as
+  `prod_direct_alpha_025_20260928_h14` but is no longer active. The current
+  active run is the source of truth for the embedded app.
+- Snapshot rows for `prod_weighted_weekday_20260928_h14` were rebuilt from
+  serving tables with `generated_at=2026-09-28 07:55 MSK` so the pilot
+  management report's pre-08:00 selector chooses weighted weekday for
+  2026-09-28. Direct remains below it in the selector order.
+- Verification completed: active run query returns only
+  `prod_weighted_weekday_20260928_h14`; day/hour conservation max delta is
+  `0.0`; `forecast-production.timer` is enabled/active with next trigger
+  `2026-09-29 03:30 UTC`; Blackhole `/health` returns production OK; the
+  Blackhole pilot publisher remains weighted-weekday and read-only.
+
+## Current production health check and statistics repair (2026-09-23)
+
+- The 23 September production forecast run completed successfully on the VM.
+  Active embedded run:
+  `prod_direct_alpha_025_20260923_h14`, model
+  `direct_alpha_025_v1`, horizon `2026-09-23..2026-10-06`, generated at
+  `2026-09-23 06:45:37 MSK`. It contains 178 bakeries, 255 products, 262,080
+  SKU-day rows and total SKU forecast `2,606,973.0543`.
+- Today's active forecast contains the expanded category scope:
+  `Хлеб`, `Пирожные`, `Маффин Печенье Донатс`, and `Торты Рулеты` all have
+  non-zero forecast rows for `2026-09-23`.
+- Blackhole `app.service` is active and `/health` returns production OK.
+  `pilot-forecast-publish.service` finished successfully at `2026-09-23
+  04:00 UTC`; `pilot-forecast-publish.timer` remains enabled/active for the
+  next 07:00 MSK publication. Blackhole forecast-writer timers remain
+  disabled/inactive.
+- The scheduled 05:00 UTC pilot-management report rebuild for
+  `date_to=2026-09-22` initially selected old production runs for
+  `2026-09-15..2026-09-21` because the pre-cutoff weekday copy was absent.
+  The pre-cutoff copy was recreated from
+  `weekday_history_20260915_20260921_h1` into
+  `weekday_history_20260915_20260921_pre08_h1` with 41,019 rows and
+  `generated_at=07:55 MSK` for each target date, then
+  `pilot-management-report.service` was rerun successfully.
+- The repaired published report at `/opt/reports/pilot_management_summary`
+  now has backup `/opt/backups/pilot_management_summary_before_20260923_062323`
+  and correctly selects `weekday_history_20260915_20260921_pre08_h1` for
+  `2026-09-15..2026-09-21`. Verification from `detail.csv` for that period:
+  `Пирожные` forecast `20,781.69` vs sold `21,352.00`;
+  `Хлеб` forecast `23,219.18` vs sold `23,920.09`;
+  `Маффин Печенье Донатс` forecast `3,821.77` vs sold `4,151.00`.
+
+## Weighted weekday publisher reads current assortment scope (2026-09-22)
+
+- After enabling purchased confectionery, the current active forecast run still
+  carried the pre-change SKU scope, so most confectionery SKUs with recent sales
+  were absent from the daily weighted-weekday workbook. The flat
+  `bakery_product_assortment_embedded` snapshot was rebuilt on the production
+  VM for `valid_from=2026-09-22`: 277 bakeries, 344 products and 23,780
+  bakery/SKU rows inserted. Previously missing high-volume confectionery SKUs
+  such as `Кейк- попс`, `Рожок с кремом`, `Пирожное Каприз`, `Эклер сливочный`,
+  `Эклер классический`, `Картошка ассорти` and `Эклер Шоколадный посыпка` now
+  appear in the final assortment for 171-174 bakeries.
+- The Blackhole weighted-weekday publisher no longer uses
+  `sku_forecast_day_embedded` from the active run as its SKU scope. It reads the
+  latest `bakery_product_assortment_embedded` snapshot per pilot bakery and
+  joins `dim_products` for names/categories, then applies the existing
+  publishable category filter and weighted same-weekday demand calculation.
+  The active run is retained only as an informational label in logs.
+- Blackhole dry-run for `2026-09-23` completed without sending to Bitrix24:
+  scope source `assortment_table; active_run=prod_direct_alpha_025_20260922_h14`,
+  5,930 weighted override rows, 5,776 workbook rows, forecast total `64,742.1`,
+  and production plan total `74,590.0`. Workbook category counts include
+  `Пирожные: 1,356`, `Маффин Печенье Донатс: 259`, `Торты Рулеты: 2`,
+  `Хлеб: 775`.
+- Installed Blackhole publisher SHA-256:
+  `6e3dece76d79d38f2393ddf9dfd49c465c31e85154cab3b1b971a38840509c78`.
+  Rollback backup:
+  `/opt/backups/weighted_weekday_publisher_before_assortment_scope_20260922_124351`.
+  No Bitrix24 publication was sent during this change.
+- VM `forecast-production.timer` remains enabled/active; the service is
+  inactive after its last successful run. Blackhole `pilot-forecast-publish.timer`
+  remains enabled/active, while Blackhole `forecast-production.timer` and
+  `bakery-forecast-nightly.timer` remain disabled/inactive.
+
+## Pilot statistics history weekday override (2026-09-22)
+
+- For statistics/UI inspection only, lead-1 SKU forecast history for the last
+  completed week `2026-09-15..2026-09-21` was overwritten in
+  `Svezhar.sku_forecast_day_snapshots` with the weighted weekday heuristic.
+  The current production forecast model/run and daily forecast publication were
+  not changed.
+- Original rows were backed up before deletion to
+  `Svezhar.sku_forecast_day_snapshots_backup_weekday_20260922_085306`
+  (`24,580` rows). Replacement rows use
+  `source_run_id='weekday_history_20260915_20260921_h1'`. Those original
+  replacement timestamps landed after the 08:00 MSK coherent-run cutoff, so the
+  report selector must use the separate pre-cutoff copy
+  `weekday_history_20260915_20260921_pre08_h1`.
+- Verified replacement coverage: every date from `2026-09-15` through
+  `2026-09-21` has all 55 expected pilot bakeries, and there are no duplicate
+  `(forecast_date, bakery_id, product_id)` keys for the replacement run.
+  Replacement daily forecast totals are:
+  `2026-09-15=54,687.45`, `2026-09-16=54,783.90`,
+  `2026-09-17=56,944.49`, `2026-09-18=60,919.45`,
+  `2026-09-19=50,089.48`, `2026-09-20=43,524.67`,
+  `2026-09-21=54,586.04`.
+- The pilot management report service was run after the history override and
+  successfully published a fresh Blackhole report for
+  `2026-07-23..2026-09-21` with `forecast_source='snapshot_fallback'` and
+  `scope_version='expanded_pilot_38_events_v1'`. The previous Blackhole report
+  was backed up at
+  `/opt/backups/pilot_management_summary_before_20260922_090040`.
+- Fresh Blackhole summary after the override: company `forecast_qty` is
+  `2,207,838.6676`, `demand_qty` is `2,231,747.9831`, `wape` is
+  `0.3304905629`, and `bias` is `-0.0107132686`.
+- Rollback plan: delete the rows with
+  `source_run_id='weekday_history_20260915_20260921_h1'` for the target week,
+  restore rows from
+  `Svezhar.sku_forecast_day_snapshots_backup_weekday_20260922_085306`, then run
+  `pilot-management-report.service` again so the UI report is republished.
+
+## Purchased confectionery scope and metadata fallback deployed (2026-09-22)
+
+- The production forecast VM assortment scope now includes purchased
+  confectionery categories in addition to the existing bakeable categories and
+  purchased bread. Added category patterns: `пирожн`, `маффин`, `печенье`,
+  `донат`, `торт`, `рулет`. The VM dry-run completed successfully for
+  `valid_from=2026-09-22`: 277 bakeries, 344 products and 23,780
+  bakery/SKU rows. Installed SHA-256 values:
+  `3dff883f681ca533282ed133b8a74a2173031139182034afdad803db97466487`
+  for `scripts/build_bakery_product_assortment.py` and
+  `c1406ac093af8c5e3de770817d14099c18b8f8125511970c9eeb60cbf5f559b0`
+  for `pipelines/forecast_publish/production_dataset_refresh.py`.
+  Rollback backup:
+  `/opt/backups/purchased_confectionery_scope_20260922_112134`.
+- The Blackhole weighted-weekday pilot publisher now permits purchased
+  confectionery in the partner-facing Excel workbook and uses
+  `/opt/scripts/purchased_product_metadata.py` for purchased SKU order
+  multiples and shelf-life labels. Purchased rows are kept even when metadata
+  is incomplete: missing order multiples render as `нет данных по кратности`;
+  missing shelf life renders in the existing `Остаток со вчерашнего дня`
+  column as `нет данных по сроку хранения`. There is no separate shelf-life
+  column. Purchased bread keeps the accepted one-day/no-carry-over policy and
+  does not show missing shelf-life solely because SKU-name matching failed.
+- Blackhole dry-run for `2026-09-23` completed without sending to Bitrix24:
+  active scope run `prod_direct_alpha_025_20260922_h14`, 4,089 weighted
+  override rows, 3,938 workbook rows, forecast total `59,172.9`, production
+  plan total `67,215.0`. Workbook category counts included `Пирожные: 40` and
+  `Хлеб: 760`; `нет данных по сроку хранения` appeared only on the
+  40 `Пирожные` rows. Installed Blackhole SHA-256 values:
+  `86f4a1070baedc303e01a7c8eef2bbe0eef79469cfb1832229c3e5adb1b6902f`
+  for `/opt/scripts/publish_weighted_weekday_forecast.py` and
+  `8db9d8c005298231f3aba5cd6a1748f101aff9e8f2ba934be7206ef00f26fb60`
+  for `/opt/scripts/purchased_product_metadata.py`. Rollback backup:
+  `/opt/backups/purchased_confectionery_publisher_20260922_112511`.
+- `forecast-production.timer` on the VM remains enabled/active and
+  `scripts.verify_prod_deploy --env-file .env` returned `VERIFY OK` against
+  active run `prod_direct_alpha_025_20260922_h14`. Blackhole
+  `pilot-forecast-publish.timer` remains enabled/active. No manual Bitrix24
+  publication was sent during this deployment.
 
 ## Pilot chat publisher uses raw weighted-weekday demand plan (2026-09-21)
 
@@ -34,6 +432,325 @@ Last updated: 2026-09-21
 - `pilot-forecast-publish.timer` remains enabled/active for 04:00 UTC.
   Forbidden Blackhole forecast-writer timers remain disabled/inactive:
   `forecast-production.timer` and `bakery-forecast-nightly.timer`.
+
+## Purchased bread enabled for the next production publication (2026-09-18)
+
+- The second-stage forecast/publication business scope now includes category
+  `Хлеб` in addition to the existing pastry, pie and fast-food categories.
+  The first-stage assortment source remains positive recent sales; drinks and
+  other purchased categories are still excluded.
+- The production bakery assortment builder was updated on the forecast-writer
+  VM. A read-only production dry-run completed with 277 bakeries, 294 products
+  and 18,538 bakery/SKU rows. Installed SHA-256:
+  `1985c82fc4c84d2296a6482829e3fafb895d9de5a8c9a7d06ee619d4a84acf51`.
+  Rollback backup:
+  `/opt/backups/purchased_bread_scope_20260918_133321`.
+- A focused in-memory check against the live seven-day sales window found all
+  47 sold bread SKUs in the candidate scope: 2,367 bakery/SKU pairs across 175
+  selling bakeries. No ClickHouse rows were written by this check.
+- The Blackhole pilot publisher now treats every published `Хлеб` row as a
+  one-day purchased item: yesterday stock is forced to zero, order multiple is
+  one, and the published plan is `ceil(forecast)`. It does not require
+  `baking_sku_meta` for bread. A controlled forecast-override dry-run verified
+  forecast `15.2` -> stock `0` -> net need `15.2` -> plan `16` -> multiple `1`.
+  Installed SHA-256:
+  `7578c70eadea9bf5637d7c262de205ff9e5aa0205ec62af73ad9f5c71d802ef1`.
+  Rollback backup:
+  `/opt/backups/purchased_bread_publication_20260918_133353`.
+- No active forecast run or 18 September publication was changed. The current
+  active run predates this assortment expansion and still has zero bread rows.
+  The normal 19 September writer run at 03:30 UTC must create and verify bread
+  rows in both the base source and active Direct run before the 04:00 UTC
+  publisher consumes them. Both timers remain enabled/active. Blackhole
+  forecast-writer timers remain disabled/inactive.
+- Post-deploy production verification ended with `VERIFY OK`; the unchanged
+  active run remains `prod_direct_alpha_025_20260918_h14`.
+
+## Production Direct uses the persisted assortment with an 80% absence guard (2026-09-18)
+
+- The 18 September scheduled base run completed, but the Direct postprocess
+  failed because it independently rebuilt a seven-day sales assortment and
+  removed the complete mature SKU pool for 42 bakery-days. The already active
+  17 September Direct run was preserved, so the morning publisher did not
+  consume a partial or failed forecast.
+- The assortment builder now compares recent sold SKUs with the prior persisted
+  bakery assortment for every active bakery. If recent sales cover at most 20%
+  of the prior SKUs (at least 80% are absent), it carries the prior assortment
+  forward and unions any newly sold SKUs. Permanent bakery exclusion remains a
+  separate upstream mechanism.
+- Direct no longer creates a second independent seven-day assortment. It reads
+  the causally effective snapshot from
+  `bakery_product_assortment_embedded`, while `raw_parent` remains the bakery-day
+  volume target.
+- The verified run `prod_direct_alpha_025_20260918_h14` is active with horizon
+  18 September through 1 October: 178 bakeries, 2,492 bakery-day rows, 154,518
+  SKU-day rows and 2,578,914 SKU-hour rows. All bakery-days are present; every
+  SKU sum reconciles to its bakery total (maximum absolute numerical delta
+  `1.82e-12`). `scripts.verify_prod_deploy` returned `VERIFY OK`.
+- `forecast-production.timer` is enabled/active for the next scheduled run at
+  03:30 UTC on 19 September. No Bitrix workbook or message was manually
+  republished during the forecast-run recovery. At the user's subsequent
+  request, the 18 September pilot workbook was rebuilt from the verified active
+  run with current stock and post-processing, then republished at 11:25 MSK.
+  The new text/file message ids are `8438835` and `8438837`; the visible chat
+  file id is `1725999`. The 07:00 text/file messages `8434509` and `8434511`
+  were deleted, and their old attachment `1725325` is no longer listed in the
+  chat. The downloaded replacement exactly matches the verified local file
+  (`153062` bytes, SHA-256
+  `3bae5d2a5bb332a2c04231300e67c13bd71d24def95fdaf39b128f6985e5155b`).
+  Rollback backup:
+  `/opt/backups/raw_parent_assortment80_20260918_074749`.
+- Installed production SHA-256 values are
+  `fe2754ede118c2428f349b5594c9aa324f9d828289cad6658db8d836b46dac23`
+  for `scripts/build_bakery_product_assortment.py`,
+  `df20444e5390593c3e5fc12cca7dcc287cbaea5ce8d8b73e3abeb6575e0fe509`
+  for `pipelines/forecast_publish/production_dataset_refresh.py`, and
+  `c0c28d80adb4d122f1463a83f08f40927a043320592370871b2be12bca07f021`
+  for `pipelines/forecast_publish/direct_alpha_production.py`.
+
+## Restored Direct target set to raw parent (2026-09-17)
+
+- The production VM `forecast-production.service` restored-allocation drop-in
+  now sets `FORECAST_RESTORED_BAKERY_TARGET=raw_parent` instead of
+  `p50_loss`. The served model remains Direct alpha=.25; the change prevents
+  the restored allocation layer from increasing the bakery-day total to the
+  sum of p50-adjusted SKU preferences.
+- The active run was deliberately left unchanged at
+  `prod_direct_alpha_025_20260917_h14`. The production timer remains
+  enabled/active for `2026-09-18 03:30 UTC`. Rollback backup:
+  `/opt/backups/restored-allocation.conf.before_raw_parent_20260917_134901`.
+- A controlled pilot-only dry-run for 18 September produced 3,343 rows across
+  55 bakeries and was not sent to Bitrix24. Previous-day stock subtraction was
+  disabled because 17 September was still incomplete; all stock cells are
+  explicitly unavailable. Forecast total is 57,090.3 units and rounded
+  production-plan total is 66,400 units.
+- Remaining risk: an earlier full-network restored-allocation preview stopped
+  because the effective assortment removed the complete mature pool for 28
+  bakery-days. This failure occurs before the bakery target-mode branch, so
+  switching from `p50_loss` to `raw_parent` does not by itself clear that
+  guard. The next nightly run must be watched; a failed postprocess preserves
+  the currently active Direct run.
+
+## Experimental old-stock credit was rolled back before use (2026-09-13)
+
+- A fixed x2.5 cap on the amount of yesterday stock subtracted from net
+  production need was briefly installed on the Blackhole daily pilot publisher
+  after a backtest-only result was incorrectly treated as authorization to
+  change the downstream production-plan policy.
+- The change was rolled back on the same day before its first scheduled use.
+  The 13 September file had already been published with the original policy;
+  the 14 September verification was dry-run only and sent nothing to Bitrix24.
+- Production again uses the original full observable-stock subtraction. The
+  `old-stock-credit.conf` systemd drop-in is absent. Installed publisher
+  SHA-256 is restored to
+  `6065dcefd20129bdc9fb23b527095a8e51a4b1ab015b0717f2fa9ab7a054a372`.
+- The rolled-back x2.5 file is retained at
+  `/opt/backups/publish_pilot_forecast_x2_5_rolled_back_20260913.py`; the
+  original pre-change backup remains
+  `/opt/backups/pilot_forecast_old_stock_x2_5_20260913_162147`.
+- Post-rollback dry-run for 14 September completed with 3,304 SKU rows across
+  55 bakeries. `pilot-forecast-publish.timer` remains enabled/active at
+  04:00 UTC; both forbidden Blackhole forecast-writer timers remain
+  disabled/inactive. The Direct model and forecast writer were never changed.
+
+## Pilot statistics include transfers and write-offs (2026-09-10)
+
+- The production pilot-management report builder now reads deduplicated
+  `fct_moves` and `fct_write_offs` instead of publishing zero placeholders for
+  `received_qty` and `sent_qty`. Observable closing stock is calculated as
+  `max(produced + received - sent - sold - written_off, 0)`, matching the
+  downstream pilot publisher contract. This remains an observable-flow balance,
+  not an authoritative opening-inventory ledger.
+- A local 8 September smoke found 288 movement-bearing SKU rows, 1,842 units
+  received, 1,842 units sent and 52 units written off across the 55-bakery
+  dynamic pilot scope. The full report job rebuilt and atomically published all
+  49 dates for `2026-07-23..2026-09-09`; the last date contains 55 bakeries.
+- `pilot-management-report.service` completed successfully at 07:15:29 UTC.
+  The report backup on Blackhole is
+  `/opt/backups/pilot_management_summary_before_20260910_071527`; the code
+  backup on the production VM is
+  `/opt/backups/pilot_management_flows_20260910_101348`.
+- Installed production-VM SHA-256 values are
+  `b29bb1690e0847827c336a8d68fdd4472615a20e8c46a01aa0112b3c3674f2d3`
+  for `scripts/build_pilot_management_summary.py` and
+  `140be34b6f5b757a7068ad58378a67ebfcdfbb04a5d255f62eb6317f0996cd04`
+  for `src/pilot_performance.py`. Forecast generation and the active Direct
+  model were not changed.
+
+## Pilot partner KPIs use the raw AI forecast (2026-09-09)
+
+- The single partner-facing `План ИИ` value in production statistics is now
+  `forecast_qty`: the raw Direct-model forecast before yesterday-stock
+  subtraction and SKU kratnost rounding. Production and checkout sales ratios,
+  as well as the displayed recognized-lost-demand cap, use this same forecast
+  denominator throughout company, week, director, bakery and SKU views.
+- SKU rows without configured kratnost remain in model statistics when their
+  raw forecast and actual production are otherwise eligible. Kratnost is a
+  downstream production-plan mechanism and no longer controls KPI inclusion.
+- Live report check for `2026-07-23..2026-09-08`: Plan AI
+  `1,594,240.65`, production `1,584,614`, checkout sales `1,511,013.77`,
+  production/plan `99.40%`, sales/plan `94.78%`, displayed recognized lost
+  demand `42,122.82` units.
+- Blackhole `app.service` is active and `/health` is OK. Installed service
+  SHA-256: `ef2e01004d06fce3f3e13df2186b3f8bf88b725807e66ffb53e235d8a0195a0c`.
+  Rollback backup:
+  `/opt/backups/pilot_management_service_before_raw_forecast_20260909_082637.py`.
+
+## Pilot statistics product scope synchronized with the product dimension (2026-09-09)
+
+- The production pilot-management report builder now derives the reporting
+  category/SKU scope from the current `Svezhar.dim_products` dimension instead
+  of the denormalized category text stored in forecast snapshots. Some Direct
+  rollout snapshots contain mojibake in those display fields and the old
+  filter silently excluded valid forecast rows.
+- A controlled report rebuild for `2026-07-23..2026-09-08` completed and was
+  atomically published at 08:12 UTC. Validation covered all 48 calendar dates
+  and 55 bakeries on the final date. Comparable KPI coverage increased from
+  101,127 to 103,533 SKU-bakery-days; refreshed checkout totals are production
+  1,542,603 and sales 1,470,968 units.
+- Installed builder SHA-256:
+  `5634e0ee0a727c0a49104fd7b9c527e3122038258145d63c1b521396966b6ad4`.
+  Code rollback:
+  `/opt/backups/build_pilot_management_summary_before_scope_fix_20260909_081022.py`.
+  Report rollback:
+  `/opt/backups/pilot_management_summary_before_20260909_081238`.
+- Remaining limitation: report-level `received_qty` and `sent_qty` are still
+  zero placeholders. Any partner-facing inventory balance must use the raw
+  deduplicated movement facts until those fields are wired into the report.
+
+## Pilot statistics use checkout sales in sales KPIs (2026-09-09)
+
+- The production management-statistics service now displays actual checkout
+  `sold_qty` wherever the shared KPI block labels a value as `Продажи`.
+  Previously it inferred inventory depletion as production plus yesterday
+  stock minus closing stock, which overstated 1-8 September pilot sales by
+  18,630 units (350,108 displayed versus 331,478 checkout sales).
+- For 1-8 September the corrected production summary is: plan 394,483,
+  production 352,525, sales 331,478, production/plan 89.4%, sales/plan 84.0%,
+  and recognized lost demand 9,791 units.
+- A selected date interval is now returned as the summary display interval,
+  and partial-period detection is limited to report weeks intersecting that
+  interval. Date filtering also rebuilds its Boolean mask after applying the
+  lower bound, eliminating pandas index-realignment warnings.
+- Blackhole `app.service` is active and `/health` is OK. Deployed service
+  SHA-256: `2cf2fc2a347b3a8db6b74cf1d10b4bf75cb4d3ff16948cf096d1c3d97f6c16f8`.
+  Rollback backup: `/opt/backups/pilot_actual_sales_20260909_064556`.
+- Blackhole forecast-writer timers remain disabled and inactive; the change
+  affects only the read-only statistics presentation.
+
+## Forecast UI uses one forecast-SKU scope for forecast and facts (2026-09-08)
+
+- The embedded production forecast page now limits sales quantity, sales
+  revenue, hourly actuals and production quantity to the SKU set present in
+  the selected bakery/date forecast. Forecast, production and sales therefore
+  use the same assortment denominator instead of comparing forecasted SKUs
+  with the bakery's entire checkout assortment.
+- The fix applies to weekly cards, bakery-day totals, the hourly profile,
+  discrepancy contributors and the bakery-day production total. SKU detail
+  rows already used the forecast SKU set and were unchanged.
+- Control case `Кулагина 4 Казань` / 2026-09-08 changed from all-assortment
+  sales `1,566.99` / revenue `161,537` to comparable forecast-scope sales
+  `1,170` / revenue `115,119.50`; forecast remains `2,249.382`.
+- Deployed Blackhole service file SHA-256:
+  `222d10667152f1b94c9de463d38eec528f99155a4cc2d11d56c5d295105000e5`.
+  Rollback backup: `/opt/backups/forecast_scope_20260908_142746`.
+- `app.service` is active and `/health` returns production OK on port 3000.
+  Both forbidden Blackhole forecast-writer timers remain disabled/inactive.
+- Local verification: 18 forecast embedded access tests passed and Ruff
+  `E,F,W` passed for the changed service and tests.
+
+## Production SKU table shows forecast, production and sales (2026-09-08)
+
+- The embedded production bakery-day SKU table now displays quantities in the
+  business-requested order: `Прогноз`, `Выпуск`, `Факт`.
+- SKU production is read from `Svezhar.fct_production_release` and deduplicated
+  by `(release_id, line_id)` with the latest `_updated_at` state before deleted
+  lines are excluded. Forecast and sales calculations were not changed.
+- The Blackhole `app.service` was restarted and is active; `/health` returns
+  production OK. A live service-query smoke for bakery 1 / 7 September returned
+  63 SKU rows with a production field on every row. CSS cache version was bumped
+  to `20260908a`.
+- Rollback backup:
+  `/opt/backups/app_sku_production_columns_20260908_094630`.
+
+## September 5–6 ETL backfill and corrected September 7 run (2026-09-07)
+
+- The first scheduled 7 September build ran before the delayed sales reload
+  completed. Its exported dataset ended on 5 September (880 bakery-day rows
+  for 1–6 September), so `prod_direct_alpha_025_20260906_h14` started its
+  horizon on 6 September and is archived as invalid for serving.
+- The recovered facts now contain complete network-scale sales for both dates:
+  5 September has 161,738.0 units / 176 bakeries through 23:58, and 6 September
+  has 131,922.0 units / 176 bakeries through 23:46. Production, moves and
+  write-offs are also present at normal weekend scale for both dates.
+- A controlled manual rerun after the backfill exported 1,056 bakery-day rows
+  for 1–6 September (176 bakeries x 6 dates) and activated
+  `prod_direct_alpha_025_20260907_h14`. It uses
+  `direct_alpha_025_v1`, history through 6 September, and horizon
+  7–20 September. Snapshot counts are 2,478 bakery-day, 150,926 SKU-day and
+  2,513,018 SKU-hour rows. `scripts.verify_prod_deploy` returned `VERIFY OK`.
+- `forecast-production.timer` remains enabled/active with its next ordinary
+  trigger on 8 September. No pilot workbook or chat message was manually
+  republished as part of this forecast-run recovery.
+
+## September 3–4 ETL recovery and publisher normal-mode restore (2026-09-05)
+
+- Sales and inventory-event facts for 3 and 4 September are now complete at
+  network scale. Deduplicated sales are 190,728.9 units through 23:38 on
+  3 September and 203,586.0 units through 23:38 on 4 September. Production is
+  148,905.3 units / 170 bakeries and 158,609.3 units / 171 bakeries
+  respectively.
+- `prod_direct_alpha_025_20260904_h14` remains invalid because it was generated
+  at 06:42 MSK before the 3 September backfill completed. The scheduled
+  replacement `prod_direct_alpha_025_20260905_h14` was successfully activated
+  at 06:42 MSK from complete facts through 4 September. It uses
+  `direct_alpha_025_v1`, covers 5–18 September, and has 2,478 bakery-day,
+  151,388 SKU-day and 2,520,640 SKU-hour snapshot rows.
+- The temporary Blackhole drop-in
+  `/etc/systemd/system/pilot-forecast-publish.service.d/emergency-etl.conf`
+  was removed at 01:13 MSK on 5 September after the 4 September flows became
+  complete. Backup:
+  `/opt/backups/pilot_forecast_emergency_dropin_removed_20260904_221316`.
+  The persistent publisher timer was not restarted and remains enabled/active
+  for 04:00 UTC.
+- A normal-mode dry-run for 5 September completed without sending: 55
+  bakeries, 3,265 rows, forecast 51,776.0, numeric closing stock 3,492 and
+  production plan 57,768. Only one bakery / 55 SKU rows has explicitly
+  unavailable stock. The scheduled publication then completed successfully at
+  07:00 MSK from the verified run: disk file `1688019`, text message `8291713`,
+  file message `8291715`. No manual duplicate publication was sent.
+
+## Pilot statistics dev parity restored (2026-09-03)
+
+- A separate dev-only partner economics module is now mounted on the main
+  forecast page below the seven-day forecast cards, not in the service
+  statistics area. It is calculated independently for the bakery currently
+  selected on the forecast page, displays actual versus Direct-plan margin
+  for three causal folds, and shows every SKU's missed potential with a
+  per-fold breakdown, ranked by factual SKU volume. The existing `Группа`
+  selector filters both the forecast and this economics module. The legacy
+  revenue analytics block has been removed from this page. The current
+  artifact contains 38 Kazan bakeries and 15
+  observed days: 2026-07-27..08-02 (7 days), 08-11..08-13 (3 days), and
+  08-17..08-23 (5 days). Its combined estimate is 30,832,052 versus
+  28,300,791 actual (+2,531,261; +8.9%). Partial fold coverage is shown in the
+  UI and must not be presented as 21 complete days. A bakery outside this
+  backtest scope receives no module rather than a network-level fallback.
+- A dev-only execution-metric correction now compares actual production with
+  `issued_plan_qty` (the net production request), while sell-through remains
+  measured against `issued_total_for_sale` (the sales target including
+  yesterday's carry). The previous denominator falsely marked correct
+  production as underproduction for two-day products. Overproduction remains
+  neutral; only production below the net request receives warning styling.
+- The local dev pilot statistics UI was synchronized from the currently
+  deployed Blackhole files. Experimental partner-economics cards, profit
+  columns and recommendation blocks are not part of the service UI.
+- The economics research artifacts remain separate under `reports/` and do
+  not affect the application. Production code, reports, timers and data were
+  not changed.
+- Local verification: `/pilot` returns HTTP 200, contains no unrendered Jinja
+  tokens and matches the production statistics structure.
+
 ## SALES ETL RECOVERED; STOCK GUARD TEMPORARILY RETAINED (2026-09-03)
 
 - The 2026-09-01 and 2026-09-02 fact backfill is complete. Deduplicated sales
@@ -54,11 +771,10 @@ Last updated: 2026-09-21
   stamp was advanced after the successful manual run to prevent a duplicate
   same-day catch-up; next trigger is 2026-09-04 03:30 UTC.
 - The pilot publisher is no longer pinned to the 2026-08-31 fallback and will
-  consume the active Direct run. `PILOT_DISABLE_STOCK_SUBTRACTION=1` remains
-  temporarily set because a 2026-09-04 workbook depends on still-in-progress
-  2026-09-03 stock events. The daily 04:00 UTC publication remains active and
-  will therefore publish the fresh forecast conservatively without subtracting
-  stock until the completed 3 September flows are verified.
+  consume the active Direct run. The temporary
+  `PILOT_DISABLE_STOCK_SUBTRACTION=1` override was removed on 5 September after
+  completed 3–4 September flows were verified; see the current incident note
+  above.
 - An early normal-mode dry-run for 2026-09-04 correctly selected the new run,
   but 46 of 55 bakeries lacked complete same-day production inputs at the time
   of the check. This is expected before close of business and is not evidence
@@ -2977,3 +3693,46 @@ and 2,816,030 SKU-hour snapshot rows. The verifier now recognizes the intended
 inactive source run through the Direct run notes and ends with `VERIFY OK`.
 Timer remains enabled/active. Rollback remains activation of
 `prod_base_bakery_norm_recent_20260831_h14` plus removal of the systemd drop-in.
+
+## Pilot management statistics category expansion (2026-09-22)
+
+- The production statistics builder on the VM now includes the purchased
+  categories in addition to the original baked scope:
+  `Хлеб`, `Пирожные`, `Маффин Печенье Донатс`, and `Торты Рулеты`.
+  Deployed file: `/opt/demand-forecasting-model/scripts/build_pilot_management_summary.py`;
+  backup before code change:
+  `/opt/backups/pilot_stats_categories_20260922_124828`.
+- The historical weekly override for `2026-09-15..2026-09-21` was completed
+  with a pre-cutoff snapshot run
+  `weekday_history_20260915_20260921_pre08_h1`. It contains 41,019 rows, covers
+  55/55 pilot bakeries for each day, and has `generated_at=07:55 MSK` so the
+  report selector treats it as the coherent lead-1 run for that week. The prior
+  attempted backfill `weekday_history_20260915_20260921_h1` was left in place
+  but is ignored by the report selector because its generated timestamp landed
+  after the 08:00 MSK cutoff.
+- `pilot-management-report.service` was rerun successfully. Published report:
+  `/opt/reports/pilot_management_summary`; previous published report backup:
+  `/opt/backups/pilot_management_summary_before_20260922_100637`;
+  validation `date_to=2026-09-21`, `last_day_bakeries=55`.
+- Verification from the published `detail.csv` for `2026-09-15..2026-09-21`
+  shows all expanded categories have non-zero forecast volume:
+  `Пирожные` 20,817.55 vs sold 21,391.00;
+  `Хлеб` 23,805.66 vs sold 24,565.09;
+  `Маффин Печенье Донатс` 4,025.03 vs sold 4,422.00;
+  `Торты Рулеты` 6.52 vs sold 5.00. The selected `forecast_run_id` for these
+  days is `weekday_history_20260915_20260921_pre08_h1`.
+
+## Blackhole app ClickHouse route recovery (2026-09-28)
+
+The embedded app briefly returned `500 Internal Server Error` from `/` on
+Blackhole at 2026-09-28 13:53 UTC. The stack trace failed in
+`app/services/runs.py:get_active_run()` while querying ClickHouse and the
+ClickHouse HTTP client received `HTTP 405` from an nginx page at
+`https://rc1b-aergg94cc1r6ctr1.mdb.yandexcloud.net:8443`, consistent with a
+stale/bad route or pooled connection rather than an application data defect.
+
+`app.service` on Blackhole was restarted at 2026-09-28 13:57 UTC. Post-restart
+checks returned `200 OK` for `/health` and `200 OK` for the embedded `/`
+request with Vibe headers for user `27979`; the page resolved active run
+`prod_weighted_weekday_20260928_h14` and rendered 177 bakeries. No new 500 was
+observed in the immediate log tail after the restart.

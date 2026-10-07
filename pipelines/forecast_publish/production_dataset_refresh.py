@@ -20,6 +20,7 @@ from pipelines.forecast_publish.assortment_override_store import (
     load_active_overrides,
 )
 from scripts.build_bakery_product_assortment import (
+    DEFAULT_PUBLISHABLE_CATEGORY_PATTERNS as ASSORTMENT_CATEGORY_PATTERNS,
     add_city_core_for_cold_start_bakeries,
     add_network_core_for_cold_start_bakeries,
     build_assortment_from_sales,
@@ -38,7 +39,6 @@ from scripts.build_city_assortment_from_sales import (
 from scripts.build_city_assortment_from_sales import (
     DEFAULT_WINDOW_DAYS as ASSORTMENT_WINDOW_DAYS,
     DEFAULT_CITY_THRESHOLD as ASSORTMENT_CITY_THRESHOLD,
-    DEFAULT_BAKEABLE_CATEGORY_PATTERNS as ASSORTMENT_CATEGORY_PATTERNS,
     _query_recent_sales,
     _query_bakery_count_per_city,
 )
@@ -769,14 +769,10 @@ def refresh_production_datasets(
             ),
         )
         required_bakery_ids = sorted(active_bakery_ids)
-        missing_bakery_ids = sorted(
-            set(required_bakery_ids)
-            - set(bakery_product_df["bakery_id"].astype(int))
-        )
         previous_bakery_product_df = load_previous_assortment(
             assortment_client,
             table=bakery_product_tbl,
-            bakery_ids=missing_bakery_ids,
+            bakery_ids=required_bakery_ids,
             before_date=valid_from,
         )
         bakery_product_df, carried_bakery_ids = (
