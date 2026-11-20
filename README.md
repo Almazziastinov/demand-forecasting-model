@@ -48,6 +48,13 @@ Operational details, verification and rollback are in
 
 Подробное разделение ролей описано в [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
+## Передача и участие в разработке
+
+- Новому разработчику: [docs/DEVELOPER_ONBOARDING.md](docs/DEVELOPER_ONBOARDING.md)
+- Правила внесения изменений: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Чек-лист формальной передачи: [docs/HANDOVER_CHECKLIST.md](docs/HANDOVER_CHECKLIST.md)
+- Шаблон локального окружения без секретов: [.env.example](.env.example)
+
 ## Что считать актуальным
 
 Если задача связана с production-состоянием, деплоем, активной моделью,
