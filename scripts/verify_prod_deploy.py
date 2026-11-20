@@ -44,6 +44,11 @@ def _env_bool(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def is_source_run_of_active(active_notes: str, source_run_id: str) -> bool:
+    """Whether a non-served source run is explicitly referenced by the active run."""
+    return bool(source_run_id and source_run_id in active_notes)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify production forecast deploy state"
@@ -128,10 +133,9 @@ def main() -> int:
             print(df.to_string(index=False))
             active_run_id = str(df["run_id"].iloc[0])
             active_notes = str(df["notes"].iloc[0] or "")
-            direct_active = active_run_id.startswith("prod_direct_alpha_025_")
             for scenario in unactivated_scenarios:
                 source_run_id = str(scenario.get("run_id") or "")
-                if direct_active and source_run_id in active_notes:
+                if is_source_run_of_active(active_notes, source_run_id):
                     continue
                 problems.append(
                     f"scenario {scenario.get('scenario')} was not activated"
@@ -183,6 +187,51 @@ def main() -> int:
                     "active run has no snapshot rows in: "
                     + ", ".join(str(table) for table in missing_snapshots)
                 )
+            consistency_df = client.query_df(
+                """
+                with
+                bakery as (
+                    select forecast_date, bakery_id, forecast_final as bakery_qty
+                    from bakery_forecast_day_embedded
+                    where run_id = %(run_id)s
+                ),
+                sku_day as (
+                    select forecast_date, bakery_id, sum(forecast_qty) as sku_qty
+                    from sku_forecast_day_embedded
+                    where run_id = %(run_id)s
+                    group by forecast_date, bakery_id
+                ),
+                sku_hour as (
+                    select forecast_date, bakery_id, product_id,
+                           sum(forecast_qty) as hour_qty
+                    from sku_forecast_hour_embedded
+                    where run_id = %(run_id)s
+                    group by forecast_date, bakery_id, product_id
+                )
+                select
+                    (select max(abs(bakery_qty - sku_qty))
+                     from bakery inner join sku_day using (forecast_date, bakery_id))
+                        as bakery_sku_max_delta,
+                    (select max(abs(day.forecast_qty - hour_qty))
+                     from sku_forecast_day_embedded as day
+                     inner join sku_hour using (forecast_date, bakery_id, product_id)
+                     where day.run_id = %(run_id)s)
+                        as sku_hour_max_delta
+                """,
+                parameters={"run_id": active_run_id},
+            )
+            print("\nactive-run quantity conservation:")
+            print(consistency_df.to_string(index=False))
+            if consistency_df.empty:
+                problems.append("could not calculate active-run quantity conservation")
+            else:
+                row = consistency_df.iloc[0]
+                for column in ["bakery_sku_max_delta", "sku_hour_max_delta"]:
+                    value = row[column]
+                    if value is None or float(value) > 1e-6:
+                        problems.append(
+                            f"active-run conservation failed: {column}={value}"
+                        )
     except Exception as exc:  # pragma: no cover - network/credentials dependent
         problems.append(f"could not query active run: {exc}")
 
