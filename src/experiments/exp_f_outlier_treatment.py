@@ -17,8 +17,8 @@ import numpy as np
 import pandas as pd
 
 from src.experiments.common import (
-    load_data, MODEL_PARAMS, BASELINE_MAE,
-    wmape, print_metrics, print_category_metrics,
+    load_data, BASELINE_MAE,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -38,7 +38,7 @@ def main():
     # Compute percentiles from train target
     p95 = np.percentile(y_train, 95)
     p99 = np.percentile(y_train, 99)
-    print(f"\n  Train target stats:")
+    print("\n  Train target stats:")
     print(f"    mean={y_train.mean():.1f}, std={y_train.std():.1f}")
     print(f"    p95={p95:.1f}, p99={p99:.1f}, max={y_train.max():.1f}")
 
@@ -136,7 +136,7 @@ def main():
 
     # Save full results
     results_df.to_csv("reports/exp_f_all_results.csv", index=False, encoding="utf-8-sig")
-    print(f"  Polnye rezul'taty: reports/exp_f_all_results.csv")
+    print("  Polnye rezul'taty: reports/exp_f_all_results.csv")
 
     print("\nGotovo!")
 

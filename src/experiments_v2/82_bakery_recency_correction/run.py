@@ -19,7 +19,9 @@ Output: src/experiments_v2/82_bakery_recency_correction/metrics.json
         src/experiments_v2/82_bakery_recency_correction/variant_summary.csv
 """
 
-import sys, json, time
+import sys
+import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -28,7 +30,11 @@ from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error
 
 out = sys.stdout.buffer
-def p(s): out.write((s + '\n').encode('utf-8')); out.flush()
+
+
+def p(s):
+    out.write((s + '\n').encode('utf-8'))
+    out.flush()
 
 ROOT = Path(__file__).resolve().parents[3]
 EXP_DIR = Path(__file__).resolve().parent
@@ -107,8 +113,10 @@ p(f"  done in {time.time()-t0:.1f}s")
 recent_pred = np.clip(model.predict(prep_X(recent, FEATURES_STG)), 0, None)
 test_pred   = np.clip(model.predict(prep_X(test,   FEATURES_STG)), 0, None)
 
-recent = recent.copy(); recent["pred"] = recent_pred
-test   = test.copy();   test["pred"]   = test_pred
+recent = recent.copy()
+recent["pred"] = recent_pred
+test = test.copy()
+test["pred"] = test_pred
 
 actual_test = test[TARGET].values
 p(f"\n{'='*70}")
@@ -217,7 +225,7 @@ p(f"\nBest variant: {best['label']}")
 
 # CF distribution for multiplicative variants
 if "cf" in cf3.columns:
-    p(f"\nCF distribution (variant 3):")
+    p("\nCF distribution (variant 3):")
     p(f"  median={cf3['cf'].median():.3f}  mean={cf3['cf'].mean():.3f}  "
       f"  p10={cf3['cf'].quantile(0.1):.3f}  p90={cf3['cf'].quantile(0.9):.3f}")
     p(f"  bakeries with CF>1.1: {(cf3['cf']>1.1).sum()}  CF<0.9: {(cf3['cf']<0.9).sum()}  total: {len(cf3)}")

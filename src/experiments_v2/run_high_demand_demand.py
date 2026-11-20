@@ -9,7 +9,6 @@ Usage:
 """
 
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -65,7 +64,7 @@ def main():
         print(f"  {name:<30} {status:<12} {elapsed:>7.0f}s")
 
     # Load and compare metrics
-    print(f"\n  === METRICS COMPARISON (vs Spros) ===")
+    print("\n  === METRICS COMPARISON (vs Spros) ===")
     print(f"  {'Experiment':<30} {'MAE':>8} {'WMAPE':>8} {'Bias':>8} {'R2':>8}")
     print(f"  {'-'*64}")
 
@@ -83,7 +82,7 @@ def main():
         else:
             print(f"  {name:<30} {'no metrics':>8}")
 
-    print(f"\n  Done!")
+    print("\n  Done!")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/45_log_residual/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -21,7 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TARGET, TEST_DAYS
 from src.experiments_v2.common import (
     DAILY_8M_PATH, FEATURES_V2, CATEGORICAL_COLS_V2,
     wmape, print_metrics, print_category_metrics,
@@ -61,7 +63,7 @@ def main():
     total_train_time = 0
 
     # --- Stage 1: Log model ---
-    print(f"\n  --- Stage 1: LightGBM on log1p(y) ---")
+    print("\n  --- Stage 1: LightGBM on log1p(y) ---")
     y_train_log = np.log1p(y_train)
 
     t_train = time.time()
@@ -78,7 +80,7 @@ def main():
     print(f"  Stage 1 MAE (test): {mae_stage1:.4f}")
 
     # --- Stage 2: Residual model ---
-    print(f"\n  --- Stage 2: LightGBM on residual (y - base) ---")
+    print("\n  --- Stage 2: LightGBM on residual (y - base) ---")
     residual_train = y_train - base_train
 
     print(f"  Residual stats: mean={residual_train.mean():.4f}, "
@@ -102,7 +104,7 @@ def main():
     bias = np.mean(y_test - y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"\n  === RESULTS (Stage 1 + Stage 2) ===")
+    print("\n  === RESULTS (Stage 1 + Stage 2) ===")
     print_metrics("45_log_residual", y_test, y_pred, baseline_mae=BASELINE_MAE)
     print(f"    RMSE = {rmse:.4f}, R2 = {r2:.4f}")
     print(f"    Stage 1 only:  MAE={mae_stage1:.4f}")
@@ -121,7 +123,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # Save

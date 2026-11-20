@@ -9,7 +9,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/51_log_target_demand/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -19,7 +21,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import MODEL_PARAMS, TEST_DAYS
+from src.config import TEST_DAYS
 from src.experiments_v2.common import (
     FEATURES_V2, CATEGORICAL_COLS_V2,
     wmape, print_metrics, print_category_metrics,
@@ -107,7 +109,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # Save

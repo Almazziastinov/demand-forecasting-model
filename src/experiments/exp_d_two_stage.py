@@ -10,12 +10,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMRegressor, LGBMClassifier
-from sklearn.metrics import mean_absolute_error, classification_report
+from lightgbm import LGBMClassifier
+from sklearn.metrics import mean_absolute_error
 
 from src.experiments.common import (
-    load_data, MODEL_PARAMS, BASELINE_MAE, FEATURES, TARGET,
-    wmape, print_metrics, print_category_metrics,
+    load_data, BASELINE_MAE, print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -82,7 +81,7 @@ def main():
 
     # Classify test
     pred_bins = clf.predict(X_test)
-    print(f"\n  Classifier accuracy:")
+    print("\n  Classifier accuracy:")
     for b in BIN_LABELS:
         true_mask = y_test_bins == b
         pred_mask = pred_bins == b

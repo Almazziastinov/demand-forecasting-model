@@ -11,7 +11,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/41_log_target/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -21,7 +23,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TARGET, TEST_DAYS
 from src.experiments_v2.common import (
     DAILY_8M_PATH, FEATURES_V2, CATEGORICAL_COLS_V2,
     wmape, print_metrics, print_category_metrics,
@@ -63,7 +65,7 @@ def main():
     print(f"  Target stats: raw mean={y_train_raw.mean():.2f}, log mean={y_train_log.mean():.2f}")
 
     # Train on log target
-    print(f"  Training on log1p(target)...")
+    print("  Training on log1p(target)...")
     t_train = time.time()
     model = train_lgbm(X_train, y_train_log)
     train_time = time.time() - t_train
@@ -80,7 +82,7 @@ def main():
     bias = np.mean(np.asarray(y_test) - y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"\n  === RESULTS ===")
+    print("\n  === RESULTS ===")
     print_metrics("41_log_target", y_test, y_pred, baseline_mae=BASELINE_MAE)
     print(f"    RMSE = {rmse:.4f}, R2 = {r2:.4f}")
     print(f"    Delta vs baseline: MAE {mae - BASELINE_MAE:+.4f}, WMAPE {wm - BASELINE_WMAPE:+.2f}%")
@@ -96,7 +98,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # Save

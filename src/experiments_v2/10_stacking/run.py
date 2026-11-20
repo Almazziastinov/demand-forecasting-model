@@ -34,8 +34,8 @@ from catboost import CatBoostRegressor
 from src.config import MODEL_PARAMS, TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, print_metrics, print_category_metrics,
-    predict_clipped, save_results,
+    wmape, print_category_metrics,
+    save_results,
 )
 
 EXP_DIR = Path(__file__).resolve().parent
@@ -62,7 +62,7 @@ def main():
     t_start = time.time()
 
     # --- Load ---
-    print(f"\n[1/5] Loading data...")
+    print("\n[1/5] Loading data...")
     if not DEMAND_8M_PATH.exists():
         print(f"  ERROR: {DEMAND_8M_PATH} not found!")
         return
@@ -72,7 +72,7 @@ def main():
           f"Bakeries: {df['Пекарня'].nunique()}")
 
     # --- Features ---
-    print(f"\n[2/5] Preparing features...")
+    print("\n[2/5] Preparing features...")
     available = [f for f in FEATURES_V3 if f in df.columns]
     print(f"  Using {len(available)} features")
 
@@ -130,7 +130,7 @@ def main():
         y_val = y_train.iloc[val_idx]
 
         # --- LightGBM ---
-        print(f"      LightGBM...", end=" ", flush=True)
+        print("      LightGBM...", end=" ", flush=True)
         t = time.time()
         lgbm = LGBMRegressor(**lgbm_params)
         lgbm.fit(X_train.iloc[tr_idx], y_tr)
@@ -140,7 +140,7 @@ def main():
         print(f"MAE={mae_l:.4f} ({time.time()-t:.0f}s)", flush=True)
 
         # --- CatBoost ---
-        print(f"      CatBoost...", end=" ", flush=True)
+        print("      CatBoost...", end=" ", flush=True)
         t = time.time()
         cb = CatBoostRegressor(
             iterations=500,
@@ -158,7 +158,7 @@ def main():
         print(f"MAE={mae_c:.4f} ({time.time()-t:.0f}s)", flush=True)
 
         # --- Ridge ---
-        print(f"      Ridge...", end=" ", flush=True)
+        print("      Ridge...", end=" ", flush=True)
         t = time.time()
         ridge = Ridge(alpha=1.0)
         ridge.fit(X_train_ridge.iloc[tr_idx], y_tr)
@@ -171,13 +171,13 @@ def main():
     print(f"\n  Total OOF time: {time_oof:.0f}s")
 
     # OOF metrics
-    print(f"\n  OOF metrics (full train):")
+    print("\n  OOF metrics (full train):")
     for name, oof in [("LightGBM", oof_lgbm), ("CatBoost", oof_cb), ("Ridge", oof_ridge)]:
         mae = mean_absolute_error(y_train, oof)
         print(f"    {name:<15} MAE={mae:.4f}")
 
     # --- Level 2: Meta-learner ---
-    print(f"\n[5/5] Training meta-learner (Ridge)...")
+    print("\n[5/5] Training meta-learner (Ridge)...")
     meta_X_train = np.column_stack([oof_lgbm, oof_cb, oof_ridge])
     meta_X_test = np.column_stack([test_lgbm, test_cb, test_ridge])
 
@@ -212,7 +212,7 @@ def main():
     print(f"\n  Winner: {best_name} (MAE {results[best_name]['mae']:.4f})")
 
     # High demand
-    print(f"\n  === High demand analysis ===")
+    print("\n  === High demand analysis ===")
     for threshold in [15, 50, 100]:
         mask = y_test >= threshold
         if mask.sum() > 0:
@@ -223,11 +223,11 @@ def main():
                   f"(delta {mae_s - mae_l:+.2f})")
 
     # Per-category
-    print(f"\n  === Per-category metrics (Stacking) ===")
+    print("\n  === Per-category metrics (Stacking) ===")
     print_category_metrics(y_test, pred_stack, test["Категория"].values)
 
     # --- Save ---
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     mae_stack = results["Stacking"]["mae"]
     wm_stack = results["Stacking"]["wmape"]
     rmse_stack = np.sqrt(mean_squared_error(y_test, pred_stack))

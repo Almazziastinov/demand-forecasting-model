@@ -11,7 +11,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/46_variance_weighted/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -25,7 +27,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
 from src.experiments_v2.common import (
     DAILY_8M_PATH, FEATURES_V2, CATEGORICAL_COLS_V2,
-    wmape, print_metrics, print_category_metrics,
+    wmape, print_category_metrics,
     predict_clipped, save_results,
 )
 
@@ -68,7 +70,7 @@ def main():
     total_train_time = 0
 
     # --- Variant A: weight proportional to std (focus on high demand) ---
-    print(f"\n  --- Variant A: weight ~ std (focus on hard cases) ---")
+    print("\n  --- Variant A: weight ~ std (focus on hard cases) ---")
     w_a = train["product_std"].values
     w_a = w_a / w_a.mean()  # normalize to mean=1
     print(f"  Weight stats: mean={w_a.mean():.2f}, min={w_a.min():.4f}, max={w_a.max():.2f}")
@@ -88,7 +90,7 @@ def main():
     results["A_std"] = {"mae": mae_a, "wmape": wm_a, "bias": bias_a}
 
     # --- Variant B: weight proportional to 1/std (focus on predictable) ---
-    print(f"\n  --- Variant B: weight ~ 1/std (focus on easy wins) ---")
+    print("\n  --- Variant B: weight ~ 1/std (focus on easy wins) ---")
     w_b = 1.0 / (train["product_std"].values + 0.1)
     w_b = w_b / w_b.mean()  # normalize
     print(f"  Weight stats: mean={w_b.mean():.2f}, min={w_b.min():.4f}, max={w_b.max():.2f}")

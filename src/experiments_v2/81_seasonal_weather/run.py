@@ -79,7 +79,11 @@ MODEL_PARAMS = {
 }
 
 out = sys.stdout.buffer
-def p(s): out.write((s + '\n').encode('utf-8')); out.flush()
+
+
+def p(s):
+    out.write((s + '\n').encode('utf-8'))
+    out.flush()
 
 
 def add_seasonal_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -191,7 +195,7 @@ def main():
 
     # Bad weather breakdown for best variant
     bw = test_eval["is_bad_weather"] == 1
-    bw_lag1 = test_c.get("is_bad_weather_lag1", pd.Series(0, index=test_c.index)) == 1 if "C" else None
+    test_c.get("is_bad_weather_lag1", pd.Series(0, index=test_c.index)) == 1 if "C" else None
     if bw.any():
         p(f"\n  Bad weather day (D0) rows: {bw.sum():,}  MAE={mean_absolute_error(y_test[bw], best_pred[bw]):.4f}")
         p(f"    Bias={float(np.mean(best_pred[bw] - y_test[bw])):+.2f}")

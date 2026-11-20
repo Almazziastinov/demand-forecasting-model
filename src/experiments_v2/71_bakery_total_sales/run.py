@@ -488,7 +488,7 @@ def main() -> None:
     print("EXPERIMENT 71: Bakery total sales")
     print("=" * 72)
 
-    print(f"\n[1/4] Building bakery-day dataset...")
+    print("\n[1/4] Building bakery-day dataset...")
     df = build_dataset()
     print(
         f"  Rows: {len(df):,}, days: {df[DATE_COL].nunique()}, "
@@ -499,7 +499,7 @@ def main() -> None:
         f"mean sales/day: {df[TARGET_COL].mean():.2f}"
     )
 
-    print(f"\n[2/4] Train/test split...")
+    print("\n[2/4] Train/test split...")
     train_df, test_df, test_start = make_train_test_split(df, test_days=args.test_days)
     print(
         f"  Test start: {test_start.date()} | train rows: {len(train_df):,} | "
@@ -512,7 +512,7 @@ def main() -> None:
     prediction_frames: dict[str, pd.DataFrame] = {}
     training_logs: list[dict] = []
 
-    print(f"\n[3/4] Evaluating models...")
+    print("\n[3/4] Evaluating models...")
 
     global_preds, global_info = train_predict_lgbm(
         train_df,
@@ -568,7 +568,7 @@ def main() -> None:
     prediction_frames["per_bakery_prophet_holidays"] = bakery_prophet_frame
     training_logs.extend(bakery_prophet_log)
 
-    print(f"\n[4/4] Saving artifacts...")
+    print("\n[4/4] Saving artifacts...")
     for model_name, files in OUTPUT_FILES.items():
         save_csv(metrics_frames[model_name], files["metrics"])
         save_csv(prediction_frames[model_name], files["predictions"])

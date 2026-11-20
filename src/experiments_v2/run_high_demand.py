@@ -6,7 +6,6 @@ Usage:
 """
 
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -62,7 +61,7 @@ def main():
         print(f"  {name:<25} {status:<12} {elapsed:>7.0f}s")
 
     # Load and compare metrics
-    print(f"\n  === METRICS COMPARISON ===")
+    print("\n  === METRICS COMPARISON ===")
     print(f"  {'Experiment':<25} {'MAE':>8} {'WMAPE':>8} {'Bias':>8} {'R2':>8}")
     print(f"  {'-'*59}")
 
@@ -80,7 +79,7 @@ def main():
         else:
             print(f"  {name:<25} {'no metrics':>8}")
 
-    print(f"\n  Done!")
+    print("\n  Done!")
 
 
 if __name__ == "__main__":

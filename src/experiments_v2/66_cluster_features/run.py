@@ -480,21 +480,21 @@ def main():
     print(f"  Shape: {df.shape}")
     print(f"  Date range: {df[DATE_COL].min().date()} -- {df[DATE_COL].max().date()}")
 
-    print(f"\n[2/7] Building exp63 feature layer...")
+    print("\n[2/7] Building exp63 feature layer...")
     df = add_censoring_features(df)
     df = add_dow_features(df)
     df = add_trend_features(df)
     df = build_stale_ratio(df)
     df = add_assortment_features(df)
 
-    print(f"\n[3/7] Building location clusters...")
+    print("\n[3/7] Building location clusters...")
     loc_df = load_location_features()
     loc_clusters, loc_summary, loc_meta, loc_pipeline = build_location_clusters(loc_df)
     df = df.merge(loc_clusters, on=BAKERY_COL, how="left")
     df["cluster_loc"] = df["cluster_loc"].fillna(-1).astype(int)
     print(f"  Matched bakeries with location cluster: {df.loc[df['cluster_loc'] >= 0, BAKERY_COL].nunique()}")
 
-    print(f"\n[4/7] Building time-series clusters...")
+    print("\n[4/7] Building time-series clusters...")
     ts_clusters, ts_summary, ts_meta, ts_pipeline = build_ts_clusters(df)
     df = df.merge(ts_clusters, on=[BAKERY_COL, PRODUCT_COL], how="left")
     df["cluster_ts"] = df["cluster_ts"].fillna(-1).astype(int)
@@ -514,7 +514,7 @@ def main():
     print(f"  Train: {len(train_df):,} rows, {train_df[DATE_COL].nunique()} days")
     print(f"  Test:  {len(test_df):,} rows, {test_df[DATE_COL].nunique()} days")
 
-    print(f"\n[6/7] Training variants...")
+    print("\n[6/7] Training variants...")
     base_features = [f for f in FEATURES_V3 if f in df.columns]
     exp63_features = base_features + [f for f in EXP63_EXTRA_FEATURES if f in df.columns]
     variants = {
@@ -555,7 +555,7 @@ def main():
         best_pred = pred_e
         best_available = available_e
 
-    print(f"\n[7/7] Reporting...")
+    print("\n[7/7] Reporting...")
     is_routed = isinstance(best_model, dict)
     if not is_routed and best_model is not None:
         importance = pd.DataFrame(

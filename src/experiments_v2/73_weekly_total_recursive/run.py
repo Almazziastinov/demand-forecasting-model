@@ -27,7 +27,6 @@ from src.experiments_v2.bakery_day_forecast import BAKERY_NAME_COL
 from src.experiments_v2.bakery_day_forecast import CITY_COL
 from src.experiments_v2.bakery_day_forecast import DATE_COL
 from src.experiments_v2.bakery_day_forecast import TARGET_COL
-from src.experiments_v2.bakery_day_forecast import build_model_frame
 from src.experiments_v2.bakery_day_forecast import build_future_feature_rows
 from src.experiments_v2.bakery_regime_shift_common import WEEKLY_FEATURES
 from src.experiments_v2.bakery_regime_shift_common import build_bakery_weekly_frame

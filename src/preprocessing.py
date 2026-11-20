@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import os
 
 def load_raw_data(file_path: str) -> pd.DataFrame:
@@ -14,12 +13,12 @@ def load_raw_data(file_path: str) -> pd.DataFrame:
     # Если строка 10 содержит 'Дата' -- у файла нестандартная шапка
     row10_values = probe.iloc[10].astype(str).tolist()
     if any('Дата' in v for v in row10_values if isinstance(v, str)):
-        print(f"  Обнаружена служебная шапка (10 строк) -- читаем с header=10")
+        print("  Обнаружена служебная шапка (10 строк) -- читаем с header=10")
         df = pd.read_excel(file_path, header=10)
         # Убираем первые пустые колонки (артефакт Excel-шапки)
         df = df.dropna(axis=1, how='all')
     else:
-        print(f"  Стандартный формат -- читаем с header=0")
+        print("  Стандартный формат -- читаем с header=0")
         df = pd.read_excel(file_path)
 
     return df
@@ -30,7 +29,7 @@ def merge_raw_files(old_path, new_path, cutoff_date='2026-03-01'):
     Объединяет два сырых файла: из старого берем данные до cutoff_date,
     из нового -- с cutoff_date и далее. Убирает дубликаты.
     """
-    print(f"Объединение файлов:")
+    print("Объединение файлов:")
     print(f"  Старый: {old_path}")
     print(f"  Новый:  {new_path}")
 
@@ -226,9 +225,9 @@ if __name__ == "__main__":
             output_path = 'data/processed/preprocessed_data.csv'
 
     if not data.empty:
-        print(f"\n--- Первые 5 строк ---")
+        print("\n--- Первые 5 строк ---")
         print(data.head())
-        print(f"\n--- Список всех признаков ---")
+        print("\n--- Список всех признаков ---")
         print(data.columns.tolist())
         print(f"\nПериод: {data['Дата'].min().date()} -- {data['Дата'].max().date()}")
         print(f"Уникальных дней:    {data['Дата'].nunique()}")

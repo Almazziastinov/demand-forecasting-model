@@ -20,7 +20,9 @@ Same 3-fold CV structure as run_cv.py:
   Fold 3: train Apr 2025-May 2026 | yoy_ref Jun 2025 | test Jun 2026
 """
 
-import sys, json, time
+import sys
+import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -29,7 +31,11 @@ from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error
 
 out = sys.stdout.buffer
-def p(s): out.write((s + '\n').encode('utf-8')); out.flush()
+
+
+def p(s):
+    out.write((s + '\n').encode('utf-8'))
+    out.flush()
 
 ROOT = Path(__file__).resolve().parents[3]
 EXP_DIR = Path(__file__).resolve().parent
@@ -147,7 +153,7 @@ for fold in FOLDS:
     obs_yoy = yoy_w.groupby(BAKERY_COL)["Дата"].nunique().rename("obs").reset_index()
     cf_yoy = cf_yoy.merge(obs_yoy, on=BAKERY_COL, how="left")
 
-    p(f"\n      YoY CF distribution:")
+    p("\n      YoY CF distribution:")
     p(f"        median={cf_yoy['cf'].median():.3f}  mean={cf_yoy['cf'].mean():.3f}"
       f"  p10={cf_yoy['cf'].quantile(0.1):.3f}  p90={cf_yoy['cf'].quantile(0.9):.3f}")
     p(f"        CF>1.1: {(cf_yoy['cf']>1.1).sum()}  CF<0.9: {(cf_yoy['cf']<0.9).sum()}  total: {len(cf_yoy)}")
@@ -198,7 +204,7 @@ for fold in FOLDS:
     top5 = imp_pct.nlargest(5)
     lag365_pct = float(imp_pct.get("sales_lag365", 0))
     p(f"\n      sales_lag365 importance (gain): {lag365_pct:.2f}%")
-    p(f"      Top-5 features:")
+    p("      Top-5 features:")
     for feat, val in top5.items():
         marker = " <<" if feat == "sales_lag365" else ""
         p(f"        {feat:<35} {val:.2f}%{marker}")
@@ -228,7 +234,7 @@ for v in variants:
     sign = "✓" if delta < -0.001 else ("=" if abs(delta) <= 0.001 else "✗")
     p(f"  {v:<30} MAE={mean_mae:.4f}  Bias={mean_bias:+.3f}  delta={delta:+.4f} {sign}")
 
-p(f"\n  avg lag365 importance across folds:")
+p("\n  avg lag365 importance across folds:")
 for fold in FOLDS:
     val = importances[fold["name"]].get("sales_lag365", 0)
     p(f"    {fold['name']}: {val:.2f}%")

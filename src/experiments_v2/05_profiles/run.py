@@ -141,7 +141,7 @@ def main():
           f"({test['Дата'].min().date()} -- {test['Дата'].max().date()})")
 
     # --- Build profiles from TRAIN only ---
-    print(f"\n[3/7] Building profiles from training data...")
+    print("\n[3/7] Building profiles from training data...")
     profiles = build_profiles(train)
 
     print(f"  bakery_avg_sales:     {len(profiles['bakery_avg_sales'])} bakeries")
@@ -152,21 +152,21 @@ def main():
     print(f"  bakery_product_count: {len(profiles['bakery_product_count'])} bakeries")
 
     # --- Apply profiles to both train and test ---
-    print(f"\n[4/7] Applying profiles...")
-    print(f"  Train:")
+    print("\n[4/7] Applying profiles...")
+    print("  Train:")
     train = apply_profiles(train, profiles)
-    print(f"  Test:")
+    print("  Test:")
     test = apply_profiles(test, profiles)
 
     # Profile feature stats
-    print(f"\n  Profile feature stats (train):")
+    print("\n  Profile feature stats (train):")
     for col in PROFILE_FEATURES:
         vals = train[col]
         print(f"    {col:<25} mean={vals.mean():.4f}  std={vals.std():.4f}  "
               f"min={vals.min():.4f}  max={vals.max():.4f}")
 
     # --- Select features ---
-    print(f"\n[5/7] Selecting features...")
+    print("\n[5/7] Selecting features...")
     all_features = FEATURES_V2 + PROFILE_FEATURES
     available = [f for f in all_features if f in train.columns]
     missing = [f for f in all_features if f not in train.columns]
@@ -186,7 +186,7 @@ def main():
     y_test = test[TARGET]
 
     # --- Train ---
-    print(f"\n[6/7] Training LightGBM (v6 params)...")
+    print("\n[6/7] Training LightGBM (v6 params)...")
     print(f"  Params: n_estimators={MODEL_PARAMS['n_estimators']}, "
           f"lr={MODEL_PARAMS['learning_rate']:.4f}, "
           f"num_leaves={MODEL_PARAMS['num_leaves']}, "
@@ -198,7 +198,7 @@ def main():
     print(f"  Training time: {train_time:.0f}s")
 
     # --- Evaluate ---
-    print(f"\n[7/7] Evaluation...")
+    print("\n[7/7] Evaluation...")
     y_pred = predict_clipped(model, X_test)
 
     mae = mean_absolute_error(y_test, y_pred)
@@ -207,22 +207,22 @@ def main():
     bias = np.mean(np.asarray(y_test) - y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"\n  === RESULTS ===")
+    print("\n  === RESULTS ===")
     print_metrics("05_profiles", y_test, y_pred, baseline_mae=BASELINE_MAE)
     print(f"    RMSE  = {rmse:.4f}")
     print(f"    R2    = {r2:.4f}")
 
     # Delta vs baseline 01
-    print(f"\n  === vs 01_baseline_8m ===")
+    print("\n  === vs 01_baseline_8m ===")
     print(f"    MAE:   {mae:.4f}  vs  {BASELINE_MAE:.4f}  (delta: {mae - BASELINE_MAE:+.4f})")
     print(f"    WMAPE: {wm:.2f}%  vs  {BASELINE_WMAPE:.2f}%  (delta: {wm - BASELINE_WMAPE:+.2f}%)")
 
     # Per-category breakdown
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # --- Feature importance ---
-    print(f"\n  Feature importance (top 20)...")
+    print("\n  Feature importance (top 20)...")
     importance = pd.DataFrame({
         "feature": available,
         "importance": model.feature_importances_,
@@ -232,14 +232,14 @@ def main():
         print(f"    {row['feature']:<30} {row['importance']:>8.0f}")
 
     # Profile features importance
-    print(f"\n  Profile features importance:")
+    print("\n  Profile features importance:")
     profile_imp = importance[importance["feature"].isin(PROFILE_FEATURES)]
     for _, row in profile_imp.iterrows():
         rank = importance.index.tolist().index(row.name) + 1
         print(f"    #{rank:<3} {row['feature']:<30} {row['importance']:>8.0f}")
 
     # --- Save results ---
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": "05_profiles",
         "mae": round(mae, 4),
@@ -276,7 +276,7 @@ def main():
     save_results(EXP_DIR, metrics, predictions)
 
     # --- MLflow ---
-    print(f"\n  Logging to MLflow...")
+    print("\n  Logging to MLflow...")
     mlflow.set_experiment("experiments_v2")
     with mlflow.start_run(run_name="05_profiles"):
         mlflow.log_params({
@@ -311,7 +311,7 @@ def main():
 
     elapsed = time.time() - t_start
     print(f"\n  Total time: {elapsed:.0f}s")
-    print(f"  Done!")
+    print("  Done!")
 
 
 if __name__ == "__main__":

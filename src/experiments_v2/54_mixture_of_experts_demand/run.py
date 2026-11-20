@@ -9,7 +9,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/54_mixture_of_experts_demand/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -174,7 +176,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test_all, y_pred_all, test_merged["Категория"].values)
 
     # Save

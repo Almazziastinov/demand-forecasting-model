@@ -33,8 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.experiments_v2.common import (
-    FEATURES_V3, DEMAND_FEATURES, CATEGORICAL_COLS_V2,
-    CITY_COORDS, CITY_SUFFIXES, extract_city,
+    FEATURES_V3, CITY_COORDS, extract_city,
 )
 from src.features.fetch_weather import fetch_weather, enrich_weather
 
@@ -83,20 +82,20 @@ def load_historical_data():
     if not HISTORICAL_RAW_PATH.exists():
         print(f"  Warning: historical raw data not found at {HISTORICAL_RAW_PATH}")
         return pd.DataFrame()
-    
-    print(f"  Processing historical raw data (batched)...")
-    
+
+    print("  Processing historical raw data (batched)...")
+
     # Read first batch to get column names and find indices
     first_chunk = pd.read_csv(HISTORICAL_RAW_PATH, nrows=1000, encoding="utf-8-sig")
     col_names = first_chunk.columns.tolist()
     print(f"    Raw columns: {col_names}")
-    
+
     # Find column indices: 0=date, 5=bakery (Касса), 5=product (Номенклатура), 8=qty (Кол-во)
     date_idx = 0
     bakery_idx = None
     product_idx = None
     qty_idx = None
-    
+
     for i, c in enumerate(col_names):
         if "Касса" in c:
             bakery_idx = i
@@ -104,16 +103,16 @@ def load_historical_data():
             product_idx = i
         elif c == "Кол-во":
             qty_idx = i
-    
+
     usecols = [date_idx, bakery_idx, product_idx, qty_idx]
     names = ["Дата", "Пекарня", "Номенклатура", "Кол-во"]
     print(f"    Using indices: date={date_idx}, bakery={bakery_idx}, product={product_idx}, qty={qty_idx}")
-    
+
     batch_size = 200_000
     daily_agg = []
-    
+
     for batch_num, chunk in enumerate(pd.read_csv(
-        HISTORICAL_RAW_PATH, 
+        HISTORICAL_RAW_PATH,
         chunksize=batch_size,
         encoding="utf-8-sig",
         usecols=usecols,
@@ -123,27 +122,27 @@ def load_historical_data():
         # Parse date
         chunk["Дата"] = pd.to_datetime(chunk["Дата"], format="%d.%m.%Y", errors="coerce")
         chunk = chunk.dropna(subset=["Дата", "Пекарня", "Номенклатура"])
-        
+
         # Aggregate to daily
         daily = (chunk.groupby(["Дата", "Пекарня", "Номенклатура"])
                  .agg(Продано=("Кол-во", "sum"))
                  .reset_index())
         daily["Продано"] = daily["Продано"].clip(lower=0)
-        
+
         daily_agg.append(daily)
-        
+
         if (batch_num + 1) % 10 == 0:
             print(f"    Batch {batch_num + 1}...")
-    
+
     # Combine all batches
     print(f"    Combining {len(daily_agg)} batches...")
     all_daily = pd.concat(daily_agg, ignore_index=True)
-    
+
     # Re-aggregate in case of overlaps
     all_daily = (all_daily.groupby(["Дата", "Пекарня", "Номенклатура"])
                  .agg(Продано=("Продано", "sum"))
                  .reset_index())
-    
+
     print(f"    Historical daily: {len(all_daily):,} rows, dates {all_daily['Дата'].min().date()} to {all_daily['Дата'].max().date()}")
     return all_daily
 
@@ -188,7 +187,7 @@ def load_all_xlsx(data_dir=None, progress_callback=None):
         return pd.DataFrame()
 
     print(f"Reading {len(files)} XLSX files with {min(8, os.cpu_count() or 4)} threads...")
-    
+
     def read_single_file(filepath):
         """Read one XLSX file and return DataFrame."""
         try:
@@ -588,18 +587,18 @@ def process_and_cache(data_dir=None, force=False, progress_callback=None):
 
     # Step 5b: Load historical data for lags
     historical = load_historical_data()
-    
+
     # Free raw data
     del raw
 
     # Step 6: Normalize bakery names in daily (XLSX) data
     daily["Пекарня"] = daily["Пекарня"].apply(normalize_bakery_name)
-    
+
     # Step 6b: Combine XLSX data with historical for lag computation
     if not historical.empty:
         # Normalize historical bakery names too
         historical["Пекарня"] = historical["Пекарня"].apply(normalize_bakery_name)
-        
+
         # Append historical data (keep only needed columns)
         hist_cols = ["Дата", "Пекарня", "Номенклатура", "Категория", "Город", "Продано"]
         hist_subset = historical[[c for c in hist_cols if c in historical.columns]]
@@ -612,7 +611,7 @@ def process_and_cache(data_dir=None, force=False, progress_callback=None):
         combined = combined.drop_duplicates(subset=["Дата", "Пекарня", "Номенклатура"], keep="last")
     else:
         combined = daily
-    
+
     # Step 7: Category mapping + city extraction
     cat_map = get_category_mapping()
     combined["Категория"] = combined["Номенклатура"].map(cat_map).fillna("Прочее")
@@ -634,7 +633,7 @@ def process_and_cache(data_dir=None, force=False, progress_callback=None):
 
     # Step 12: Weather
     combined = add_weather_features(combined)
-    
+
     # Filter back to only XLSX dates (current data)
     xlsx_dates = daily["Дата"].unique()
     print(f"  XLSX dates to keep: {len(xlsx_dates)} - {sorted(xlsx_dates)[:5]}...")

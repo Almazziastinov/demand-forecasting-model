@@ -643,26 +643,23 @@ class PilotManagementService:
         if "price" in detail.columns:
             actual_revenue = float((detail["sold_qty"].clip(lower=0) * detail["price"].fillna(0)).sum())
 
-        wape = bias = execution_rate = None
-        block1_lost_qty = block1_lost_revenue = None
-        block1_recognized_lost_qty = block1_recognized_lost_revenue = None
         if "eligible_forecast_summary" in detail.columns:
             b1 = detail[detail["eligible_forecast_summary"].astype(bool)]
             if not b1.empty and "forecast_qty" in b1.columns and "demand_qty" in b1.columns:
                 demand_sum = float(b1["demand_qty"].sum())
                 if demand_sum > 0:
-                    wape = float((b1["forecast_qty"] - b1["demand_qty"]).abs().sum() / demand_sum)
-                    bias = float((b1["forecast_qty"] - b1["demand_qty"]).sum() / demand_sum)
+                    float((b1["forecast_qty"] - b1["demand_qty"]).abs().sum() / demand_sum)
+                    float((b1["forecast_qty"] - b1["demand_qty"]).sum() / demand_sum)
                 if "sold_qty" in b1.columns:
                     b1_lost = (b1["forecast_qty"] - b1["sold_qty"]).clip(lower=0)
-                    block1_lost_qty = float(b1_lost.sum())
+                    float(b1_lost.sum())
                     if "price" in b1.columns:
-                        block1_lost_revenue = float((b1_lost * b1["price"].fillna(0)).sum())
+                        float((b1_lost * b1["price"].fillna(0)).sum())
                 if "produced_qty" in b1.columns:
                     b1e = b1[b1["produced_qty"].notna()]
                     if not b1e.empty:
                         fc = float(b1e["forecast_qty"].sum())
-                        execution_rate = float(b1e["produced_qty"].sum()) / fc if fc > 0 else None
+                        float(b1e["produced_qty"].sum()) / fc if fc > 0 else None
         if (
             "eligible_lost_demand" in detail.columns
             and "lost_demand_recognized_qty" in detail.columns
@@ -675,9 +672,9 @@ class PilotManagementService:
             ]
             if not ld.empty:
                 capped = (ld["forecast_qty"] - ld["sold_qty"]).clip(upper=ld["lost_demand_recognized_qty"])
-                block1_recognized_lost_qty = float(capped.sum())
+                float(capped.sum())
                 if "price" in ld.columns:
-                    block1_recognized_lost_revenue = float((capped * ld["price"].fillna(0)).sum())
+                    float((capped * ld["price"].fillna(0)).sum())
 
         kpi3 = self._kpi_block(detail)
         return {

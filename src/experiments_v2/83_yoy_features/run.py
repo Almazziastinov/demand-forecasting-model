@@ -15,7 +15,9 @@ CV structure (same as exp 82 YoY):
   Fold 3: train Apr 2025-May 2026 | test Jun 2026
 """
 
-import sys, json, time
+import sys
+import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -24,7 +26,11 @@ from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error
 
 out = sys.stdout.buffer
-def p(s): out.write((s + "\n").encode("utf-8")); out.flush()
+
+
+def p(s):
+    out.write((s + "\n").encode("utf-8"))
+    out.flush()
 
 ROOT = Path(__file__).resolve().parents[3]
 EXP_DIR = Path(__file__).resolve().parent
@@ -205,7 +211,7 @@ for vname in VARIANTS:
     sign = "✓" if delta < -0.001 else ("=" if abs(delta) <= 0.001 else "✗")
     p(f"  {vname:<28} MAE={mean_mae:.4f}  Bias={mean_bias:+.3f}  delta={delta:+.4f} {sign}")
 
-p(f"\nYoY feature importances по фолдам (gain %):")
+p("\nYoY feature importances по фолдам (gain %):")
 for fold in FOLDS:
     p(f"  {fold['name']}:")
     for vname in ["B_+lag364", "C_+roll_mean4w_yoy", "D_+yoy_month_mean", "E_+all_three"]:

@@ -39,7 +39,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, print_metrics, print_category_metrics,
+    wmape, print_category_metrics,
     train_quantile, train_lgbm, predict_clipped, save_results,
 )
 
@@ -87,14 +87,14 @@ def main():
     t_start = time.time()
 
     # --- Load ---
-    print(f"\n[1/5] Loading data...")
+    print("\n[1/5] Loading data...")
     df = pd.read_csv(str(DEMAND_8M_PATH), encoding="utf-8-sig")
     df["Дата"] = pd.to_datetime(df["Дата"])
     print(f"  Shape: {df.shape}")
     print(f"  Date range: {df['Дата'].min().date()} -- {df['Дата'].max().date()}")
 
     # --- Build weather-lag features ---
-    print(f"\n[2/5] Building weather-lag features...")
+    print("\n[2/5] Building weather-lag features...")
     df = build_weather_lag_features(df)
 
     # Show distribution of new features
@@ -116,7 +116,7 @@ def main():
             df[col] = df[col].astype("category")
 
     # --- Split ---
-    print(f"\n[3/5] Train/test split...")
+    print("\n[3/5] Train/test split...")
     from src.config import TEST_DAYS
     test_start = df["Дата"].max() - pd.Timedelta(days=TEST_DAYS - 1)
     train = df[df["Дата"] < test_start].copy()
@@ -131,7 +131,7 @@ def main():
     y_sold  = test["Продано"].values
 
     # --- Train ---
-    print(f"\n[4/5] Training models...")
+    print("\n[4/5] Training models...")
     models, preds = {}, {}
     total_t = 0
     for q in QUANTILES:
@@ -153,7 +153,7 @@ def main():
     print(f"  MSE (same feats): MAE={mae_mse:.4f}, Time={time_mse:.0f}s")
 
     # --- Eval ---
-    print(f"\n[5/5] Evaluation...")
+    print("\n[5/5] Evaluation...")
     y_p50 = preds["P50"]
     mae   = mean_absolute_error(y_test, y_p50)
     wm    = wmape(y_test, y_p50)
@@ -168,7 +168,7 @@ def main():
     print(f"    Bias  = {bias:+.4f}")
     print(f"    R2    = {r2:.4f}")
 
-    print(f"\n  === vs baselines ===")
+    print("\n  === vs baselines ===")
     print(f"    {'Exp':<35} {'MAE':>8} {'Delta':>10}")
     print(f"    {'-'*55}")
     print(f"    {'exp 60 (V3, P50)':<35} {BASELINE_V3_MAE:>8.4f} {mae-BASELINE_V3_MAE:>+10.4f}")
@@ -180,7 +180,7 @@ def main():
         "feature":    available,
         "importance": models["P50"].feature_importances_,
     }).sort_values("importance", ascending=False)
-    print(f"\n  === Feature importance — new weather-lag features ===")
+    print("\n  === Feature importance — new weather-lag features ===")
     new_feats = imp[imp["feature"].isin(WEATHER_LAG_FEATURES)]
     total_imp = imp["importance"].sum()
     for _, r in new_feats.iterrows():
@@ -188,14 +188,14 @@ def main():
         pct  = r["importance"] / total_imp * 100
         print(f"    #{rank:3d}  {r['feature']:<30} {r['importance']:>10.0f}  ({pct:.2f}%)")
 
-    print(f"\n  === Top 15 features overall ===")
+    print("\n  === Top 15 features overall ===")
     for i, (_, r) in enumerate(imp.head(15).iterrows()):
         pct = r["importance"] / total_imp * 100
         new = " *NEW*" if r["feature"] in WEATHER_LAG_FEATURES else ""
         print(f"    #{i+1:2d}  {r['feature']:<30} {pct:>6.2f}%{new}")
 
     # Bad-weather lag day breakdown
-    print(f"\n  === Bad-weather lag effect (days after is_bad_weather_lag1=1 vs 0) ===")
+    print("\n  === Bad-weather lag effect (days after is_bad_weather_lag1=1 vs 0) ===")
     test_df = test.copy()
     test_df["pred_P50"] = y_p50
     test_df["abs_err"]  = np.abs(y_test - y_p50)

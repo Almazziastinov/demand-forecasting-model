@@ -12,7 +12,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/40_tweedie/run.py
 """
 
-import sys, os, time, json
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -67,7 +69,7 @@ def main():
     # Remove metric conflict
     params.pop("metric", None)
 
-    print(f"  Training Tweedie (power=1.5)...")
+    print("  Training Tweedie (power=1.5)...")
     t_train = time.time()
     model = LGBMRegressor(**params)
     model.fit(X_train, y_train)
@@ -82,7 +84,7 @@ def main():
     bias = np.mean(np.asarray(y_test) - y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"\n  === RESULTS ===")
+    print("\n  === RESULTS ===")
     print_metrics("40_tweedie", y_test, y_pred, baseline_mae=BASELINE_MAE)
     print(f"    RMSE = {rmse:.4f}, R2 = {r2:.4f}")
     print(f"    Delta vs baseline: MAE {mae - BASELINE_MAE:+.4f}, WMAPE {wm - BASELINE_WMAPE:+.2f}%")
@@ -98,7 +100,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # Feature importance
@@ -106,7 +108,7 @@ def main():
         "feature": available, "importance": model.feature_importances_,
     }).sort_values("importance", ascending=False)
 
-    print(f"\n  Top 10 features:")
+    print("\n  Top 10 features:")
     for _, row in importance.head(10).iterrows():
         print(f"    {row['feature']:<25} {row['importance']:>8.0f}")
 

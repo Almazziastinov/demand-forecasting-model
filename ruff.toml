@@ -1,0 +1,6 @@
+line-length = 120
+
+[lint]
+select = ["E", "F", "W"]
+# Script-style research modules intentionally modify sys.path before local imports.
+ignore = ["E402", "E501"]

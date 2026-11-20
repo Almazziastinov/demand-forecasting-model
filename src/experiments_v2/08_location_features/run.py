@@ -28,10 +28,10 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error
 
-from src.config import MODEL_PARAMS, TEST_DAYS
+from src.config import TEST_DAYS
 from src.experiments_v2.common import (
     FEATURES_V2, CATEGORICAL_COLS_V2,
-    wmape, print_metrics, print_category_metrics,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_results,
 )
 
@@ -176,7 +176,7 @@ def main():
     print(f"  Full dataset: {len(df):,} rows, {df['Пекарня'].nunique()} bakeries")
 
     # --- Merge & filter to matched bakeries ---
-    print(f"\n[2/6] Merging location features...")
+    print("\n[2/6] Merging location features...")
     matched_bakeries = set(df["Пекарня"].unique()) & set(loc["Пекарня"].unique())
     print(f"  Matched bakeries: {len(matched_bakeries)} of {df['Пекарня'].nunique()}")
 
@@ -191,7 +191,7 @@ def main():
     print(f"  mean({DEMAND_TARGET}): {mean_demand:.4f}, censored: {censored_pct:.1f}%")
 
     # --- Features ---
-    print(f"\n[3/6] Preparing features...")
+    print("\n[3/6] Preparing features...")
     location_features = (
         list(NUMERIC_LOCATION_COLS.values())
         + list(BINARY_LOCATION_COLS.values())
@@ -224,7 +224,7 @@ def main():
     y_test = test[DEMAND_TARGET]
 
     # --- Train Model A ---
-    print(f"\n[5/6] Training models...")
+    print("\n[5/6] Training models...")
 
     print(f"\n  --- Model A: baseline + demand ({len(baseline_features)} features) ---")
     t_a = time.time()
@@ -265,14 +265,14 @@ def main():
                   f"A MAE={ma_a:.2f} | B MAE={ma_b:.2f} (delta {ma_b - ma_a:+.2f})")
 
     # Per-category
-    print(f"\n  === Model A per-category ===")
+    print("\n  === Model A per-category ===")
     print_category_metrics(y_test, pred_a, test["Категория"].values)
 
-    print(f"\n  === Model B per-category ===")
+    print("\n  === Model B per-category ===")
     print_category_metrics(y_test, pred_b, test["Категория"].values)
 
     # --- Feature importance (Model B -- location features) ---
-    print(f"\n  === Location feature importance (Model B) ===")
+    print("\n  === Location feature importance (Model B) ===")
     importance_b = pd.DataFrame({
         "feature": extended_features,
         "importance": model_b.feature_importances_,
@@ -286,7 +286,7 @@ def main():
             print(f"    {row['feature']:<30} {row['importance']:>10.0f} {rank:>6}")
 
     # --- Save ---
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": "08_location_features",
         "target": DEMAND_TARGET,

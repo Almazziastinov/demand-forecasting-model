@@ -37,12 +37,11 @@ sys.path.insert(0, ROOT)
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error
 
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, print_category_metrics,
-    train_quantile, train_lgbm, predict_clipped, save_results,
+    wmape, train_quantile, predict_clipped, save_results,
 )
 from src.config import TEST_DAYS
 
@@ -210,7 +209,7 @@ def main():
     t_start = time.time()
 
     # --- Load & prepare ---
-    print(f"\n[1/4] Loading data...")
+    print("\n[1/4] Loading data...")
     df = pd.read_csv(str(DEMAND_8M_PATH), encoding="utf-8-sig")
     df["Дата"] = pd.to_datetime(df["Дата"])
     df = df.sort_values(["Пекарня", "Дата"])
@@ -225,7 +224,7 @@ def main():
             df[col] = df[col].astype("category")
 
     # --- Split ---
-    print(f"\n[2/4] Train/test split...")
+    print("\n[2/4] Train/test split...")
     test_start = df["Дата"].max() - pd.Timedelta(days=TEST_DAYS - 1)
     train = df[df["Дата"] < test_start].copy()
     test  = df[df["Дата"] >= test_start].copy()
@@ -235,7 +234,7 @@ def main():
     y_test  = test[DEMAND_TARGET]
 
     # --- Baseline: plain V3 P50 (for reference within this run) ---
-    print(f"\n[3/4] Baseline (V3 P50, no correction)...")
+    print("\n[3/4] Baseline (V3 P50, no correction)...")
     t0 = time.time()
     model_base  = train_quantile(train[available], y_train, alpha=0.5)
     pred_base   = predict_clipped(model_base, test[available])
@@ -245,11 +244,11 @@ def main():
     evaluate(y_test.values, pred_base, "Baseline V3 P50           ", bad_lag1)
 
     # --- Variant A ---
-    print(f"\n[4a/4] Variant A...")
+    print("\n[4a/4] Variant A...")
     mae_a, pred_a, global_cf, bakery_cf = run_variant_a(train, test, available, y_train, y_test)
 
     # --- Variant B ---
-    print(f"\n[4b/4] Variant B...")
+    print("\n[4b/4] Variant B...")
     mae_b, pred_b = run_variant_b(train, test, available, y_train, y_test)
 
     # --- Summary ---

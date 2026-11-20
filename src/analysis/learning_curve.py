@@ -164,7 +164,7 @@ def main():
 
     if fit_ok:
         print(f"\n  {'':=<55}")
-        print(f"  EXTRAPOLATION")
+        print("  EXTRAPOLATION")
         print(f"  {'':=<55}")
         print(f"  {'Horizon':<28} {'Est. MAE':>10} {'Delta':>10}")
         print(f"  {'-' * 50}")
@@ -255,7 +255,7 @@ def main():
 
     # Save raw data
     res_df.to_csv("reports/learning_curve_data.csv", index=False)
-    print(f"  Data saved: reports/learning_curve_data.csv")
+    print("  Data saved: reports/learning_curve_data.csv")
     print("\nDone!")
 
 

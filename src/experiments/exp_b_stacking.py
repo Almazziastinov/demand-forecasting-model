@@ -20,7 +20,7 @@ from sklearn.preprocessing import StandardScaler
 
 from src.experiments.common import (
     load_data, MODEL_PARAMS, BASELINE_MAE, CATEGORICAL_COLS,
-    wmape, print_metrics, print_category_metrics,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 

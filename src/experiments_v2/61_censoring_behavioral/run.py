@@ -32,11 +32,11 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
     SALES_HRS_PATH,
-    wmape, print_metrics, print_category_metrics,
+    wmape, print_category_metrics,
     train_quantile, predict_clipped, save_results,
 )
 
@@ -193,7 +193,7 @@ def main():
     print(f"  Date range: {df['Дата'].min().date()} -- {df['Дата'].max().date()}")
 
     # [2/5] Build features
-    print(f"\n[2/5] Building feature groups...")
+    print("\n[2/5] Building feature groups...")
 
     print("  Group A: censoring features...")
     df = add_censoring_features(df)
@@ -208,7 +208,7 @@ def main():
     df = build_stale_ratio(str(SALES_HRS_PATH), df)
 
     # [3/5] Categoricals
-    print(f"\n[3/5] Converting categoricals...")
+    print("\n[3/5] Converting categoricals...")
     for col in CATEGORICAL_COLS_V2:
         if col in df.columns:
             df[col] = df[col].astype("category")
@@ -225,7 +225,7 @@ def main():
     y_test = test[DEMAND_TARGET].values
 
     # [5/5] Sequential evaluation
-    print(f"\n[5/5] Training & evaluating...")
+    print("\n[5/5] Training & evaluating...")
 
     base_features = [f for f in FEATURES_V3 if f in df.columns]
 
@@ -299,7 +299,7 @@ def main():
         marker = " <<<" if row["feature"] in new_feats else ""
         print(f"    {row['feature']:<30} {row['importance']:>6.0f}{marker}")
 
-    print(f"\n  New feature ranks:")
+    print("\n  New feature ranks:")
     for rank, (_, row) in enumerate(importance.iterrows(), 1):
         if row["feature"] in new_feats:
             print(f"    #{rank}: {row['feature']} ({row['importance']:.0f})")
@@ -311,7 +311,7 @@ def main():
 
     # Summary table
     print(f"\n  {'=' * 70}")
-    print(f"  SUMMARY")
+    print("  SUMMARY")
     print(f"  {'=' * 70}")
     print(f"  {'Variant':<25} {'Features':>4} {'MAE':>8} {'WMAPE':>8} {'Delta':>8}")
     print(f"  {'-' * 58}")
@@ -320,7 +320,7 @@ def main():
               f"{r['wmape']:>7.2f}% {r['delta_mae']:>+8.4f}")
 
     # Save
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": "61_censoring_behavioral",
         "target": DEMAND_TARGET,

@@ -9,13 +9,12 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-import numpy as np
 import pandas as pd
 
 from src.experiments.common import (
-    load_data, FEATURES, CATEGORICAL_COLS, TARGET, MODEL_PARAMS, BASELINE_MAE,
+    load_data, FEATURES, CATEGORICAL_COLS, TARGET, BASELINE_MAE,
     DATA_PATH,
-    wmape, print_metrics, print_category_metrics,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -197,7 +196,7 @@ def main():
 
     # Save full results
     results_df.to_csv("reports/exp_g_all_results.csv", index=False, encoding="utf-8-sig")
-    print(f"  Polnye rezul'taty: reports/exp_g_all_results.csv")
+    print("  Polnye rezul'taty: reports/exp_g_all_results.csv")
 
     print("\nGotovo!")
 
