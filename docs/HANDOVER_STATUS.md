@@ -6,26 +6,9 @@ This file records blockers to an independent developer handover. It is not a
 replacement for `docs/ops/CURRENT_STATE.md`; live production state must always
 be verified again immediately before a deployment.
 
-## Current blockers
+## Current blocker
 
-### 1. Repository-wide CI lint baseline is red
-
-The configured repository-wide Ruff command reports 3,094 existing E/F/W
-violations as of 2026-11-20. This prevents CI from serving as an effective
-merge gate. Targeted tests for the recently added operating-hours and regional
-assortment code passed (6 tests), but that is not a replacement for a green
-baseline.
-
-Required resolution:
-
-1. Create a dedicated lint-debt PR/series, or explicitly scope the CI lint job
-   to supported production modules while keeping a separate debt tracker.
-2. Keep changed files lint-clean in every interim PR.
-3. Once CI is green, enable branch protection requiring its success.
-
-Tracked in [issue #3](https://github.com/Almazziastinov/demand-forecasting-model/issues/3).
-
-### 2. Repository and deployed Blackhole code require reconciliation
+### Repository and deployed Blackhole code require reconciliation
 
 The local worktree contains unrelated uncommitted application, pipeline, test,
 and operations-document changes. The operations record also notes targeted
@@ -42,6 +25,19 @@ Required resolution:
 Tracked in [issue #4](https://github.com/Almazziastinov/demand-forecasting-model/issues/4).
 
 ## Resolved during handover audit
+
+### CI and protected main branch
+
+- PR [#6](https://github.com/Almazziastinov/demand-forecasting-model/pull/6)
+  established the Ruff baseline and made the demo-store test independent of
+  unversioned artifacts.
+- CI on `master` passed `ruff check src/ web/ tests/` and the full suite:
+  537 passed and 3 skipped.
+- `master` now requires a pull request, one approval, a passing
+  `lint-and-test` check and resolved discussions. These requirements apply to
+  administrators too.
+- Issue [#3](https://github.com/Almazziastinov/demand-forecasting-model/issues/3)
+  is closed.
 
 ### Forecast publication failed on 2026-11-20
 
