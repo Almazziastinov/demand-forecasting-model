@@ -8,32 +8,7 @@ be verified again immediately before a deployment.
 
 ## Current blockers
 
-### 1. Forecast publication failed on 2026-11-20
-
-The forecast VM timer is enabled and active. Its 2026-11-20 base source run
-completed, but the weighted-weekday post-processing step failed before a new
-served run could be activated.
-
-The failure is a ClickHouse schema-contract mismatch: the production query for
-`fct_write_offs` groups by `write_off_doc_num`, while the current table does
-not expose that column. The database returned `UNKNOWN_IDENTIFIER` (code 47).
-
-Required resolution before formal handover:
-
-1. Inspect the current `fct_write_offs` schema and the source-system business
-   key with the data owner.
-2. Update the deduplication query to use the verified stable document key, or
-   restore the intended column through a reviewed migration.
-3. Add a schema-contract test/health check that fails before publication.
-4. Run the forecast as a controlled recovery, verify the active run and all
-   daily/hourly conservation checks, and document the result in
-   `docs/ops/CURRENT_STATE.md`.
-
-Do not attempt a blind rerun or activate the incomplete base source run.
-
-Tracked in [issue #2](https://github.com/Almazziastinov/demand-forecasting-model/issues/2).
-
-### 2. CI lint baseline is red
+### 1. Repository-wide CI lint baseline is red
 
 The configured repository-wide Ruff command reports 3,094 existing E/F/W
 violations as of 2026-11-20. This prevents CI from serving as an effective
@@ -50,7 +25,7 @@ Required resolution:
 
 Tracked in [issue #3](https://github.com/Almazziastinov/demand-forecasting-model/issues/3).
 
-### 3. Repository and deployed Blackhole code require reconciliation
+### 2. Repository and deployed Blackhole code require reconciliation
 
 The local worktree contains unrelated uncommitted application, pipeline, test,
 and operations-document changes. The operations record also notes targeted
@@ -65,6 +40,35 @@ Required resolution:
 3. Tag the verified revision after the deployed source and `master` agree.
 
 Tracked in [issue #4](https://github.com/Almazziastinov/demand-forecasting-model/issues/4).
+
+## Resolved during handover audit
+
+### Forecast publication failed on 2026-11-20
+
+The forecast VM timer is enabled and active. Its 2026-11-20 base source run
+completed, but the weighted-weekday post-processing step failed before a new
+served run could be activated.
+
+The failure is a ClickHouse schema-contract mismatch: the production query for
+`fct_write_offs` groups by `write_off_doc_num`, while the current table does
+not expose that column. The database returned `UNKNOWN_IDENTIFIER` (code 47).
+
+Resolution:
+
+- The current schema has `document_number`, not `write_off_doc_num`. The
+  correct deduplication key is `document_number + line_id`.
+- The production writer was patched after a timestamped backup; the local
+  regression test covers legacy and regional write-off queries.
+- A controlled manual recovery activated
+  `draft_normalized_demand_v1_20261120_h14` for 2026-11-20 through 2026-12-03.
+- The active run has 3,500 bakery-days, 342,595 SKU-days and 4,722,101
+  SKU-hours. Maximum bakery-to-SKU and SKU-to-hour reconciliation deltas were
+  `1.82e-12` and `8.53e-14` respectively.
+
+Issue #2 is closed. The generic `verify_prod_deploy` script still labels the
+successful state as failed because it expects the inactive base source run to
+be active. It must be corrected before it can serve as the primary handover
+health check.
 
 ## Positive checks from the audit
 
