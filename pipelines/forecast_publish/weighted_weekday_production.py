@@ -427,7 +427,7 @@ def _fetch_legacy_history_demand(client, history_dates: list[date_type], bakery_
             FROM fct_write_offs
             WHERE write_off_date IN %(dates)s
               AND toInt64OrZero(toString(bakery_id)) IN %(bids)s
-            GROUP BY write_off_doc_num,line_id
+            GROUP BY document_number,line_id
             HAVING deleted NOT IN ('1','true','Да')
         )
         GROUP BY date, bakery_id, product_id
@@ -563,7 +563,7 @@ def _fetch_regional_history_demand(
                 FROM {writeoffs_table}
                 WHERE write_off_date IN %(dates)s
                   AND toInt64OrZero(toString(bakery_id)) IN %(source_bids)s
-                GROUP BY write_off_doc_num,line_id
+                GROUP BY document_number,line_id
                 HAVING deleted NOT IN ('1','true','Да')
             )
             GROUP BY date, bakery_id, product_id
