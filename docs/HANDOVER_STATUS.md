@@ -70,6 +70,18 @@ successful state as failed because it expects the inactive base source run to
 be active. It must be corrected before it can serve as the primary handover
 health check.
 
+### Blackhole baking-plan write-off schema alignment
+
+The deployed Blackhole `/opt/baking_plan/simple_plan.py` had the same obsolete
+`write_off_doc_num` reference. It was backed up to
+`/opt/backups/baking_simple_plan_before_writeoff_schema_20261120.py`, changed
+to `document_number + line_id`, compiled, and the app was restarted. Its
+`/health` endpoint returned production OK.
+
+This was a targeted live repair. The complete Blackhole source is still not a
+Git working tree and its larger modules differ from this local checkout; it
+remains covered by issue #4.
+
 ## Positive checks from the audit
 
 - The GitHub repository is public and the current operator has administrator
