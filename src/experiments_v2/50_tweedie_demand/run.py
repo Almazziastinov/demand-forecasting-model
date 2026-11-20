@@ -9,7 +9,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/50_tweedie_demand/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -107,7 +109,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # Feature importance
@@ -115,7 +117,7 @@ def main():
         "feature": available, "importance": model.feature_importances_,
     }).sort_values("importance", ascending=False)
 
-    print(f"\n  Top 10 features:")
+    print("\n  Top 10 features:")
     for _, row in importance.head(10).iterrows():
         print(f"    {row['feature']:<25} {row['importance']:>8.0f}")
 

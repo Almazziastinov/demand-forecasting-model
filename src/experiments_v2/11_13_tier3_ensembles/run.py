@@ -28,7 +28,7 @@ from sklearn.linear_model import Ridge
 from src.config import MODEL_PARAMS, TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, print_metrics, print_category_metrics,
+    wmape, print_category_metrics,
     train_quantile, predict_clipped, save_results,
 )
 
@@ -87,8 +87,8 @@ def load_data():
 def run_exp11(train, test):
     """Exp 11: Residual Chain."""
     print(f"\n{'='*60}")
-    print(f"  EXP 11: Residual Chain")
-    print(f"  Model 1 (structure) -> Model 2 (dynamics) -> Model 3 (context)")
+    print("  EXP 11: Residual Chain")
+    print("  Model 1 (structure) -> Model 2 (dynamics) -> Model 3 (context)")
     print(f"{'='*60}")
     t_start = time.time()
 
@@ -148,8 +148,8 @@ def run_exp11(train, test):
 def run_exp12(train, test):
     """Exp 12: Mixture of Experts (demand-level routing)."""
     print(f"\n{'='*60}")
-    print(f"  EXP 12: Mixture of Experts")
-    print(f"  Low (<3) / Medium (3-15) / High (>=15)")
+    print("  EXP 12: Mixture of Experts")
+    print("  Low (<3) / Medium (3-15) / High (>=15)")
     print(f"{'='*60}")
     t_start = time.time()
 
@@ -176,7 +176,7 @@ def run_exp12(train, test):
         print(f"\n  --- {seg_name.upper()}: {n_train:,} train, {n_test:,} test ---")
 
         if n_test == 0:
-            print(f"    Skip (no test samples)")
+            print("    Skip (no test samples)")
             continue
 
         tr = train[train_mask.values]
@@ -222,8 +222,8 @@ def run_exp12(train, test):
 def run_exp13(train, test, df):
     """Exp 13: Temporal Ensemble (short/medium/long windows)."""
     print(f"\n{'='*60}")
-    print(f"  EXP 13: Temporal Ensemble")
-    print(f"  Short (30d) + Medium (90d) + Long (all)")
+    print("  EXP 13: Temporal Ensemble")
+    print("  Short (30d) + Medium (90d) + Long (all)")
     print(f"{'='*60}")
     t_start = time.time()
 
@@ -343,7 +343,7 @@ def main():
     print(f"\n  Best: {best['name']} (MAE {best['mae']:.4f})")
 
     # High demand analysis for each
-    print(f"\n  === High demand analysis ===")
+    print("\n  === High demand analysis ===")
     print(f"  {'Experiment':<25} {'>=15':>10} {'>=50':>10} {'>=100':>10}")
     print(f"  {'-'*57}")
     for r in [r11, r12, r13]:
@@ -362,7 +362,7 @@ def main():
     print_category_metrics(y_test, best["pred"], test["Категория"].values)
 
     # --- Save ---
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiments": ["11_residual_chain", "12_moe_routing", "13_temporal_ensemble"],
         "baseline_v3_mae": BASELINE_V3_MAE,

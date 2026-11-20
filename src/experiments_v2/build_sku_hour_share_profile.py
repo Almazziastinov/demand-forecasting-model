@@ -29,7 +29,6 @@ from src.experiments_v2.raw_snapshot_schema import parse_snapshot_datetime
 from src.experiments_v2.build_bakery_hour_profile import DEFAULT_DAILY_CLEANING_PATH
 from src.experiments_v2.build_bakery_hour_profile import add_profile_weights
 from src.experiments_v2.build_bakery_hour_profile import load_daily_profile_weights
-from src.experiments_v2.build_bakery_hour_profile import _weighted_mean
 from scripts.build_required_assortment_contract import normalize_text
 from scripts.compare_required_assortment_to_dim_products import (
     normalize_product_for_dim_lookup,

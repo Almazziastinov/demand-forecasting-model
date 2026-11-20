@@ -18,7 +18,7 @@ from sklearn.metrics import mean_absolute_error
 # Allow imports from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.config import TARGET, CATEGORICAL_COLS, MODEL_PARAMS, TEST_DAYS
+from src.config import MODEL_PARAMS, TARGET, TEST_DAYS as TEST_DAYS
 
 warnings.filterwarnings("ignore")
 

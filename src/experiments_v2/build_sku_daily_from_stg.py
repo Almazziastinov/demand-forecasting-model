@@ -23,13 +23,11 @@ import argparse
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.experiments_v2.raw_sales_dedup import deduplicate_sales_chunk
 
 CHUNK_SIZE = 1_000_000
 
@@ -147,7 +145,7 @@ def build(sales_path: Path, weather_path: Path, output_path: Path) -> None:
 
     # Drop rows with missing lags (first days of each series)
     before = len(agg)
-    agg = agg.dropna(subset=[f"sales_lag{l}" for l in LAG_COLS]).reset_index(drop=True)
+    agg = agg.dropna(subset=[f"sales_lag{lag}" for lag in LAG_COLS]).reset_index(drop=True)
     print(f"  dropped {before - len(agg):,} rows with NaN lags", flush=True)
     print(f"  final rows: {len(agg):,}  dates: {agg['Дата'].min().date()} .. {agg['Дата'].max().date()}",
           flush=True)

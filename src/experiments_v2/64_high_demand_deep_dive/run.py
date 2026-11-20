@@ -42,10 +42,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, train_quantile, train_lgbm, predict_clipped, save_results,
+    train_quantile, train_lgbm, predict_clipped, save_results,
 )
 
 EXP_DIR = Path(__file__).resolve().parent
@@ -244,7 +243,7 @@ def plot_error_distribution(errors_dict, filename):
 
 def main():
     print("=" * 70)
-    print(f"  EXPERIMENT 64: High-Demand Item Deep Dive")
+    print("  EXPERIMENT 64: High-Demand Item Deep Dive")
     print(f"  Bakery: {EVAL_BAKERY}")
     print(f"  Item:   {EVAL_ITEM}")
     print(f"  Test:   last {TEST_DAYS_LOCAL} days")
@@ -252,13 +251,13 @@ def main():
     t_start = time.time()
 
     # [1/8] Load
-    print(f"\n[1/8] Loading data...")
+    print("\n[1/8] Loading data...")
     df = pd.read_csv(str(DEMAND_8M_PATH), encoding="utf-8-sig")
     df["Дата"] = pd.to_datetime(df["Дата"])
     print(f"  Full dataset: {df.shape}")
 
     # [2/8] Build features
-    print(f"\n[2/8] Building features (exp 61 + 62)...")
+    print("\n[2/8] Building features (exp 61 + 62)...")
     df = add_censoring_features(df)
     df = add_dow_features(df)
     df = add_trend_features(df)
@@ -269,7 +268,7 @@ def main():
             df[col] = df[col].astype("category")
 
     # [3/8] Extract target item
-    print(f"\n[3/8] Extracting target item...")
+    print("\n[3/8] Extracting target item...")
     item_df = df[(df["Пекарня"] == EVAL_BAKERY) & (df["Номенклатура"] == EVAL_ITEM)].copy()
     item_df = item_df.sort_values("Дата").reset_index(drop=True)
     print(f"  Item data: {len(item_df)} days")
@@ -279,7 +278,7 @@ def main():
           f"CV={item_df[DEMAND_TARGET].std() / item_df[DEMAND_TARGET].mean():.3f}")
 
     # Weekly pattern
-    print(f"\n  Nedeljnyj pattern (mean spros):")
+    print("\n  Nedeljnyj pattern (mean spros):")
     dow_stats = item_df.groupby("ДеньНедели")[DEMAND_TARGET].agg(["mean", "std", "count"])
     for dow in range(7):
         if dow in dow_stats.index:
@@ -292,7 +291,7 @@ def main():
     print(f"\n  Censored days: {cens_pct:.1f}%")
 
     # [4/8] Temporal split
-    print(f"\n[4/8] Temporal split...")
+    print("\n[4/8] Temporal split...")
     test_start_date = item_df["Дата"].iloc[-TEST_DAYS_LOCAL]
 
     global_train = df[df["Дата"] < test_start_date].copy()
@@ -312,24 +311,24 @@ def main():
     dates_test = item_test["Дата"].values
 
     # [5/8] Train models
-    print(f"\n[5/8] Training models...")
+    print("\n[5/8] Training models...")
 
     # Model 1: Global Quantile P50
-    print(f"\n  --- Global Quantile P50 ---")
+    print("\n  --- Global Quantile P50 ---")
     t0 = time.time()
     model_q50 = train_quantile(X_global_train, y_global_train, alpha=0.5)
     print(f"    Time: {time.time() - t0:.0f}s")
     pred_q50 = predict_clipped(model_q50, X_item_test)
 
     # Model 2: Global MSE
-    print(f"  --- Global MSE ---")
+    print("  --- Global MSE ---")
     t0 = time.time()
     model_mse = train_lgbm(X_global_train, y_global_train)
     print(f"    Time: {time.time() - t0:.0f}s")
     pred_mse = predict_clipped(model_mse, X_item_test)
 
     # Model 3: Local bakery Q50
-    print(f"  --- Local bakery Q50 ---")
+    print("  --- Local bakery Q50 ---")
     bakery_train = global_train[global_train["Пекарня"] == EVAL_BAKERY].copy()
     local_feats = [f for f in available if f != "Пекарня"]
     t0 = time.time()
@@ -338,7 +337,7 @@ def main():
     pred_local = predict_clipped(model_local, item_test[local_feats])
 
     # Model 4: Item-only Q50
-    print(f"  --- Item-only Q50 ---")
+    print("  --- Item-only Q50 ---")
     item_train = item_df[item_df["Дата"] < test_start_date].copy()
     item_feats = [f for f in available if f not in ["Пекарня", "Номенклатура"]]
     t0 = time.time()
@@ -347,7 +346,7 @@ def main():
     pred_item = predict_clipped(model_item, item_test[item_feats])
 
     # Model 5: Naive (last same DOW)
-    print(f"  --- Naive baselines ---")
+    print("  --- Naive baselines ---")
     pred_naive = []
     pred_dow_mean = []
     for _, row in item_test.iterrows():
@@ -362,7 +361,7 @@ def main():
     pred_dow_mean = np.array(pred_dow_mean)
 
     # [6/8] Evaluate
-    print(f"\n[6/8] Evaluation...")
+    print("\n[6/8] Evaluation...")
 
     models_preds = {
         "Global Q50": pred_q50,
@@ -391,7 +390,7 @@ def main():
         print(f"  {name:<22} {mae:>7.2f} {rmse:>7.2f} {r2:>6.3f} {bias:>+8.2f} {wm:>6.2f}%")
 
     # Day-by-day
-    print(f"\n  === Den za dnem: Fakt vs Global Q50 vs DOW mean ===")
+    print("\n  === Den za dnem: Fakt vs Global Q50 vs DOW mean ===")
     print(f"  {'Data':<12} {'DOW':<4} {'Fakt':>7} {'Q50':>7} {'Err':>8} "
           f"{'DOW4w':>7} {'Err':>8} {'Cens':>5}")
     print(f"  {'-' * 68}")
@@ -406,7 +405,7 @@ def main():
               f"{actual - q50:>+8.1f} {dow:>7.1f} {actual - dow:>+8.1f} {cens:>5}")
 
     # Error by DOW
-    print(f"\n  === Oshibka po dnyam nedeli (Global Q50) ===")
+    print("\n  === Oshibka po dnyam nedeli (Global Q50) ===")
     test_dow = item_test["ДеньНедели"].values
     errors_q50 = y_item_test - pred_q50
 
@@ -420,7 +419,7 @@ def main():
             print(f"  {DOW_NAMES[dow]:<4} {me:>+9.1f} {mae_d:>7.1f} {mask.sum():>4}")
 
     # Feature importance (item-only)
-    print(f"\n  === Feature importance (item-only model, top 15) ===")
+    print("\n  === Feature importance (item-only model, top 15) ===")
     importance = pd.DataFrame({
         "feature": item_feats,
         "importance": model_item.feature_importances_,
@@ -429,7 +428,7 @@ def main():
         print(f"    {row['feature']:<30} {row['importance']:>6.0f}")
 
     # [7/8] Plots
-    print(f"\n[7/8] Saving plots...")
+    print("\n[7/8] Saving plots...")
 
     # Plot 1: Full history + test predictions
     plot_full_history_with_test(item_df, test_start_date, pred_q50, pred_dow_mean,
@@ -465,7 +464,7 @@ def main():
     )
 
     # [8/8] Save
-    print(f"\n[8/8] Saving results...")
+    print("\n[8/8] Saving results...")
     metrics = {
         "experiment": "64_high_demand_deep_dive",
         "eval_bakery": EVAL_BAKERY,

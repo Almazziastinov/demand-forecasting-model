@@ -322,23 +322,21 @@ def main() -> None:
     long_all = pd.concat(model_metrics_rows, ignore_index=True)
     long_all.to_csv(OUT_DIR / "benchmark_all_models_long.csv", index=False, encoding="utf-8-sig")
 
-    summary_all = build_model_summary_from_wide(best_all)
-    summary_all.to_csv(OUT_DIR / "summary_by_model_all.csv", index=False, encoding="utf-8-sig")
-
     best_all = merge_model_frames(overall_model_frames)
     best_all.to_csv(OUT_DIR / "best_by_sku.csv", index=False, encoding="utf-8-sig")
     best_all.to_csv(OUT_DIR / "best_by_sku_all_models.csv", index=False, encoding="utf-8-sig")
+    summary_all = build_model_summary_from_wide(best_all)
+    summary_all.to_csv(OUT_DIR / "summary_by_model_all.csv", index=False, encoding="utf-8-sig")
 
     for family in FAMILY_ORDER:
         family_long = pd.concat(family_tables[family], ignore_index=True) if family_tables[family] else pd.DataFrame()
         if family_long.empty:
             continue
         family_long.to_csv(OUT_DIR / f"benchmark_{family}_models_long.csv", index=False, encoding="utf-8-sig")
-        family_summary = build_model_summary_from_wide(family_best)
-        family_summary.to_csv(OUT_DIR / f"summary_by_model_{family}.csv", index=False, encoding="utf-8-sig")
-
         family_best = merge_model_frames(family_model_frames[family])
         family_best.to_csv(OUT_DIR / f"best_by_sku_{family}.csv", index=False, encoding="utf-8-sig")
+        family_summary = build_model_summary_from_wide(family_best)
+        family_summary.to_csv(OUT_DIR / f"summary_by_model_{family}.csv", index=False, encoding="utf-8-sig")
 
     overview = {
         "experiments": [exp["name"] for exp in EXPERIMENTS],

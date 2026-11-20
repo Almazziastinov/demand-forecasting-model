@@ -28,10 +28,10 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TARGET, TEST_DAYS
 from src.experiments_v2.common import (
     FEATURES_V2, CATEGORICAL_COLS_V2,
-    wmape, print_metrics, print_category_metrics,
+    wmape, print_category_metrics,
     train_lgbm, predict_clipped, save_results,
 )
 
@@ -74,13 +74,13 @@ def main():
     mean_demand = df[DEMAND_TARGET].mean()
     uplift_pct = (mean_demand - mean_sold) / mean_sold * 100
     censored_pct = 100 * df["is_censored"].mean()
-    print(f"\n  Demand stats:")
+    print("\n  Demand stats:")
     print(f"    mean({TARGET}):  {mean_sold:.4f}")
     print(f"    mean({DEMAND_TARGET}):   {mean_demand:.4f} ({uplift_pct:+.1f}%)")
     print(f"    censored: {censored_pct:.1f}%")
 
     # --- Features ---
-    print(f"\n[2/6] Selecting features...")
+    print("\n[2/6] Selecting features...")
     # Model A (baseline on sales): only FEATURES_V2 (sales lags)
     features_a = [f for f in FEATURES_V2 if f in df.columns]
     # Model B (demand): FEATURES_V2 + demand lags
@@ -123,7 +123,7 @@ def main():
     pred_b = predict_clipped(model_b, test[features_b])
 
     # --- Evaluation ---
-    print(f"\n[6/6] Evaluation...")
+    print("\n[6/6] Evaluation...")
 
     # Both evaluated vs DEMAND (fair comparison)
     mae_a_demand = mean_absolute_error(y_test_demand, pred_a)
@@ -180,7 +180,7 @@ def main():
         "feature": features_b, "importance": model_b.feature_importances_,
     }).sort_values("importance", ascending=False)
 
-    print(f"\n  Top 15 features (Model B):")
+    print("\n  Top 15 features (Model B):")
     for _, row in importance_b.head(15).iterrows():
         print(f"    {row['feature']:<30} {row['importance']:>8.0f}")
 

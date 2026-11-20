@@ -15,7 +15,6 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-import numpy as np
 import pandas as pd
 
 DEMAND_CSV = os.path.join(ROOT, "data", "processed", "daily_sales_8m_demand.csv")
@@ -43,7 +42,7 @@ def main():
     print(f"  {len(prices):,} rows")
 
     # --- Build price features ---
-    print(f"\n[2/4] Building price features...")
+    print("\n[2/4] Building price features...")
     prices = prices.sort_values(["Пекарня", "Номенклатура", "Дата"]).copy()
     group = prices.groupby(["Пекарня", "Номенклатура"])
 
@@ -67,7 +66,7 @@ def main():
         print(f"    {col:<25} fill: {fill:.0f}%")
 
     # --- Load demand CSV ---
-    print(f"\n[3/4] Loading demand CSV...")
+    print("\n[3/4] Loading demand CSV...")
     df = pd.read_csv(DEMAND_CSV, encoding="utf-8-sig")
     df["Дата"] = pd.to_datetime(df["Дата"])
     print(f"  Shape before: {df.shape}")
@@ -79,7 +78,7 @@ def main():
         df = df.drop(columns=existing_price_cols)
 
     # --- Merge ---
-    print(f"\n[4/4] Merging...")
+    print("\n[4/4] Merging...")
     price_merge = prices[["Дата", "Пекарня", "Номенклатура"] + PRICE_FEATURES].copy()
     df = df.merge(price_merge, on=["Дата", "Пекарня", "Номенклатура"], how="left")
 
@@ -88,7 +87,7 @@ def main():
     print(f"  Price match rate: {match_pct:.1f}%")
 
     # --- Save ---
-    print(f"\n  Saving updated CSV...")
+    print("\n  Saving updated CSV...")
     df.to_csv(DEMAND_CSV, index=False, encoding="utf-8-sig")
     print(f"  Saved to {DEMAND_CSV}")
 

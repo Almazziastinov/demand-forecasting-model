@@ -132,10 +132,10 @@ def enrich_weather(df: pd.DataFrame) -> pd.DataFrame:
             return 'rain'
         else:
             return 'storm'
-    
+
     if 'weathercode' in df.columns:
         df['weather_category'] = df['weathercode'].apply(wmo_to_category)
-    
+
     return df
 
 
@@ -209,7 +209,7 @@ def fetch_weather_forecast(cities: dict, days_ahead: int = 14) -> pd.DataFrame:
     weather_df = pd.concat(all_frames, ignore_index=True)
     weather_df['Дата'] = pd.to_datetime(weather_df['Дата']).dt.normalize()
     weather_df = enrich_weather(weather_df)
-    
+
     # Add weather_cat_code
     weather_df["weather_cat_code"] = (
         weather_df["weather_category"].map({
@@ -217,7 +217,7 @@ def fetch_weather_forecast(cities: dict, days_ahead: int = 14) -> pd.DataFrame:
         }).fillna(0).astype(int)
     )
     weather_df.drop(columns=["weather_category"], inplace=True, errors="ignore")
-    
+
     return weather_df
 
 
@@ -379,13 +379,13 @@ def main():
     print(f"\n  Итоговый размер датасета: {df_enriched.shape}")
     new_cols = [c for c in df_enriched.columns if c not in df.columns]
     print(f"  Новых признаков добавлено: {len(new_cols)}")
-    print(f"  Список новых признаков:")
+    print("  Список новых признаков:")
     for col in new_cols:
         n_null = df_enriched[col].isnull().sum()
         print(f"    {'⚠️ ' if n_null > 0 else '✓ '}{col:<22}  nulls={n_null}")
 
     # ── Статистика по погоде ──────────────────────────────────────
-    print(f"\n  Статистика погодных признаков:")
+    print("\n  Статистика погодных признаков:")
     weather_cols = ['temp_max', 'temp_min', 'temp_mean', 'precipitation',
                     'snowfall', 'windspeed_max', 'is_rainy', 'is_snowy', 'is_bad_weather']
     available = [c for c in weather_cols if c in df_enriched.columns]

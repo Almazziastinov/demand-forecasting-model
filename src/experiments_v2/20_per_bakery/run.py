@@ -17,19 +17,17 @@ import sys
 import os
 import time
 from pathlib import Path
-from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ROOT)
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, print_metrics, print_category_metrics,
     train_quantile, predict_clipped, save_results,
 )
 
@@ -122,7 +120,6 @@ def train_per_bakery_models(df, features, top_n=10):
     train = df[df["is_train"] == 1].copy()
     test = df[df["is_train"] == 0].copy()
 
-    results = {}
     bakery_maes = {}
 
     for bakery in top_bakeries:

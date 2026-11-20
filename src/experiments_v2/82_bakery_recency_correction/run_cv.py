@@ -11,7 +11,9 @@ Variants per fold: 0_baseline, 1_additive_static, 2_additive_dynamic,
                    3_multiplicative_cf, 4_soft_blend_cf, 5_dow_aware_cf
 """
 
-import sys, json, time
+import sys
+import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +22,11 @@ from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error
 
 out = sys.stdout.buffer
-def p(s): out.write((s + '\n').encode('utf-8')); out.flush()
+
+
+def p(s):
+    out.write((s + '\n').encode('utf-8'))
+    out.flush()
 
 ROOT = Path(__file__).resolve().parents[3]
 EXP_DIR = Path(__file__).resolve().parent

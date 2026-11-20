@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 
 from src.experiments.common import (
-    load_data, FEATURES, TARGET, MODEL_PARAMS, BASELINE_MAE,
-    wmape, print_metrics, print_category_metrics,
+    load_data, TARGET, BASELINE_MAE,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -36,7 +36,7 @@ def main():
     # Censored demand stats
     censored_mask = train_full["Остаток"] == 0
     n_censored = censored_mask.sum()
-    print(f"\n  Tsenzurirovannye nablyudeniya v traine (Ostatok==0):")
+    print("\n  Tsenzurirovannye nablyudeniya v traine (Ostatok==0):")
     print(f"    {n_censored:,} iz {len(train_full):,} ({n_censored / len(train_full) * 100:.1f}%)")
     print(f"    Srednie prodazhi pri Ostatok==0: {train_full.loc[censored_mask, 'Продано'].mean():.2f}")
     print(f"    Srednie prodazhi pri Ostatok>0:  {train_full.loc[~censored_mask, 'Продано'].mean():.2f}")
@@ -170,7 +170,7 @@ def main():
 
     # Save full results
     results_df.to_csv("reports/exp_h_all_results.csv", index=False, encoding="utf-8-sig")
-    print(f"  Polnye rezul'taty: reports/exp_h_all_results.csv")
+    print("  Polnye rezul'taty: reports/exp_h_all_results.csv")
 
     print("\nGotovo!")
 

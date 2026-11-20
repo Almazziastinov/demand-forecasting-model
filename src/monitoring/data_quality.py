@@ -10,7 +10,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.config import FEATURES, TARGET, CATEGORICAL_COLS, PROCESSED_DATA_PATH
+from src.config import FEATURES, TARGET, PROCESSED_DATA_PATH
 from src.logger import get_logger
 
 logger = get_logger("data_quality")

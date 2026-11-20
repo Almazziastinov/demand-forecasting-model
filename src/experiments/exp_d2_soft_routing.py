@@ -12,12 +12,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMRegressor, LGBMClassifier
+from lightgbm import LGBMClassifier
 from sklearn.metrics import mean_absolute_error
 
 from src.experiments.common import (
-    load_data, MODEL_PARAMS, BASELINE_MAE,
-    wmape, print_metrics, print_category_metrics,
+    load_data, BASELINE_MAE,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -74,7 +74,7 @@ def main():
 
     # Map class names to column indices
     class_to_idx = {c: i for i, c in enumerate(classes)}
-    print(f"  Mean probabilities on test:")
+    print("  Mean probabilities on test:")
     for b in BIN_LABELS:
         idx = class_to_idx[b]
         print(f"    p_{b}: mean={proba[:, idx].mean():.3f}  "
@@ -133,7 +133,7 @@ def main():
     print("\n--- Po kategoriyam (soft routing) ---")
     print_category_metrics(y_test, y_pred_soft, X_test["Категория"])
 
-    print(f"\n  Sravnenie:")
+    print("\n  Sravnenie:")
     print(f"    Baseline:     {bl_mae:.4f}")
     print(f"    Hard routing: {hard_mae:.4f} ({hard_mae - bl_mae:+.4f})")
     print(f"    Soft routing: {soft_mae:.4f} ({soft_mae - bl_mae:+.4f})")

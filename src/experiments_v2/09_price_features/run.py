@@ -36,10 +36,10 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error
 
-from src.config import MODEL_PARAMS, TEST_DAYS
+from src.config import TEST_DAYS
 from src.experiments_v2.common import (
     FEATURES_V2, CATEGORICAL_COLS_V2,
-    wmape, print_metrics, print_category_metrics,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_results,
 )
 
@@ -125,7 +125,7 @@ def aggregate_prices():
 
 def build_price_features(prices):
     """Build price features from daily avg_price."""
-    print(f"  Building price features...")
+    print("  Building price features...")
 
     # Sort for lag/rolling computation
     prices = prices.sort_values(["Пекарня", "Номенклатура", "Дата"]).copy()
@@ -172,11 +172,11 @@ def main():
     t_start = time.time()
 
     # --- Step 1: Aggregate prices ---
-    print(f"\n[1/6] Price aggregation...")
+    print("\n[1/6] Price aggregation...")
     prices_raw = aggregate_prices()
 
     # --- Step 2: Build price features ---
-    print(f"\n[2/6] Building price features...")
+    print("\n[2/6] Building price features...")
     prices = build_price_features(prices_raw)
 
     # --- Step 3: Load demand data ---
@@ -189,7 +189,7 @@ def main():
     print(f"  Shape: {len(df):,} rows, {df['Пекарня'].nunique()} bakeries")
 
     # --- Merge price features ---
-    print(f"\n[4/6] Merging price features...")
+    print("\n[4/6] Merging price features...")
     price_cols = ["Дата", "Пекарня", "Номенклатура"] + PRICE_FEATURES
     price_merge = prices[[c for c in price_cols if c in prices.columns]].copy()
 
@@ -230,7 +230,7 @@ def main():
     y_test = test[DEMAND_TARGET]
 
     # --- Train ---
-    print(f"\n[6/6] Training models...")
+    print("\n[6/6] Training models...")
 
     print(f"\n  --- Model A: baseline + demand ({len(baseline_features)} features) ---")
     t_a = time.time()
@@ -270,14 +270,14 @@ def main():
                   f"A MAE={ma_a:.2f} | B MAE={ma_b:.2f} (delta {ma_b - ma_a:+.2f})")
 
     # Per-category
-    print(f"\n  === Model A per-category ===")
+    print("\n  === Model A per-category ===")
     print_category_metrics(y_test, pred_a, test["Категория"].values)
 
-    print(f"\n  === Model B per-category ===")
+    print("\n  === Model B per-category ===")
     print_category_metrics(y_test, pred_b, test["Категория"].values)
 
     # --- Feature importance ---
-    print(f"\n  === Price feature importance (Model B) ===")
+    print("\n  === Price feature importance (Model B) ===")
     importance_b = pd.DataFrame({
         "feature": extended_features,
         "importance": model_b.feature_importances_,
@@ -291,13 +291,13 @@ def main():
             print(f"    {row['feature']:<25} {row['importance']:>10.0f} {rank:>6}")
 
     # Top 15 overall
-    print(f"\n  === Top 15 features (Model B) ===")
+    print("\n  === Top 15 features (Model B) ===")
     for _, row in importance_b.head(15).iterrows():
         marker = " <-- PRICE" if row["feature"] in PRICE_FEATURES else ""
         print(f"    {row['feature']:<25} {row['importance']:>8.0f}{marker}")
 
     # --- Save ---
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": "09_price_features",
         "target": DEMAND_TARGET,

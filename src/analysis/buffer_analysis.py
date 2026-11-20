@@ -307,7 +307,7 @@ print("\n" + "=" * 65)
 print("  ИТОГОВОЕ РЕЗЮМЕ")
 print("=" * 65)
 print(f"\n  Реальное среднее Остаток (бенчмарк): {REAL_MEAN_STOCK:.2f} шт.")
-print(f"\n  Без буфера (чистый прогноз модели):")
+print("\n  Без буфера (чистый прогноз модели):")
 zero = results_pct_df[results_pct_df['buffer_pct'] == 0].iloc[0]
 print(f"    Ср. остаток:         {zero['mean_stock']:.2f} шт.")
 print(f"    Ср. дефицит:         {zero['mean_deficit']:.2f} шт.")
@@ -321,7 +321,7 @@ print(f"    Ср. остаток:         {add_match['mean_stock']:.2f} шт.  �
 print(f"    Ср. дефицит:         {add_match['mean_deficit']:.2f} шт.")
 print(f"    Позиций с недобором: {add_match['pct_underpredict']:.1f}%")
 print(f"\n  Вывод: чтобы выйти на текущий уровень остатков (~{REAL_MEAN_STOCK:.1f} шт.)  ")
-print(f"  и при этом минимизировать дефицит, рекомендуется:")
+print("  и при этом минимизировать дефицит, рекомендуется:")
 print(f"  → Аддитивный буфер +{add_match['buffer_add']:.0f} шт. к прогнозу модели")
 print(f"  → или Мультипликативный +{pct_match['buffer_pct']:.0f}% к прогнозу модели")
 

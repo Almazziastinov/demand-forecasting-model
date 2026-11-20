@@ -12,9 +12,9 @@ import numpy as np
 import pandas as pd
 
 from src.experiments.common import (
-    load_data, FEATURES, CATEGORICAL_COLS, TARGET, MODEL_PARAMS, BASELINE_MAE,
+    load_data, FEATURES, CATEGORICAL_COLS, TARGET, BASELINE_MAE,
     DATA_PATH,
-    wmape, print_metrics, print_category_metrics,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -136,7 +136,7 @@ def main():
             cat_p95 = tmp_df.groupby("cat")["y"].quantile(0.95).to_dict()
             y_vals = np.array([min(v, cat_p95.get(c, np.percentile(y_vals, 95)))
                                for v, c in zip(y_vals, cats)])
-            print(f"  F: Clip per-category p95")
+            print("  F: Clip per-category p95")
         else:  # p95 or winsorize_p95
             threshold = np.percentile(y_vals, 95)
             y_vals = np.clip(y_vals, 0, threshold)
@@ -169,7 +169,7 @@ def main():
                 np.nan_to_num(deficit[censored_mask], nan=0.0) * 0.5
             train_working["__target_adj"] = y_vals
             y_col = "__target_adj"
-            print(f"  H3: Deficit correction applied")
+            print("  H3: Deficit correction applied")
         else:
             # H1: demand_correction (max of actual vs rolling mean7)
             roll_mean7 = train_working["sales_roll_mean7"].values if "sales_roll_mean7" in train_working.columns \
@@ -180,7 +180,7 @@ def main():
             )
             train_working["__target_adj"] = y_vals
             y_col = "__target_adj"
-            print(f"  H1: Demand correction applied")
+            print("  H1: Demand correction applied")
 
     # --- Prepare final train ---
     X_train_final = train_working[features]
@@ -231,10 +231,10 @@ def main():
         improvement_pct = abs(delta) / BASELINE_MAE * 100
         print(f"  Uluchshenie: {improvement_pct:.2f}% vs baseline")
     else:
-        print(f"  Baseline ostaetsya luchshim")
+        print("  Baseline ostaetsya luchshim")
 
     # Compare with individual bests
-    print(f"\n  Sravnenie:")
+    print("\n  Sravnenie:")
     print(f"    Baseline:  {BASELINE_MAE:.4f}")
     if f_mae is not None:
         print(f"    F best:    {f_mae:.4f} ({f_delta:+.4f})")
@@ -257,7 +257,7 @@ def main():
     }])
     summary.to_csv("reports/exp_i_summary.csv", index=False)
 
-    print(f"\n  Summary: reports/exp_i_summary.csv")
+    print("\n  Summary: reports/exp_i_summary.csv")
     print("\nGotovo!")
 
 

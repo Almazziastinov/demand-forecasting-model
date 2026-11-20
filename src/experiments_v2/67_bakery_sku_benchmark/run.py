@@ -270,20 +270,20 @@ def main() -> None:
     for bakery in SELECTED_BAKERIES:
         print(f"  - {bakery}")
 
-    print(f"\n[1/5] Loading daily demand data...")
+    print("\n[1/5] Loading daily demand data...")
     raw_df = load_daily_demand(SELECTED_BAKERIES)
     print(
         f"  Rows: {len(raw_df):,}, days: {raw_df[DATE_COL].nunique()}, "
         f"bakeries: {raw_df[BAKERY_COL].nunique()}, SKUs: {raw_df[PRODUCT_COL].nunique()}"
     )
 
-    print(f"\n[2/5] Loading global model artifact...")
+    print("\n[2/5] Loading global model artifact...")
     model_data = load_global_model(args.global_model)
     base_features = model_data["features"]
     print(f"  Global variant: {model_data['variant']}")
     print(f"  Global features: {len(base_features)}")
 
-    print(f"\n[3/5] Building benchmark features...")
+    print("\n[3/5] Building benchmark features...")
     featured_df = build_benchmark_features(raw_df, model_data)
     train_df, test_df, test_start = make_train_test_split(featured_df, test_days=args.test_days)
     print(
@@ -296,7 +296,7 @@ def main() -> None:
     predictions_frames: dict[str, pd.DataFrame] = {}
     training_logs: list[dict] = []
 
-    print(f"\n[4/5] Evaluating model families...")
+    print("\n[4/5] Evaluating model families...")
 
     global_pred = pd.Series(
         predict_global_from_model_data(test_df, model_data),
@@ -341,7 +341,7 @@ def main() -> None:
     metrics_frames["two_week_avg"] = build_metrics_frame(test_df, avg_pred_frame, "two_week_avg")
     predictions_frames["two_week_avg"] = avg_pred_frame
 
-    print(f"\n[5/5] Saving artifacts...")
+    print("\n[5/5] Saving artifacts...")
     for model_name, files in OUTPUT_FILES.items():
         save_csv(metrics_frames[model_name], files["metrics"])
         save_csv(predictions_frames[model_name], files["predictions"])
@@ -374,7 +374,7 @@ def main() -> None:
     }
     SUMMARY_FILES["overview"].write_text(json.dumps(overview, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"\nModel summary:")
+    print("\nModel summary:")
     print(model_summary.to_string(index=False))
     print(f"\nBest-by-SKU rows: {len(best_by_sku)}")
     print(f"Saved overview JSON: {SUMMARY_FILES['overview'].name}")

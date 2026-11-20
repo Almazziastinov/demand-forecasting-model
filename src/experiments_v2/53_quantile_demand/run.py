@@ -9,7 +9,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/53_quantile_demand/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -126,7 +128,7 @@ def main():
     p25 = np.asarray(all_preds["pred_P25"], dtype=float)
     p75 = np.asarray(all_preds["pred_P75"], dtype=float)
     width = p75 - p25
-    print(f"\n  === Interval width (P75 - P25) ===")
+    print("\n  === Interval width (P75 - P25) ===")
     print(f"    Mean: {width.mean():.2f}, Median: {np.median(width):.2f}, "
           f"Max: {width.max():.2f}")
 
@@ -147,7 +149,7 @@ def main():
                   f"Bias={bias_h:+.2f}, Interval={width_h:.1f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics (P50) ===")
+    print("\n  === Per-category metrics (P50) ===")
     print_category_metrics(y_test, y_pred_p50, test["Категория"].values)
 
     # Save

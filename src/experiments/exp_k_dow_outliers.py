@@ -13,14 +13,13 @@ Strategies:
   K4: Replace with expected value (aggressive)
 """
 
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import numpy as np
 import pandas as pd
 from experiments.common import (
-    load_data, FEATURES, TARGET, CATEGORICAL_COLS, MODEL_PARAMS,
-    TEST_DAYS, train_lgbm, predict_clipped, print_metrics,
+    load_data, TARGET, TEST_DAYS, train_lgbm, predict_clipped, print_metrics,
     print_category_metrics,
 )
 

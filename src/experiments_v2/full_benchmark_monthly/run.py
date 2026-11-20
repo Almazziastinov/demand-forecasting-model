@@ -34,7 +34,6 @@ from src.experiments_v2.benchmark_common import (  # noqa: E402
     regression_metrics,
     select_feature_columns,
     train_quantile,
-    wmape,
 )
 from src.experiments_v2.common import FEATURES_V3, save_results  # noqa: E402
 from src.experiments_v2.monthly_benchmark_common import (  # noqa: E402
@@ -281,39 +280,39 @@ def main() -> None:
     print("=" * 72)
     t_start = time.time()
 
-    print(f"\n[1/6] Loading base demand data...")
+    print("\n[1/6] Loading base demand data...")
     df = pd.read_csv(DEMAND_8M_PATH, encoding="utf-8-sig")
     df[DATE_COL] = pd.to_datetime(df[DATE_COL])
     print(
         f"  Shape: {df.shape}, date range: {df[DATE_COL].min().date()} .. {df[DATE_COL].max().date()}"
     )
 
-    print(f"\n[2/6] Building exp63 feature frame...")
+    print("\n[2/6] Building exp63 feature frame...")
     df = build_exp63_feature_frame(df)
     df = add_assortment_features_62(df)
 
-    print(f"\n[3/6] Building static location clusters...")
+    print("\n[3/6] Building static location clusters...")
     loc_df = load_location_features()
     loc_clusters, loc_summary, loc_meta, loc_pipeline = build_location_clusters(loc_df)
     df = merge_cluster_map(df, loc_clusters, "cluster_loc")
 
     df = ensure_category_columns(df)
 
-    print(f"\n[4/6] Train/test split (last 30 days = test)...")
+    print("\n[4/6] Train/test split (last 30 days = test)...")
     train_df, test_df, test_start = make_train_test_split(df, test_days=30)
     print(
         f"  Test start: {test_start.date()} | train rows: {len(train_df):,} | test rows: {len(test_df):,}"
     )
     print(f"  Train days: {train_df[DATE_COL].nunique()} | Test days: {test_df[DATE_COL].nunique()}")
 
-    print(f"\n[5/6] Building train-only ts clusters...")
+    print("\n[5/6] Building train-only ts clusters...")
     ts_clusters, ts_summary, ts_meta, ts_pipeline = build_train_ts_clusters(train_df)
     train_df = merge_cluster_map(train_df, ts_clusters, "cluster_ts")
     test_df = merge_cluster_map(test_df, ts_clusters, "cluster_ts")
     train_df = ensure_category_columns(train_df)
     test_df = ensure_category_columns(test_df)
 
-    print(f"\n[6/6] Training families...")
+    print("\n[6/6] Training families...")
     run_rows: list[dict] = []
     artifact_rows: list[dict] = []
     metrics_by_model: dict[str, pd.DataFrame] = {}

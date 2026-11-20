@@ -40,12 +40,11 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
     SALES_HRS_PATH,
-    wmape, print_metrics, print_category_metrics,
-    train_quantile, predict_clipped, save_results,
+    wmape, train_quantile, predict_clipped, save_results,
 )
 
 EXP_DIR = Path(__file__).resolve().parent
@@ -188,7 +187,7 @@ def main():
     print(f"  Shape: {df.shape}")
 
     # [2/7] Build all features (same as exp 63)
-    print(f"\n[2/7] Building features (exp 61 + exp 62)...")
+    print("\n[2/7] Building features (exp 61 + exp 62)...")
     df = add_censoring_features(df)
     df = add_dow_features(df)
     df = add_trend_features(df)
@@ -196,7 +195,7 @@ def main():
     df = add_assortment_features(df)
 
     # [3/7] Categoricals
-    print(f"\n[3/7] Converting categoricals...")
+    print("\n[3/7] Converting categoricals...")
     for col in CATEGORICAL_COLS_V2:
         if col in df.columns:
             df[col] = df[col].astype("category")
@@ -220,14 +219,14 @@ def main():
     y_test = test[DEMAND_TARGET].values
 
     # [5/7] Compute mean demand per (bakery, product) on TRAIN only
-    print(f"\n[5/7] Computing item-level mean demand (train only)...")
+    print("\n[5/7] Computing item-level mean demand (train only)...")
     item_mean = (
         train.groupby(["Пекарня", "Номенклатура"])[DEMAND_TARGET]
         .mean()
         .reset_index(name="item_mean_demand")
     )
     print(f"  Unique (bakery, product) pairs: {len(item_mean):,}")
-    print(f"  Mean demand distribution:")
+    print("  Mean demand distribution:")
     for q in [0.5, 0.75, 0.9, 0.95, 0.99]:
         print(f"    P{int(q*100):02d}: {item_mean['item_mean_demand'].quantile(q):.1f}")
 
@@ -237,7 +236,7 @@ def main():
     test["item_mean_demand"] = test["item_mean_demand"].fillna(0)
 
     # [6/7] Train global model (baseline)
-    print(f"\n[6/7] Training global model (all data)...")
+    print("\n[6/7] Training global model (all data)...")
     t0 = time.time()
     global_model = train_quantile(train[available], y_train, alpha=0.5)
     global_time = time.time() - t0
@@ -248,7 +247,7 @@ def main():
     print(f"  Global MAE (all test): {global_mae_all:.4f}")
 
     # [7/7] Train high-demand models at each threshold
-    print(f"\n[7/7] Training high-demand models...")
+    print("\n[7/7] Training high-demand models...")
 
     all_results = {
         "global (all data)": {
@@ -271,10 +270,10 @@ def main():
             continue
 
         mae_high_global = mean_absolute_error(y_test[mask_high], global_pred[mask_high])
-        mae_low_global = mean_absolute_error(y_test[mask_low], global_pred[mask_low]) if n_low > 0 else 0
+        mean_absolute_error(y_test[mask_low], global_pred[mask_low]) if n_low > 0 else 0
 
-        all_results[f"global (all data)"][f"mae_high_{thr}"] = round(mae_high_global, 4)
-        all_results[f"global (all data)"][f"n_high_{thr}"] = int(n_high)
+        all_results["global (all data)"][f"mae_high_{thr}"] = round(mae_high_global, 4)
+        all_results["global (all data)"][f"n_high_{thr}"] = int(n_high)
 
         print(f"\n  === Threshold: mean demand >= {thr} ===")
 
@@ -319,13 +318,13 @@ def main():
         delta_hd = mae_hd_on_high - mae_high_global
         print(f"    Delta (HD - Global): {delta_hd:+.4f} MAE")
 
-        print(f"\n  Ensemble (HD for high, global for low):")
+        print("\n  Ensemble (HD for high, global for low):")
         print(f"    MAE overall: {mae_ensemble:.4f} (vs global {global_mae_all:.4f}, "
               f"delta {mae_ensemble - global_mae_all:+.4f})")
         print(f"    WMAPE: {wmape_ensemble:.2f}%")
 
         # Breakdown by demand level within high-demand
-        print(f"\n  High-demand breakdown:")
+        print("\n  High-demand breakdown:")
         for sub_thr in [thr, max(thr, 50), 100, 200]:
             if sub_thr < thr:
                 continue
@@ -343,7 +342,7 @@ def main():
                   f"delta={mae_h - mae_g:+.4f}")
 
         # Feature importance comparison
-        print(f"\n  Feature importance (HD model, top 15):")
+        print("\n  Feature importance (HD model, top 15):")
         importance = pd.DataFrame({
             "feature": available,
             "importance": hd_model.feature_importances_,
@@ -355,7 +354,7 @@ def main():
             print(f"    {row['feature']:<30} {row['importance']:>6.0f}{marker}")
 
         # Per-category for ensemble
-        print(f"\n  Per-category (ensemble vs global):")
+        print("\n  Per-category (ensemble vs global):")
         print(f"    {'Kategoriya':<25} {'N':>5} {'Global':>8} {'Ensemble':>8} {'Delta':>8}")
         print(f"    {'-' * 58}")
         cats = test["Категория"].values
@@ -389,7 +388,7 @@ def main():
 
     # Summary
     print(f"\n  {'=' * 80}")
-    print(f"  SUMMARY")
+    print("  SUMMARY")
     print(f"  {'=' * 80}")
     print(f"\n  Global model MAE (all test): {global_mae_all:.4f}")
     print(f"\n  {'Threshold':<12} {'HD train':>10} {'HD MAE':>10} {'Global MAE':>10} "
@@ -417,7 +416,7 @@ def main():
           f"(delta {best['delta_hd_vs_global_high']:+.4f})")
 
     # Save
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": "65_high_demand_model",
         "target": DEMAND_TARGET,

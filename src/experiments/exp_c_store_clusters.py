@@ -14,8 +14,8 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import mean_absolute_error
 
 from src.experiments.common import (
-    load_data, MODEL_PARAMS, BASELINE_MAE,
-    wmape, print_metrics, print_category_metrics,
+    load_data, BASELINE_MAE,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -79,7 +79,7 @@ def main():
     store_stats["cluster"] = km_final.fit_predict(X_cluster)
 
     # Cluster summary
-    print(f"\n  Raspredelenie po klasteram:")
+    print("\n  Raspredelenie po klasteram:")
     for cl in range(best_k):
         cl_stores = store_stats[store_stats["cluster"] == cl]
         cities = cl_stores["city"].value_counts().head(3)

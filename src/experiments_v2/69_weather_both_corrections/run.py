@@ -37,7 +37,7 @@ from sklearn.linear_model import LinearRegression
 
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, train_quantile, predict_clipped, save_results,
+    train_quantile, predict_clipped, save_results,
 )
 from src.config import TEST_DAYS
 
@@ -123,7 +123,7 @@ def main():
     t0 = time.time()
 
     # --- Load ---
-    print(f"\n[1/5] Loading data...")
+    print("\n[1/5] Loading data...")
     df = pd.read_csv(str(DEMAND_8M_PATH), encoding="utf-8-sig")
     df["Дата"] = pd.to_datetime(df["Дата"])
     df = build_lag_cols(df)
@@ -137,7 +137,7 @@ def main():
     print(f"  is_bad_weather_lag1=1: {df['is_bad_weather_lag1'].mean()*100:.1f}% rows")
 
     # --- Split ---
-    print(f"\n[2/5] Split...")
+    print("\n[2/5] Split...")
     test_start = df["Дата"].max() - pd.Timedelta(days=TEST_DAYS - 1)
     train = df[df["Дата"] < test_start].copy()
     test  = df[df["Дата"] >= test_start].copy()
@@ -147,7 +147,7 @@ def main():
     y_test  = test[DEMAND_TARGET].values
 
     # --- Train base model ---
-    print(f"\n[3/5] Train base P50 model (V3 features)...")
+    print("\n[3/5] Train base P50 model (V3 features)...")
     t1 = time.time()
     model = train_quantile(train[available], y_train, alpha=0.5)
     print(f"  Done in {time.time()-t1:.0f}s")
@@ -156,7 +156,7 @@ def main():
     pred_test  = predict_clipped(model, test[available])
 
     # --- Fit correction slopes from train ---
-    print(f"\n[4/5] Fitting correction slopes on train data...")
+    print("\n[4/5] Fitting correction slopes on train data...")
     train_df = train.copy()
     train_df["pred"]   = pred_train
     train_df["actual"] = y_train.values
@@ -166,7 +166,7 @@ def main():
         train_df, pred_col="pred", actual_col="actual",
         precip_col="precipitation", min_precip=0.5,
     )
-    print(f"\n  D0  (bad day correction):")
+    print("\n  D0  (bad day correction):")
     print(f"    slope     = {fit_d0['slope']:+.5f}  (neg = reduce forecast on rainy day)")
     print(f"    precip_ref = {fit_d0['precip_ref']:.1f} mm  (avg precip on rainy days)")
     print(f"    delta_ref  = {fit_d0['delta_ref']:+.3f}  (CF at avg precip = {1+fit_d0['delta_ref']:.3f}x)")
@@ -177,14 +177,14 @@ def main():
         train_df, pred_col="pred", actual_col="actual",
         precip_col="precipitation_lag1", min_precip=0.5,
     )
-    print(f"\n  D+1 (post-storm correction):")
+    print("\n  D+1 (post-storm correction):")
     print(f"    slope      = {fit_d1['slope']:+.5f}  (pos = boost forecast after rainy day)")
     print(f"    precip_ref = {fit_d1['precip_ref']:.1f} mm")
     print(f"    delta_ref  = {fit_d1['delta_ref']:+.3f}  (CF at avg precip = {1+fit_d1['delta_ref']:.3f})")
     print(f"    N train    = {fit_d1['n_rows']:,}  |  mean ratio = {fit_d1['ratio_mean']:+.4f}")
 
     # Print CF table for reference
-    print(f"\n  Correction factor table:")
+    print("\n  Correction factor table:")
     print(f"  {'precip (mm)':<14} {'CF_down (D0)':>14} {'CF_up (D+1)':>14}")
     print(f"  {'-'*44}")
     for mm in [0, 1, 2, 4, 6, 8, 10, 15, 20]:
@@ -193,7 +193,7 @@ def main():
         print(f"  {mm:<14}  {cf_d:>13.4f}  {cf_u:>13.4f}")
 
     # --- Apply corrections to test ---
-    print(f"\n[5/5] Apply corrections and evaluate...")
+    print("\n[5/5] Apply corrections and evaluate...")
     precip_test      = test["precipitation"].values
     precip_lag1_test = test["precipitation_lag1"].values
     is_bad_test      = test["is_bad_weather"].values.astype(int)
@@ -231,9 +231,9 @@ def main():
     print(f"  {'69 Both D0+D+1':<42} {mae_both:>8.4f}  {mae_both-BASELINE_V3_MAE:>+12.4f}")
 
     # Future work note
-    print(f"\n  NOTE (future): precipitation effect varies by season")
-    print(f"  (winter=snow vs summer=rain -> different demand impact)")
-    print(f"  Next step: fit delta_down/delta_up per season (Q1/Q2/Q3/Q4)")
+    print("\n  NOTE (future): precipitation effect varies by season")
+    print("  (winter=snow vs summer=rain -> different demand impact)")
+    print("  Next step: fit delta_down/delta_up per season (Q1/Q2/Q3/Q4)")
 
     # --- Save ---
     metrics = {

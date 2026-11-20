@@ -13,8 +13,8 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error
 
 from src.experiments.common import (
-    load_data, MODEL_PARAMS, BASELINE_MAE,
-    wmape, print_metrics, print_category_metrics,
+    load_data, BASELINE_MAE,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -28,7 +28,6 @@ def main():
 
     # --- Baseline: single global model ---
     print("\n--- Baseline (global model, v6-best) ---")
-    from src.experiments.common import train_lgbm
     bl_model = train_lgbm(X_train, y_train)
     bl_pred = predict_clipped(bl_model, X_test)
     bl_mae, _, _ = print_metrics("Baseline", y_test, bl_pred)

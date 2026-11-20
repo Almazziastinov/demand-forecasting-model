@@ -33,7 +33,7 @@ import mlflow
 from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TARGET, TEST_DAYS
 from src.experiments_v2.common import (
     DAILY_8M_PATH, FEATURES_V2, CATEGORICAL_COLS_V2,
     wmape, print_metrics, print_category_metrics,
@@ -90,7 +90,7 @@ def main():
           f"Products: {df['Номенклатура'].nunique()}, Categories: {df['Категория'].nunique()}")
 
     # --- Select features ---
-    print(f"\n[2/7] Selecting features...")
+    print("\n[2/7] Selecting features...")
     available = [f for f in FEATURES_V2 if f in df.columns]
     missing = [f for f in FEATURES_V2 if f not in df.columns]
     if missing:
@@ -119,16 +119,16 @@ def main():
 
     # --- Optuna optimization ---
     print(f"\n[4/7] Optuna optimization ({N_TRIALS} trials)...")
-    print(f"  Parameter ranges:")
-    print(f"    n_estimators:     500 -- 4000")
-    print(f"    learning_rate:    0.003 -- 0.2 (log)")
-    print(f"    num_leaves:       16 -- 256")
-    print(f"    max_depth:        3 -- 12")
-    print(f"    min_child_samples: 5 -- 100")
-    print(f"    subsample:        0.5 -- 1.0")
-    print(f"    colsample_bytree: 0.4 -- 1.0")
-    print(f"    reg_alpha:        1e-8 -- 10.0 (log)")
-    print(f"    reg_lambda:       1e-8 -- 10.0 (log)")
+    print("  Parameter ranges:")
+    print("    n_estimators:     500 -- 4000")
+    print("    learning_rate:    0.003 -- 0.2 (log)")
+    print("    num_leaves:       16 -- 256")
+    print("    max_depth:        3 -- 12")
+    print("    min_child_samples: 5 -- 100")
+    print("    subsample:        0.5 -- 1.0")
+    print("    colsample_bytree: 0.4 -- 1.0")
+    print("    reg_alpha:        1e-8 -- 10.0 (log)")
+    print("    reg_lambda:       1e-8 -- 10.0 (log)")
     print()
 
     study = optuna.create_study(direction="minimize")
@@ -159,7 +159,7 @@ def main():
     optuna_time = time.time() - t_optuna
     print(f"\n  Optuna finished in {optuna_time:.0f}s ({optuna_time/60:.1f} min)")
     print(f"  Best MAE: {study.best_value:.4f}")
-    print(f"  Best params:")
+    print("  Best params:")
     for k, v in study.best_params.items():
         if isinstance(v, float):
             print(f"    {k}: {v:.6g}")
@@ -173,7 +173,7 @@ def main():
     print(f"\n  Best params saved: {best_params_path}")
 
     # --- Retrain final model with best params ---
-    print(f"\n[5/7] Retraining final model with best params...")
+    print("\n[5/7] Retraining final model with best params...")
     best = study.best_params.copy()
     best.update({"random_state": 42, "n_jobs": -1, "verbose": -1})
 
@@ -184,7 +184,7 @@ def main():
     print(f"  Training time: {train_time:.0f}s")
 
     # --- Evaluate ---
-    print(f"\n[6/7] Evaluation...")
+    print("\n[6/7] Evaluation...")
     y_pred = predict_clipped(model, X_test)
 
     mae = mean_absolute_error(y_test, y_pred)
@@ -193,7 +193,7 @@ def main():
     bias = np.mean(np.asarray(y_test) - y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"\n  === RESULTS ===")
+    print("\n  === RESULTS ===")
     print_metrics(EXP_NAME, y_test, y_pred, baseline_mae=BASELINE_01_MAE)
     print(f"    RMSE  = {rmse:.4f}")
     print(f"    R2    = {r2:.4f}")
@@ -204,16 +204,16 @@ def main():
     pct_01 = delta_01 / BASELINE_01_MAE * 100
     print(f"    MAE delta: {delta_01:+.4f} ({pct_01:+.1f}%)")
 
-    print(f"\n  === vs v6 baseline (3 months, 5 categories) ===")
+    print("\n  === vs v6 baseline (3 months, 5 categories) ===")
     print(f"    MAE:   {mae:.4f}  vs  {BASELINE_V6_MAE:.4f}  (delta: {mae - BASELINE_V6_MAE:+.4f})")
-    print(f"    NOTE: not 1-to-1 (28 vs 5 categories, no stock features)")
+    print("    NOTE: not 1-to-1 (28 vs 5 categories, no stock features)")
 
     # Per-category breakdown
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # --- Feature importance ---
-    print(f"\n[7/7] Feature importance (top 20)...")
+    print("\n[7/7] Feature importance (top 20)...")
     importance = pd.DataFrame({
         "feature": available,
         "importance": model.feature_importances_,
@@ -223,7 +223,7 @@ def main():
         print(f"    {row['feature']:<25} {row['importance']:>8.0f}")
 
     # --- Save results ---
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": EXP_NAME,
         "mae": round(mae, 4),
@@ -263,7 +263,7 @@ def main():
     save_results(EXP_DIR, metrics, predictions)
 
     # --- MLflow ---
-    print(f"\n  Logging to MLflow...")
+    print("\n  Logging to MLflow...")
     mlflow.set_experiment("experiments_v2")
     with mlflow.start_run(run_name=EXP_NAME):
         # Params
@@ -306,15 +306,15 @@ def main():
 
     elapsed = time.time() - t_start
     print(f"\n{'=' * 60}")
-    print(f"  SUMMARY")
+    print("  SUMMARY")
     print(f"{'=' * 60}")
     print(f"  Best Optuna MAE: {study.best_value:.4f}")
     print(f"  Final MAE:       {mae:.4f} (vs baseline 01: {BASELINE_01_MAE})")
     print(f"  Final WMAPE:     {wm:.2f}%")
     print(f"  Optuna time:     {optuna_time:.0f}s ({optuna_time/60:.1f} min)")
     print(f"  Total time:      {elapsed:.0f}s ({elapsed/60:.1f} min)")
-    print(f"  MLflow UI:       mlflow ui --port 5001")
-    print(f"  Done!")
+    print("  MLflow UI:       mlflow ui --port 5001")
+    print("  Done!")
 
 
 if __name__ == "__main__":

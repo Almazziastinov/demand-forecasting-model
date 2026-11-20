@@ -8,7 +8,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pandas as pd
-import numpy as np
 
 from src.experiments.common import BASELINE_MAE
 
@@ -102,11 +101,11 @@ def main():
             improvement_pct = abs(best["Delta"]) / BASELINE_MAE * 100
             print(f"  Uluchshenie: {improvement_pct:.2f}% vs baseline")
         else:
-            print(f"  Baseline ostaetsya luchshim")
+            print("  Baseline ostaetsya luchshim")
 
     # Save combined results
     results_sorted.to_csv("reports/all_experiments.csv", index=False, encoding="utf-8-sig")
-    print(f"\n  Tablitsa sokhranena: reports/all_experiments.csv")
+    print("\n  Tablitsa sokhranena: reports/all_experiments.csv")
 
     print("\nGotovo!")
 

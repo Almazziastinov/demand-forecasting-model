@@ -32,11 +32,11 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
     SALES_HRS_PATH,
-    wmape, print_metrics, print_category_metrics,
+    wmape, print_category_metrics,
     train_quantile, predict_clipped, save_results,
 )
 
@@ -185,7 +185,7 @@ def main():
     print(f"  Date range: {df['Дата'].min().date()} -- {df['Дата'].max().date()}")
 
     # [2/6] Build exp 61 features
-    print(f"\n[2/6] Building exp 61 features...")
+    print("\n[2/6] Building exp 61 features...")
     print("  Group A: censoring...")
     df = add_censoring_features(df)
     print("  Group B: DOW averages...")
@@ -196,11 +196,11 @@ def main():
     df = build_stale_ratio(str(SALES_HRS_PATH), df)
 
     # [3/6] Build exp 62 features
-    print(f"\n[3/6] Building exp 62 features (assortment)...")
+    print("\n[3/6] Building exp 62 features (assortment)...")
     df = add_assortment_features(df)
 
     # [4/6] Categoricals
-    print(f"\n[4/6] Converting categoricals...")
+    print("\n[4/6] Converting categoricals...")
     for col in CATEGORICAL_COLS_V2:
         if col in df.columns:
             df[col] = df[col].astype("category")
@@ -217,7 +217,7 @@ def main():
     y_test = test[DEMAND_TARGET].values
 
     # [6/6] Variants
-    print(f"\n[6/6] Training & evaluating...")
+    print("\n[6/6] Training & evaluating...")
 
     base = [f for f in FEATURES_V3 if f in df.columns]
     exp61_feats = FEATURES_CENSORING + FEATURES_DOW + FEATURES_TREND
@@ -287,7 +287,7 @@ def main():
         marker = " <<<" if row["feature"] in new_feats else ""
         print(f"    {row['feature']:<30} {row['importance']:>6.0f}{marker}")
 
-    print(f"\n  New feature ranks:")
+    print("\n  New feature ranks:")
     for rank, (_, row) in enumerate(importance.iterrows(), 1):
         if row["feature"] in new_feats:
             print(f"    #{rank}: {row['feature']} ({row['importance']:.0f})")
@@ -299,7 +299,7 @@ def main():
 
     # Summary
     print(f"\n  {'=' * 80}")
-    print(f"  SUMMARY")
+    print("  SUMMARY")
     print(f"  {'=' * 80}")
     print(f"  {'Variant':<25} {'Feats':>5} {'MAE':>8} {'WMAPE':>8} {'vs V3':>8} {'vs 61':>8}")
     print(f"  {'-' * 65}")
@@ -308,7 +308,7 @@ def main():
               f"{r['wmape']:>7.2f}% {r['delta_vs_v3']:>+8.4f} {r['delta_vs_exp61']:>+8.4f}")
 
     # Save
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": "63_combined_61_62",
         "target": DEMAND_TARGET,
@@ -331,9 +331,9 @@ def main():
         "Номенклатура": test["Номенклатура"].values,
         "Категория": test["Категория"].values,
         "fact": y_test,
-        "pred": np.round(best_pred, 2),
-        "abs_error": np.round(np.abs(y_test - best_pred), 2),
-        "model": best_name,
+        "pred": np.round(combined_pred, 2),
+        "abs_error": np.round(np.abs(y_test - combined_pred), 2),
+        "model": combined_name,
     })
     save_results(EXP_DIR, metrics, predictions)
 

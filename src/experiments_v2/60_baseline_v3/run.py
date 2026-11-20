@@ -29,10 +29,10 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.config import TARGET, MODEL_PARAMS, TEST_DAYS
+from src.config import TARGET, TEST_DAYS
 from src.experiments_v2.common import (
     DEMAND_8M_PATH, FEATURES_V3, CATEGORICAL_COLS_V2, DEMAND_TARGET,
-    wmape, print_metrics, print_category_metrics,
+    wmape, print_category_metrics,
     train_quantile, train_lgbm, predict_clipped, save_results,
 )
 
@@ -77,7 +77,7 @@ def main():
     print(f"  censored: {censored_pct:.1f}%")
 
     # --- Features ---
-    print(f"\n[2/5] Selecting features...")
+    print("\n[2/5] Selecting features...")
     available = [f for f in FEATURES_V3 if f in df.columns]
     missing = [f for f in FEATURES_V3 if f not in df.columns]
     if missing:
@@ -104,7 +104,7 @@ def main():
     y_test_sold = test[TARGET].values
 
     # --- Train quantile models ---
-    print(f"\n[4/5] Training Quantile models (P25/P50/P75)...")
+    print("\n[4/5] Training Quantile models (P25/P50/P75)...")
     models = {}
     preds = {}
     total_train_time = 0
@@ -124,7 +124,7 @@ def main():
         print(f"    MAE={mae:.4f}, WMAPE={wm:.2f}%, Bias={bias:+.4f}, Time={tt:.0f}s")
 
     # --- Also train MSE baseline for comparison ---
-    print(f"\n  --- MSE baseline (for reference) ---")
+    print("\n  --- MSE baseline (for reference) ---")
     t_mse = time.time()
     model_mse = train_lgbm(X_train, y_train)
     time_mse = time.time() - t_mse
@@ -135,7 +135,7 @@ def main():
     print(f"    MAE={mae_mse:.4f}, WMAPE={wm_mse:.2f}%, Bias={bias_mse:+.4f}, Time={time_mse:.0f}s")
 
     # --- Evaluation ---
-    print(f"\n[5/5] Evaluation...")
+    print("\n[5/5] Evaluation...")
 
     # Primary: P50
     y_p50 = preds["P50"]
@@ -153,7 +153,7 @@ def main():
     print(f"    R2    = {r2:.4f}")
 
     # Comparison with previous baselines
-    print(f"\n  === vs previous baselines ===")
+    print("\n  === vs previous baselines ===")
     print(f"    {'Baseline':<35} {'MAE':>8} {'Delta':>10}")
     print(f"    {'-' * 55}")
     print(f"    {'v1 (exp 01, sales/MSE)':<35} {BASELINE_V1_MAE:>8.4f} {'(vs Продано)':>10}")
@@ -169,12 +169,12 @@ def main():
     width = p75 - p25
     coverage = np.mean((y_test_demand >= p25) & (y_test_demand <= p75))
 
-    print(f"\n  === Prediction intervals ===")
+    print("\n  === Prediction intervals ===")
     print(f"    Mean width (P75-P25): {width.mean():.2f}")
     print(f"    Coverage [P25,P75]:   {coverage * 100:.1f}% (expected ~50%)")
 
     # High demand
-    print(f"\n  === High demand analysis ===")
+    print("\n  === High demand analysis ===")
     print(f"    {'Demand':<12} {'N':>6} {'MAE_P50':>8} {'MAE_MSE':>8} {'Bias':>8} {'Width':>8}")
     print(f"    {'-' * 54}")
     for threshold in [15, 50, 100]:
@@ -192,7 +192,7 @@ def main():
     print_category_metrics(y_test_demand, y_p50, test["Категория"].values)
 
     # Feature importance (P50 model)
-    print(f"\n  === Feature importance (P50 model, top 20) ===")
+    print("\n  === Feature importance (P50 model, top 20) ===")
     importance = pd.DataFrame({
         "feature": available,
         "importance": models["P50"].feature_importances_,
@@ -208,7 +208,7 @@ def main():
     print(f"    MAE = {mae_vs_sold:.4f}, WMAPE = {wm_vs_sold:.2f}%")
 
     # --- Save ---
-    print(f"\n  Saving results...")
+    print("\n  Saving results...")
     metrics = {
         "experiment": "60_baseline_v3",
         "target": DEMAND_TARGET,

@@ -28,7 +28,6 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-import numpy as np
 import pandas as pd
 
 from src.experiments_v2.common import (
@@ -191,7 +190,7 @@ def step4_calendar_features(df):
 
     n_holidays = df["is_holiday"].sum()
     print(f"  Holiday rows: {n_holidays:,}")
-    print(f"  Calendar features added: DenNedeli, Den, IsWeekend, Mesyac, "
+    print("  Calendar features added: DenNedeli, Den, IsWeekend, Mesyac, "
           "NomerNedeli, is_holiday, is_pre/post_holiday, is_payday_week, "
           "is_month_start/end")
 
@@ -227,7 +226,7 @@ def step5_lag_and_rolling(df):
     df["sales_roll_std7"] = grouped.transform(
         lambda x: x.shift(1).rolling(window=7, min_periods=2).std()
     )
-    print(f"  sales_roll_std7: done", flush=True)
+    print("  sales_roll_std7: done", flush=True)
 
     elapsed = time.time() - t0
     print(f"  Lag/rolling features completed in {elapsed:.0f}s")

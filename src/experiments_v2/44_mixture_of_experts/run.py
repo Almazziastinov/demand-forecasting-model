@@ -10,7 +10,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/44_mixture_of_experts/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -88,7 +90,7 @@ def main():
     total_train_time = 0
 
     # --- Model HIGH ---
-    print(f"\n  --- Training model_high (Huber, deeper) ---")
+    print("\n  --- Training model_high (Huber, deeper) ---")
     params_high = MODEL_PARAMS.copy()
     params_high["objective"] = "huber"
     params_high["huber_delta"] = 5.0
@@ -104,7 +106,7 @@ def main():
     print(f"  Training time: {tt:.0f}s")
 
     # --- Model LOW ---
-    print(f"\n  --- Training model_low (standard) ---")
+    print("\n  --- Training model_low (standard) ---")
     t_train = time.time()
     params_low = MODEL_PARAMS.copy()
     model_low = LGBMRegressor(**params_low)
@@ -136,7 +138,7 @@ def main():
     bias = np.mean(y_test_all - y_pred_all)
     r2 = r2_score(y_test_all, y_pred_all)
 
-    print(f"\n  === COMBINED RESULTS ===")
+    print("\n  === COMBINED RESULTS ===")
     print_metrics("44_moe", y_test_all, y_pred_all, baseline_mae=BASELINE_MAE)
     print(f"    RMSE = {rmse:.4f}, R2 = {r2:.4f}")
     print(f"    Delta vs baseline: MAE {mae - BASELINE_MAE:+.4f}, WMAPE {wm - BASELINE_WMAPE:+.2f}%")
@@ -162,7 +164,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test_all, y_pred_all, test_merged["Категория"].values)
 
     # Save

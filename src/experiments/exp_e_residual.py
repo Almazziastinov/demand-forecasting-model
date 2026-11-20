@@ -17,7 +17,7 @@ from sklearn.metrics import mean_absolute_error
 
 from src.experiments.common import (
     load_data, MODEL_PARAMS, BASELINE_MAE,
-    wmape, print_metrics, print_category_metrics,
+    print_metrics, print_category_metrics,
     train_lgbm, predict_clipped, save_predictions,
 )
 
@@ -48,7 +48,7 @@ def main():
 
     # Per-category residual stats
     categories_train = X_train["Категория"]
-    print(f"\n  Residualy po kategoriyam:")
+    print("\n  Residualy po kategoriyam:")
     for cat in sorted(categories_train.unique()):
         mask = categories_train == cat
         r = residuals_train[mask.values]

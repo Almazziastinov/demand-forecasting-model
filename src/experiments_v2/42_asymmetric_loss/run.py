@@ -9,7 +9,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/42_asymmetric_loss/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -91,7 +93,7 @@ def main():
     bias = np.mean(np.asarray(y_test) - y_pred)
     r2 = r2_score(y_test, y_pred)
 
-    print(f"\n  === RESULTS ===")
+    print("\n  === RESULTS ===")
     print_metrics("42_asymmetric", y_test, y_pred, baseline_mae=BASELINE_MAE)
     print(f"    RMSE = {rmse:.4f}, R2 = {r2:.4f}")
     print(f"    Delta vs baseline: MAE {mae - BASELINE_MAE:+.4f}, WMAPE {wm - BASELINE_WMAPE:+.2f}%")
@@ -107,7 +109,7 @@ def main():
             print(f"    Demand >= {threshold}: N={mask.sum()}, MAE={mae_h:.2f}, Bias={bias_h:+.2f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics ===")
+    print("\n  === Per-category metrics ===")
     print_category_metrics(y_test, y_pred, test["Категория"].values)
 
     # Save

@@ -121,9 +121,8 @@ best_score = -np.inf
 for k in [3, 5, 7, 10]:
     kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X_cluster_scaled)
-    
+
     # Silhouette score (higher is better)
-    from sklearn.metrics import silhouette_score
     if len(np.unique(labels)) > 1:
         score = silhouette_score(X_cluster_scaled, labels)
         print(f"  K={k}: silhouette={score:.3f}")
@@ -198,30 +197,30 @@ cluster_models = {}
 for cluster_id in sorted(cluster_df["cluster"].unique()):
     cluster_train = train_df[train_df["cluster"] == cluster_id]
     cluster_test = test_df[test_df["cluster"] == cluster_id]
-    
+
     n_train = len(cluster_train)
     n_test = len(cluster_test)
-    
+
     if n_test < 100:
         print(f"    Cluster {cluster_id}: skipping (only {n_test} test rows)")
         continue
-    
+
     print(f"    Cluster {cluster_id}: train={n_train:,}, test={n_test:,}")
-    
+
     X_train_c = cluster_train[features].copy()
     y_train_c = cluster_train[DEMAND_TARGET].copy()
     X_test_c = cluster_test[features].copy()
     y_test_c = cluster_test[DEMAND_TARGET].copy()
-    
+
     for col in cat_cols:
         X_train_c[col] = X_train_c[col].astype("category")
         X_test_c[col] = X_test_c[col].astype("category")
-    
+
     # Train cluster model
     model_c = train_quantile(X_train_c, y_train_c, alpha=0.5)
     preds_c = predict_clipped(model_c, X_test_c)
     mae_c = mean_absolute_error(y_test_c, preds_c)
-    
+
     cluster_maes.append({"cluster": cluster_id, "mae": mae_c, "n_test": n_test})
     cluster_models[cluster_id] = model_c
     print(f"      MAE: {mae_c:.4f}")
@@ -249,13 +248,13 @@ test_df["cluster_pred"] = test_df["cluster_pred"].fillna(pd.Series(baseline_pred
 cluster_mae = mean_absolute_error(y_test, test_df["cluster_pred"])
 cluster_wmape = wmape(y_test, test_df["cluster_pred"])
 
-print(f"\n  === RESULTS ===")
+print("\n  === RESULTS ===")
 print(f"  Baseline (global): MAE={baseline_mae:.4f}, WMAPE={baseline_wmape:.2%}")
 print(f"  Cluster-based:      MAE={cluster_mae:.4f}, WMAPE={cluster_wmape:.2%}")
 print(f"  Delta: MAE={cluster_mae - baseline_mae:+.4f}")
 
 # Per-cluster breakdown
-print(f"\n  Per-cluster MAE:")
+print("\n  Per-cluster MAE:")
 for item in cluster_maes:
     print(f"    Cluster {item['cluster']}: MAE={item['mae']:.4f} (n_test={item['n_test']:,})")
 
@@ -277,7 +276,7 @@ os.makedirs("src/experiments_v2/23_cluster_models", exist_ok=True)
 with open("src/experiments_v2/23_cluster_models/metrics.json", "w") as f:
     json.dump(results, f, indent=2, default=str)
 
-print(f"\n  Results saved to metrics.json")
+print("\n  Results saved to metrics.json")
 print("\n" + "=" * 60)
 print("DONE")
 print("=" * 60)

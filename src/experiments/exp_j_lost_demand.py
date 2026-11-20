@@ -16,13 +16,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-import numpy as np
 import pandas as pd
 
 from src.experiments.common import (
     BASELINE_MAE,
-    FEATURES,
-    MODEL_PARAMS,
     TARGET,
     load_data,
     predict_clipped,
@@ -30,7 +27,6 @@ from src.experiments.common import (
     print_metrics,
     save_predictions,
     train_lgbm,
-    wmape,
 )
 
 LOOKUP_PATH = "data/processed/lost_qty_lookup.csv"
@@ -271,7 +267,7 @@ def main():
     results_df.to_csv(
         "reports/exp_j_all_results.csv", index=False, encoding="utf-8-sig"
     )
-    print(f"  Polnye rezul'taty: reports/exp_j_all_results.csv")
+    print("  Polnye rezul'taty: reports/exp_j_all_results.csv")
 
     print("\nGotovo!")
 

@@ -127,7 +127,7 @@ def main() -> None:
     if y_test_sold is not None:
         all_preds["fact_sold"] = y_test_sold.values
 
-    print(f"\n[3/5] Training quantile models...")
+    print("\n[3/5] Training quantile models...")
     total_train_time = 0.0
     models: dict[str, object] = {}
     raw_preds: dict[str, np.ndarray] = {}
@@ -167,7 +167,7 @@ def main() -> None:
 
         all_preds[f"pred_{q_name}"] = np.round(y_pred, 2)
 
-    print(f"\n[4/5] Evaluation...")
+    print("\n[4/5] Evaluation...")
     y_p10 = np.asarray(raw_preds["P10"], dtype=float)
     y_p50 = np.asarray(raw_preds["P50"], dtype=float)
     y_p90 = np.asarray(raw_preds["P90"], dtype=float)
@@ -206,14 +206,14 @@ def main() -> None:
     print(f"    Crossing P50>P90 = {crossing_p50_p90:.2f}%")
     print(f"    Any crossing = {crossing_any:.2f}%")
 
-    print(f"\n  === Per-category metrics (P50) ===")
+    print("\n  === Per-category metrics (P50) ===")
     if CATEGORY_COL in test.columns:
         print_category_metrics(y_true, y_p50, test[CATEGORY_COL].values)
 
     if y_test_sold is not None:
         mae_vs_sold = mean_absolute_error(y_test_sold.values, y_p50)
         wmape_vs_sold = wmape(y_test_sold.values, y_p50)
-        print(f"\n  === Reference vs sold ===")
+        print("\n  === Reference vs sold ===")
         print(f"    MAE = {mae_vs_sold:.4f}, WMAPE = {wmape_vs_sold:.2f}%")
 
     all_preds["interval_lower"] = np.round(lower, 2)

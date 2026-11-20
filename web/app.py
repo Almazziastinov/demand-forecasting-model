@@ -19,7 +19,6 @@ from src.logger import get_logger
 from src.features.fetch_weather import fetch_weather_forecast
 from web.data_processing import (
     load_or_process, get_hourly_profile,
-    FEATURES_V3, CATEGORICAL_COLS_V2,
 )
 
 # --- Paths ---
@@ -158,7 +157,7 @@ def predict():
 
         # Check if date is in our data or is a future date
         is_future = date > df["Дата"].max()
-        
+
         if is_future:
             # Build features for future date
             feature_row = _build_features_for_future(bakery, product, date)
@@ -167,19 +166,19 @@ def predict():
                     "success": False,
                     "error": "Нет исторических данных для этого продукта/пекарни"
                 })
-            
+
             X = pd.DataFrame([feature_row])[features]
             for col in categorical_cols:
                 if col in X.columns:
                     X[col] = X[col].astype("category")
-            
+
             prediction = max(float(model.predict(X)[0]), 0)
-            
+
             # Get details from last known row
             last_mask = (df["Пекарня"] == bakery) & (df["Номенклатура"] == product)
             last_rows = df[last_mask].sort_values("Дата", ascending=False)
             last_row = last_rows.iloc[0] if not last_rows.empty else None
-            
+
             details = {
                 "Категория": str(last_row.get("Категория", "")) if last_row is not None else "",
                 "Город": str(last_row.get("Город", "")) if last_row is not None else "",
@@ -191,7 +190,7 @@ def predict():
                 "Выходной": "Да" if feature_row.get("IsWeekend") == 1 else "Нет",
                 "Праздник": "Да" if feature_row.get("is_holiday") == 1 else "Нет",
             }
-            
+
             return jsonify({
                 "success": True,
                 "prediction": round(prediction, 1),
@@ -200,7 +199,7 @@ def predict():
                 "details": details,
                 "is_forecast": True,
             })
-        
+
         # Original logic for known dates
         mask = (df["Пекарня"] == bakery) & (df["Номенклатура"] == product) & (df["Дата"] == date)
         rows = df[mask]
@@ -308,7 +307,7 @@ def predict():
 @app.route("/predict_all", methods=["POST"])
 def predict_all():
     """Predict all products for a bakery on a date."""
-    t0 = time.perf_counter()
+    time.perf_counter()
     try:
         data = request.get_json()
         bakery = data["bakery"]
@@ -551,18 +550,18 @@ def _safe_round(val, decimals=1):
 def _build_features_for_future(bakery, product, date):
     """Build feature row for a future date using last known values."""
     from src.experiments_v2.common import CITY_COORDS
-    
+
     # Get last known row for this bakery/product
     last_mask = (df["Пекарня"] == bakery) & (df["Номенклатура"] == product)
     last_rows = df[last_mask].sort_values("Дата", ascending=False)
-    
+
     if last_rows.empty:
         return None
-    
+
     last_row = last_rows.iloc[0]
     last_date = last_row["Дата"]
     days_ahead = (date - last_date).days
-    
+
     # Copy all features from last known row
     feature_row = {}
     for col in features:
@@ -570,17 +569,17 @@ def _build_features_for_future(bakery, product, date):
             feature_row[col] = last_row[col]
         else:
             feature_row[col] = 0
-    
+
     # Update calendar features for new date
     feature_row["ДеньНедели"] = date.dayofweek
     feature_row["День"] = date.day
     feature_row["IsWeekend"] = 1 if date.dayofweek >= 5 else 0
     feature_row["Месяц"] = date.month
-    
+
     # Russian holidays
     RU_HOLIDAYS = {(1,1),(1,2),(1,3),(1,4),(1,5),(1,6),(1,7),(1,8),(2,23),(3,8),(5,1),(5,9),(6,12),(11,4)}
     feature_row["is_holiday"] = 1 if (date.month, date.day) in RU_HOLIDAYS else 0
-    
+
     next_day = date + pd.Timedelta(days=1)
     prev_day = date - pd.Timedelta(days=1)
     feature_row["is_pre_holiday"] = 1 if (next_day.month, next_day.day) in RU_HOLIDAYS else 0
@@ -588,7 +587,7 @@ def _build_features_for_future(bakery, product, date):
     feature_row["is_payday_week"] = 1 if date.day in [4,5,6,19,20,21] else 0
     feature_row["is_month_start"] = 1 if date.day <= 5 else 0
     feature_row["is_month_end"] = 1 if date.day >= 25 else 0
-    
+
     # Shift lag features based on days ahead
     for lag in [1, 2, 3, 7, 14, 30]:
         new_lag_val = None
@@ -598,14 +597,14 @@ def _build_features_for_future(bakery, product, date):
             old_lag_col = f"sales_lag{days_ahead}" if lag == days_ahead + 1 else None
             if old_lag_col and old_lag_col in last_row.index:
                 new_lag_val = last_row[old_lag_col]
-        
+
         if new_lag_val is not None:
             feature_row[f"sales_lag{lag}"] = new_lag_val
             feature_row[f"demand_lag{lag}"] = new_lag_val
-    
+
     # Get city for weather
     city = str(last_row.get("Город", "Казань"))
-    
+
     # Try to get weather forecast
     try:
         weather_df = fetch_weather_forecast(CITY_COORDS, days_ahead=14)
@@ -613,16 +612,16 @@ def _build_features_for_future(bakery, product, date):
             weather_row = weather_df[(weather_df["Город"] == city) & (weather_df["Дата"] == date)]
             if not weather_row.empty:
                 wr = weather_row.iloc[0]
-                weather_cols = ["temp_max", "temp_min", "temp_mean", "temp_range", 
+                weather_cols = ["temp_max", "temp_min", "temp_mean", "temp_range",
                                "precipitation", "rain", "snowfall", "windspeed_max",
-                               "is_rainy", "is_snowy", "is_cold", "is_warm", "is_windy", 
+                               "is_rainy", "is_snowy", "is_cold", "is_warm", "is_windy",
                                "is_bad_weather", "weather_cat_code"]
                 for wc in weather_cols:
                     if wc in wr.index:
                         feature_row[wc] = wr[wc]
     except Exception as e:
         logger.warning(f"Weather fetch failed: {e}")
-    
+
     return feature_row
 
 
@@ -631,13 +630,13 @@ def get_future_dates():
     """Get available future dates for forecasting (next 14 days from last known)."""
     if df.empty:
         return jsonify([])
-    
+
     last_date = df["Дата"].max()
     future_dates = []
     for i in range(1, 15):
         future_date = last_date + pd.Timedelta(days=i)
         future_dates.append(future_date.strftime("%Y-%m-%d"))
-    
+
     return jsonify(future_dates)
 
 

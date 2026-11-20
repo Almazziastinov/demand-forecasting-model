@@ -9,7 +9,9 @@ Usage:
   .venv/Scripts/python.exe src/experiments_v2/43_quantile/run.py
 """
 
-import sys, os, time
+import sys
+import os
+import time
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -104,7 +106,7 @@ def main():
     bias = np.mean(np.asarray(y_test) - y_pred_p50)
     r2 = r2_score(y_test, y_pred_p50)
 
-    print(f"\n  === PRIMARY METRIC (P50 median) ===")
+    print("\n  === PRIMARY METRIC (P50 median) ===")
     print_metrics("43_quantile_P50", y_test, y_pred_p50, baseline_mae=BASELINE_MAE)
     print(f"    RMSE = {rmse:.4f}, R2 = {r2:.4f}")
     print(f"    Delta vs baseline: MAE {mae - BASELINE_MAE:+.4f}, WMAPE {wm - BASELINE_WMAPE:+.2f}%")
@@ -113,7 +115,7 @@ def main():
     p25 = np.asarray(all_preds["pred_P25"], dtype=float)
     p75 = np.asarray(all_preds["pred_P75"], dtype=float)
     width = p75 - p25
-    print(f"\n  === Interval width (P75 - P25) ===")
+    print("\n  === Interval width (P75 - P25) ===")
     print(f"    Mean: {width.mean():.2f}, Median: {np.median(width):.2f}, "
           f"Max: {width.max():.2f}")
 
@@ -134,7 +136,7 @@ def main():
                   f"Bias={bias_h:+.2f}, Interval={width_h:.1f}")
 
     # Per-category
-    print(f"\n  === Per-category metrics (P50) ===")
+    print("\n  === Per-category metrics (P50) ===")
     print_category_metrics(y_test, y_pred_p50, test["Категория"].values)
 
     # Save

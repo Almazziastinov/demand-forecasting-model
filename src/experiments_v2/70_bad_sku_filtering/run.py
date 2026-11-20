@@ -254,7 +254,7 @@ def main() -> None:
     available = [f for f in FEATURES_V3 if f in df.columns]
     missing = [f for f in FEATURES_V3 if f not in df.columns]
 
-    print(f"\n[1/5] Data")
+    print("\n[1/5] Data")
     print(f"  Shape: {df.shape}")
     print(f"  Date range: {df['Дата'].min().date()} -- {df['Дата'].max().date()}")
     print(f"  Using {len(available)} of {len(FEATURES_V3)} features")
@@ -265,7 +265,7 @@ def main() -> None:
     print(f"  Weak SKU share (best_r2 < {WEAK_R2_THRESHOLD:+.1f}): {weak_share:.1f}%")
 
     train, test = make_split(df, TEST_DAYS_MONTH)
-    print(f"\n[2/5] Split")
+    print("\n[2/5] Split")
     print(f"  Train rows: {len(train):,} ({train['Дата'].nunique()} days)")
     print(f"  Test rows:  {len(test):,} ({test['Дата'].nunique()} days)")
     print(f"  Train weak share: {train['is_weak_sku'].mean() * 100:.1f}%")
@@ -277,7 +277,7 @@ def main() -> None:
     roll7_train = train["demand_roll_mean7"].to_numpy(dtype=float) if "demand_roll_mean7" in train.columns else train[DEMAND_TARGET].to_numpy(dtype=float)
     roll7_train = np.where(np.isfinite(roll7_train), roll7_train, train[DEMAND_TARGET].to_numpy(dtype=float))
 
-    print(f"\n[3/5] Train variants")
+    print("\n[3/5] Train variants")
     variants: list[tuple[str, pd.DataFrame, dict, np.ndarray]] = []
 
     baseline_metrics, baseline_pred = fit_variant("baseline_all", train, test, available)
@@ -338,7 +338,7 @@ def main() -> None:
     else:
         print("  [warn] No train rows matched best_model=66_cluster_features and best_r2<0")
 
-    print(f"\n[4/5] Comparison")
+    print("\n[4/5] Comparison")
     summary_rows = []
     predictions = pd.DataFrame(
         {
@@ -372,7 +372,7 @@ def main() -> None:
     print("\n  Per-category metrics for best variant")
     print_category_metrics(y_test, best_pred, test["Категория"].values)
 
-    print(f"\n[5/5] Saving")
+    print("\n[5/5] Saving")
     summary_path = EXP_DIR / "variant_summary.csv"
     summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
     predictions_path = EXP_DIR / "variant_predictions.csv"
