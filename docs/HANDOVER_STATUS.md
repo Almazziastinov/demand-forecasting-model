@@ -65,10 +65,10 @@ Resolution:
   SKU-hours. Maximum bakery-to-SKU and SKU-to-hour reconciliation deltas were
   `1.82e-12` and `8.53e-14` respectively.
 
-Issue #2 is closed. The generic `verify_prod_deploy` script still labels the
-successful state as failed because it expects the inactive base source run to
-be active. It must be corrected before it can serve as the primary handover
-health check.
+Issue #2 is closed. Issue #5 is also closed: `verify_prod_deploy` now
+recognizes an inactive source run when it is explicitly referenced by the
+active weighted-weekday run. The corrected checker was deployed to the VM and
+returned `VERIFY OK` for the active run above.
 
 ### Blackhole baking-plan write-off schema alignment
 
